@@ -6,6 +6,7 @@
 // 원생생물(세포 분열)부터 발생하는 다세포(알→성체 크기 단계)·동물·어류까지 같은 공식으로 계산한다.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -122,10 +123,18 @@ namespace Evo
     {
         public int id, slot, sp, parent, K; public float[] g; public long born; public double gen, total, peak, kills;
         public float hue; public bool dev; public double trend, prevTot;
+        public Rec rec; public float predE, muE;   // 계통 기록, 잡아먹힘 사망률·성장률 이동평균(멸종 원인)
         // 유전형만으로 정해지는 모양 값
         public float esd0, aspect, fA, longAx, thinAx, rho;
         public float[] C = new float[World.KM];   // 단계별 세포 수(발생하지 않으면 단계 1개)
         public double[] stage = new double[World.KM];   // 단계별 개체 수 합(Totals)
+    }
+
+    // 계통 기록: 계통이 사라져도 남아 조상 사슬·혈통 따라가기·타임라인에 쓴다. why 0 생존 1 멸종 2 합쳐짐(into) 3 정리됨
+    public sealed class Rec
+    {
+        public int id, parent, sp, into = -1; public long born, died = -1; public byte why; public bool eaten;
+        public float[] g; public float hue; public double peak;
     }
 
     public sealed class Species
@@ -187,6 +196,8 @@ namespace Evo
         public readonly Strain[] strains = new Strain[SMAX];
         public readonly List<int> live = new();
         public readonly Dictionary<int, Species> species = new();
+        public readonly Dictionary<int, Rec> recs = new();
+        public int pin = -1;   // 화면이 따라가는 계통 id(기록 정리에서 뺀다)
         public readonly List<(long t, string type, string text)> events = new();
         public readonly HashSet<int> gradesSeen = new();
         public double totalCount, totalBio, lostN, births, deaths, kills;
@@ -223,7 +234,7 @@ namespace Evo
             this.seed = seed; tick = 0; nextId = 1; nextSp = 1;
             for (int e = 0; e < Ev.N; e++) env[e] = target[e] = envInit != null ? envInit[e] : Ev.Def[e].init;
             Array.Clear(cnt, 0, cnt.Length); Array.Clear(mu, 0, mu.Length); Array.Clear(cue, 0, cue.Length); Array.Clear(strains, 0, SMAX);
-            live.Clear(); species.Clear(); events.Clear(); hist.Clear(); gradesSeen.Clear(); gradesSeen.Add(0);
+            live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); gradesSeen.Clear(); gradesSeen.Add(0);
             lostN = 0; Array.Clear(dep, 0, V);
             for (int v = 0; v < V; v++) { nut[v] = P.NSED * env[Ev.Nut] / 100 * 0.6; bac[v] = 1e6; chl[v] = 0; dox[v] = env[Ev.O2]; }
             var g0 = new float[Gn.N]; for (int i = 0; i < Gn.N; i++) g0[i] = Gn.Def[i].init;
@@ -251,6 +262,7 @@ namespace Evo
             if (slot < 0) return null;
             var s = new Strain { id = nextId++, slot = slot, sp = sp, parent = parent, g = g, born = tick, gen = gen, hue = (nextId * 97.3f) % 360 };
             Shape(s); strains[slot] = s; live.Add(slot);
+            s.rec = recs[s.id] = new Rec { id = s.id, parent = parent, sp = sp, born = tick, g = g, hue = s.hue };
             return s;
         }
 
@@ -814,7 +826,7 @@ namespace Evo
             }
             if (best < 0) foreach (int s in live) if (s != keep && strains[s].total < bt) { bt = strains[s].total; best = s; }
             if (best < 0) return false;
-            Remove(best); return true;
+            Remove(best, 3); return true;
         }
 
         void Merge(int s, int n)   // 계통 s의 개체를 n으로 옮기고 s를 지운다. 단계는 세포 수가 가장 가까운 단계로
@@ -826,11 +838,21 @@ namespace Evo
                 for (int v = 0; v < V; v++) cnt[Ix(n, v, bk)] += cnt[Ix(s, v, k)];
             }
             for (int v = 0; v < V; v++) { genAcc[n * V + v] += genAcc[s * V + v]; killAcc[n * V + v] += killAcc[s * V + v]; }
-            b.total += a.total; Remove(s);
+            b.total += a.total; Remove(s, 2, b.id);
         }
 
-        void Remove(int s)
+        // 기록 정리: 후손 없이 사라진 가지부터 버린다(짧게 산 것 먼저). 살아 있는 계통의 조상과 따라가는 혈통은 남는다
+        void PruneRecs()
         {
+            var par = new HashSet<int>(); foreach (var r in recs.Values) { par.Add(r.parent); if (r.into >= 0) par.Add(r.into); }
+            var dead = recs.Values.Where(r => r.died >= 0 && !par.Contains(r.id) && r.id != pin).OrderBy(r => r.died - r.born).ToList();
+            for (int i = 0; i < dead.Count && recs.Count > 4000; i++) recs.Remove(dead[i].id);
+        }
+
+        void Remove(int s, byte why = 1, int into = -1)
+        {
+            var st = strains[s]; var rc = st.rec;
+            if (rc != null) { rc.died = tick; rc.why = why; rc.into = into; rc.sp = st.sp; rc.peak = st.peak; rc.eaten = st.predE > Math.Max(0, -st.muE); }
             Array.Clear(cnt, Ix(s, 0, 0), V * KM); Array.Clear(mu, Ix(s, 0, 0), V * KM); Array.Clear(cue, s * V, V);
             Array.Clear(genAcc, s * V, V); Array.Clear(killAcc, s * V, V);
             strains[s] = null; live.Remove(s);
@@ -862,15 +884,16 @@ namespace Evo
             foreach (var sp in species.Values) sp.total = 0;
             for (int i = live.Count - 1; i >= 0; i--)
             {
-                int s = live[i]; var st = strains[s]; double tot = 0, gb = 0, kl = 0, bio = 0; int b = s * V;
+                int s = live[i]; var st = strains[s]; double tot = 0, gb = 0, kl = 0, bio = 0, kw = 0, mw = 0; int b = s * V;
                 for (int k = 0; k < st.K; k++) st.stage[k] = 0;
                 for (int v = 0; v < V; v++)
                 {
                     gb += genAcc[b + v]; kl += killAcc[b + v]; genAcc[b + v] = 0; killAcc[b + v] = 0;
-                    for (int k = 0; k < st.K; k++) { double c = cnt[Ix(s, v, k)]; st.stage[k] += c; }
+                    for (int k = 0; k < st.K; k++) { int q = Ix(s, v, k); double c = cnt[q]; st.stage[k] += c; kw += c * kR[q]; mw += c * mu[q]; }
                 }
                 for (int k = 0; k < st.K; k++) { tot += st.stage[k]; bio += st.stage[k] * st.C[k]; }
                 if (tot <= 0) { Remove(s); continue; }
+                st.predE = 0.8f * st.predE + 0.2f * (float)(kw / tot); st.muE = 0.8f * st.muE + 0.2f * (float)(mw / tot);
                 st.trend = st.prevTot > 0 ? 0.98 * st.trend + 0.02 * Math.Log(tot / st.prevTot) : 0; st.prevTot = tot;
                 st.gen += gb / tot; st.total = tot; st.kills += kl; if (tot > st.peak) st.peak = tot;
                 totalCount += tot; totalBio += bio * Math.Pow(st.esd0 / 10, 3);
@@ -900,6 +923,7 @@ namespace Evo
                 foreach (int o in live) { var so = strains[o]; if (so.sp == sp.id && Dist(so.g, ns.rep) < Dist(so.g, sp.rep)) so.sp = ns.id; }
                 Log("sp", $"신종: {ns.name} — {ns.ko} ({Names.Of(sp)}에서 갈라짐)");
             }
+            if (recs.Count > 6000) PruneRecs();
             hist.Add(this);
         }
 

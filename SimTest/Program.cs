@@ -45,11 +45,27 @@ static class Program
             if (w.live.Count == 0) { Console.WriteLine("ALL EXTINCT"); break; }
         }
         var pp = Environment.GetEnvironmentVariable("PATHP"); if (pp != null) PathProbe(w, int.Parse(pp));
+        if (Environment.GetEnvironmentVariable("RECS") != null) RecCheck(w);
         var pe = Environment.GetEnvironmentVariable("PROBE"); if (pe != null) Probe(w, int.Parse(pe), Environment.GetEnvironmentVariable("PROBE_SP"));
         Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}");
         foreach (var e in w.events.Where(e => e.type == "grade")) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
         Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} max grade {w.gradesSeen.Max()}");
         return 0;
+    }
+
+    // 계통 기록 점검: 살아 있는 계통마다 기록이 있고 조상 사슬이 공통 조상(부모 0)까지 끊기지 않는지
+    static void RecCheck(World w)
+    {
+        int bad = 0, maxD = 0;
+        foreach (int s in w.live)
+        {
+            var st = w.strains[s]; if (!w.recs.TryGetValue(st.id, out var r) || r.died >= 0) { bad++; continue; }
+            int d = 0; while (r.parent != 0 && d < 100000) { if (!w.recs.TryGetValue(r.parent, out r)) { bad++; break; } d++; }
+            maxD = Math.Max(maxD, d);
+        }
+        var dead = w.recs.Values.Where(r => r.died >= 0).ToList();
+        bad += dead.Count(r => r.why < 1 || r.why > 3 || r.why == 2 && r.into < 0);
+        Console.WriteLine($"# recs {(bad == 0 ? "ok" : "FAIL " + bad)} n {w.recs.Count} live {w.live.Count} maxDepth {maxD} extinct {dead.Count(r => r.why == 1)} (eaten {dead.Count(r => r.why == 1 && r.eaten)}) merged {dead.Count(r => r.why == 2)} pruned {dead.Count(r => r.why == 3)}");
     }
 
     // 침입 적합도 탐침: 가장 많은 계통(또는 PROBE_SP=계통 id)의 유전자 하나씩 ±1걸음 바꾼 돌연변이를 아주 조금 넣고

@@ -9,7 +9,7 @@ using System.Linq;
 using UnityEngine;
 using Evo;
 
-public class EvoTank : MonoBehaviour
+public partial class EvoTank : MonoBehaviour
 {
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot() { if (!FindAnyObjectByType<EvoTank>()) new GameObject("EvoTank").AddComponent<EvoTank>(); }
@@ -34,7 +34,7 @@ public class EvoTank : MonoBehaviour
     float yaw = 35, pitch = 18, dist = 18; Vector3 m0; bool dragging, overUI;
     (int slot, int k) want = (-1, 0);                  // 종 목록에서 고른 것: 다음 표본에서 하나 고른다
 
-    sealed class Av { public int id, slot, k; public Vector3 p, dir; public float L, spd, sink, t0, rate; public bool sessile; public Quaternion rot; }
+    sealed class Av { public int id, slot, k; public Vector3 p, dir; public float L, spd, sink, t0, rate, grow = 1; public bool sessile; public Quaternion rot; }
     readonly List<Av> avs = new(); Av sel; float tRes, tScan;
     struct Cand { public int s, k; public float L; public double e; public Morph m; }
     readonly List<Cand> cand = new();
@@ -91,8 +91,14 @@ public class EvoTank : MonoBehaviour
         Debug.Log($"[EvoTank] zoomhold {(Bt == b0 && Mathf.Abs(B / b0 - 1) < 0.05f ? "ok" : "FAIL")} Bt {Bt:G3} B {B:G3} avs {n0}->{avs.Count}");
         if (split) { Mode(false); yield return wait; yield return Snap("2-micro"); Mode(true); yield return wait; }
         var big = avs.OrderByDescending(a => a.L).FirstOrDefault();
-        if (big != null) { sel = big; Bt = big.L * SELZ; tab = 1; }
+        if (big != null) { sel = big; Bt = big.L * SELZ; tab = 1; Follow(big.id); }
         yield return wait; yield return Snap("3-select");
+        // 혈통 점검: 후손 있는 계통을 없애면 그 후손으로, 후손 없는 계통을 없애면 '끊김' 카드(또는 그새 생긴 후손)로
+        void Kill(int id) { int s = idSlot[id]; for (int v = 0; v < World.V; v++) for (int k = 0; k < World.KM; k++) w.cnt[World.Ix(s, v, k)] = 0; }
+        Index(); int f0 = w.live.Select(x => w.strains[x].id).FirstOrDefault(id => BestDesc(id) >= 0);
+        if (f0 > 0) { Follow(f0); Kill(f0); yield return wait; Debug.Log($"[EvoTank] linetest desc {(follow > 0 && follow != f0 && Chain(follow).Any(r => r.id == f0) ? "ok" : "FAIL")} {f0}->{follow}"); yield return Snap("3b-line"); }
+        Index(); int f1 = w.live.Select(x => w.strains[x].id).FirstOrDefault(id => BestDesc(id) < 0);
+        if (f1 > 0) { Follow(f1); Kill(f1); yield return wait; Debug.Log($"[EvoTank] linetest gone {(gone?.id == f1 || follow > 0 && Chain(follow).Any(r => r.id == f1) ? "ok" : "FAIL")} {f1} follow {follow} gone {gone?.id} why {gone?.why}"); yield return Snap("3c-gone"); }
         sel = null; tab = 2; yield return null; yield return Snap("4-species");
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
         Application.Quit();
@@ -113,8 +119,10 @@ public class EvoTank : MonoBehaviour
         if ((tScan -= dt) <= 0) { Scan(); tScan = 1; }
         if ((tRes -= dt) <= 0) { Resample(); tRes = 0.5f; }
         B = Mathf.Exp(Mathf.Lerp(Mathf.Log(B), Mathf.Log(Bt), 1 - Mathf.Exp(-dt * 4)));
-        Controls(dt); Move(dt); Draw();
+        toastT -= dt; PlayStep(dt);
+        Controls(dt); Move(dt); Divide(dt); Draw();
     }
+    void LateUpdate() => RenderPortraits();
 
     // 전체에서 가장 큰 생물·가장 작은 생물 → 모드 나눔, 자동 축척
     void Scan()
@@ -123,6 +131,7 @@ public class EvoTank : MonoBehaviour
         foreach (int s in w.live) { var st = w.strains[s]; if (st.total < 10) continue; float L = w.AdultL(st) * 1e-6f; maxL = Mathf.Max(maxL, L); minL = Mathf.Min(minL, L); }
         bool was = split; split = maxL > 1e-3f && minL < MICRO;
         if (split && !was) { macro = B > 2e-3f; w.Log("scale", "거시생물(1 mm 이상)이 나타나 미생물 관찰과 거시생물 관찰을 나눕니다."); }   // 축척은 그대로
+        FollowStep();
         if (fit) { var b = Biggest(true); if (b.s < 0) b = Biggest(false); if (b.L > 0) { Bt = Mathf.Clamp(b.L * 6, 2e-5f, 3); fit = false; } }
     }
 
@@ -145,7 +154,7 @@ public class EvoTank : MonoBehaviour
     // 보는 칸의 실제 밀도 × 농축 배율 → 상자 안 개체 수. 이미 있는 개체는 되도록 그대로 둔다
     void Resample()
     {
-        int v = V; double boxML = (double)B * B * B * 1e6, sum = 0; int big = -1; float bigL = 0;
+        int v = V; double boxML = (double)B * B * B * 1e6, sum = 0; int big = -1; float bigL = 0, u0 = BOX / B;
         cand.Clear();
         foreach (int s in w.live)
         {
@@ -178,7 +187,12 @@ public class EvoTank : MonoBehaviour
             else if (lo != hi) { if (cur == lo && UnityEngine.Random.value < (t - lo) * 0.3f) add = 1; else if (cur == hi && UnityEngine.Random.value < (hi - t) * 0.3f) add = -1; }
             for (; add > 0; add--) avs.Add(Spawn(c));
             for (int j = avs.Count - 1; j >= 0 && add < 0; j--) if (avs[j] != sel && Key(avs[j].slot, avs[j].k) == key) { avs.RemoveAt(j); add++; }
-            if ((c.s, c.k) == want) { sel = avs.LastOrDefault(a => a.slot == c.s && a.k == c.k); want = (-1, 0); }
+            if ((c.s, c.k) == want)
+            {
+                sel = avs.LastOrDefault(a => a.slot == c.s && a.k == c.k); want = (-1, 0);
+                if (sel != null && birthAt is Vector3 bp) { sel.p = bp + UnityEngine.Random.insideUnitSphere * sel.L * u0 * 0.3f; sel.grow = 0; }   // 후손이 옛 대표 자리에서 나타난다
+                birthAt = null;
+            }
         }
     }
     static long Key(int s, int k) => ((long)s << 8) | (uint)k;
@@ -198,6 +212,7 @@ public class EvoTank : MonoBehaviour
         float u = BOX / B;   // 화면 단위 / m
         foreach (var a in avs)
         {
+            a.grow = Mathf.Min(1, a.grow + dt * 0.8f);
             if (a.sessile) continue;
             if (a.spd > 0)
             {
@@ -236,7 +251,7 @@ public class EvoTank : MonoBehaviour
             var e = new Vector3(Mathf.Abs(a.p.x), Mathf.Abs(a.p.y), Mathf.Abs(a.p.z));
             mpb.SetFloat("_Fade", Mathf.Clamp01((H - Mathf.Max(e.x, Mathf.Max(a.sessile ? 0 : e.y, e.z))) / 0.8f + (a == sel ? 1 : 0)));
             mpb.SetFloat("_Sel", a == sel ? 1 : 0); mpb.SetFloat("_T0", a.t0); mpb.SetFloat("_Rate", a.rate);
-            Graphics.DrawMesh(mesh, Matrix4x4.TRS(a.p, a.rot, Vector3.one * Mathf.Max(a.L, m.L * 1e-6f) * u), ms ? mMacro : mMicro, 0, null, 0, mpb);
+            Graphics.DrawMesh(mesh, Matrix4x4.TRS(a.p, a.rot, Vector3.one * Mathf.Max(a.L, m.L * 1e-6f) * u * Mathf.SmoothStep(0.3f, 1, a.grow)), ms ? mMacro : mMicro, 0, null, 0, mpb);
         }
         // 너무 작아 몸을 못 그리는 것: 미생물 모드는 세균, 거시 모드는 미생물 안개
         double boxML = (double)B * B * B * 1e6, small = 0;
@@ -254,7 +269,7 @@ public class EvoTank : MonoBehaviour
     void Controls(float dt)
     {
         var mp = Input.mousePosition; var gp = new Vector2(mp.x, Screen.height - mp.y) / UIScale;
-        overUI = panel.Contains(gp) || top.Contains(gp) || info.Contains(gp);
+        overUI = panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || line.Contains(gp);
         if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1)) { m0 = mp; dragging = !overUI; }
         if (dragging && (Input.GetMouseButton(0) || Input.GetMouseButton(1))) { var d = Input.mousePosition - m0; m0 = Input.mousePosition; yaw += d.x * 0.25f; pitch = Mathf.Clamp(pitch - d.y * 0.25f, -80, 80); }
         if (Input.GetMouseButtonUp(0) && dragging && (Input.mousePosition - downAt).sqrMagnitude < 36) Pick(mp);
@@ -267,7 +282,8 @@ public class EvoTank : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.PageDown)) Layer(1);
         if (Input.GetKeyDown(KeyCode.Tab) && split) Mode(!macro);
         if (Input.GetKeyDown(KeyCode.F)) Fit();
-        if (Input.GetKeyDown(KeyCode.Escape)) sel = null;
+        if (Input.GetKeyDown(KeyCode.Escape)) { sel = null; gone = null; Unfollow(); }
+        if (Input.GetKeyDown(KeyCode.T)) showLine = !showLine;
     }
     Vector3 downAt;
 
@@ -280,25 +296,26 @@ public class EvoTank : MonoBehaviour
             float r = a.L * u * 0.5f * f / sp.z + 8;
             if (((Vector2)sp - (Vector2)mp).sqrMagnitude < r * r && sp.z < bz) { bz = sp.z; best = a; }
         }
-        sel = best; if (sel != null) tab = 1;   // 고르기만 한다. 축척은 F로
+        sel = best; if (sel != null) { tab = 1; Follow(sel.id); } else Unfollow();   // 고르기 = 그 혈통 따라가기. 축척은 F로
     }
 
-    void Layer(int d) { fy = Mathf.Clamp(fy + d, 0, World.NY - 1); sel = null; avs.Clear(); tRes = 0; }
-    void Mode(bool mac) { macro = mac; sel = null; fit = true; avs.Clear(); tScan = tRes = 0; }
+    void Layer(int d) { fy = Mathf.Clamp(fy + d, 0, World.NY - 1); sel = null; Unfollow(); avs.Clear(); tRes = 0; }
+    void Mode(bool mac) { macro = mac; sel = null; Unfollow(); fit = true; avs.Clear(); tScan = tRes = 0; }
 
     // F: 고른 개체가 있으면 그것에 맞추고, 없으면 가장 큰 생물이 가장 많은 층으로 가서 하나를 고른다
     void Fit()
     {
         if (sel != null) { Bt = Mathf.Clamp(sel.L * SELZ, 2e-5f, 3); return; }
-        var (s, k, _) = Biggest(false); if (s >= 0) Focus(s, k);
+        var (s, k, _) = Biggest(false); if (s >= 0) Focus(s, k, true);
     }
-    void Focus(int s, int k)
+    void Focus(int s, int k, bool fitZoom)
     {
         int by = fy, bc = fc; double bn = 0;
         for (int v = 0; v < World.V; v++) { double c = w.cnt[World.Ix(s, v, k)]; if (c > bn) { bn = c; by = v / World.LS; bc = v % World.LS; } }
         fy = by; fc = bc; avs.Clear(); sel = null; want = (s, k); tRes = 0;
         if (split) macro = w.M(s, fy * World.LS + fc, k).L * 1e-6f >= MICRO;
-        Bt = Mathf.Clamp(w.M(s, fy * World.LS + fc, k).L * 1e-6f * SELZ, 2e-5f, 3);
+        float L = w.M(s, fy * World.LS + fc, k).L * 1e-6f;
+        if (fitZoom || L < B * 0.006f || L > B * 0.5f) Bt = Mathf.Clamp(L * SELZ, 2e-5f, 3);   // 혈통이 넘어갈 때는 안 보일 때만 축척을 바꾼다
     }
 
     // ---------- 메시 ----------
@@ -340,7 +357,7 @@ public class EvoTank : MonoBehaviour
     }
 
     // ---------- 화면(IMGUI) ----------
-    Font font, fontB; GUIStyle sL, sB, sS, sBtn, sOn, sBox; Texture2D bg;
+    Font font, fontB; GUIStyle sL, sB, sS, sBtn, sOn, sBox, sT, sTd; Texture2D bg;
     Rect panel, top, info; int tab; Vector2 scroll;
     static readonly string[] TABS = { "환경", "생물", "종", "진화" };
     float UIScale => Mathf.Max(0.75f, Mathf.Min(Screen.height / 900f, Screen.width / 1600f));
@@ -359,6 +376,7 @@ public class EvoTank : MonoBehaviour
         sL = S(font, 14, new Color(0.88f, 0.92f, 0.96f)); sB = S(fontB, 16, Color.white); sS = S(font, 12, new Color(0.65f, 0.72f, 0.8f));
         sBtn = new GUIStyle(GUI.skin.button) { font = font, fontSize = 13 }; sOn = new GUIStyle(sBtn) { font = fontB, normal = { textColor = new Color(0.5f, 0.9f, 1f) } };
         sBox = new GUIStyle { normal = { background = bg } };
+        sT = S(font, 11, new Color(0.88f, 0.92f, 0.96f)); sT.wordWrap = false; sT.clipping = TextClipping.Clip; sTd = new GUIStyle(sT) { normal = { textColor = new Color(0.5f, 0.56f, 0.62f) } };
     }
 
     void OnGUI()
@@ -384,7 +402,7 @@ public class EvoTank : MonoBehaviour
             if (GUI.Button(new Rect(304, Hh - 64, 106, 26), "미생물 관찰", !macro ? sOn : sBtn)) Mode(false);
             if (GUI.Button(new Rect(414, Hh - 64, 106, 26), "거시생물 관찰", macro ? sOn : sBtn)) Mode(true);
         }
-        GUI.Label(new Rect(22, Hh - 34, 500, 22), "끌기: 돌려 보기 · 휠: 축척 · 클릭: 개체 고르기 · PgUp/PgDn: 층 · Space: 멈춤 · F: 맞추기", sS);
+        GUI.Label(new Rect(22, Hh - 34, 500, 22), "끌기: 돌려 보기 · 휠: 축척 · 클릭: 개체 고르기 · PgUp/PgDn: 층 · Space: 멈춤 · F: 맞추기 · T: 타임라인", sS);
         // 오른쪽 판
         GUI.Box(panel, GUIContent.none, sBox);
         for (int i = 0; i < TABS.Length; i++) if (GUI.Button(new Rect(panel.x + 8 + i * 86, panel.y + 8, 82, 28), TABS[i], tab == i ? sOn : sBtn)) { tab = i; scroll = Vector2.zero; }
@@ -392,6 +410,7 @@ public class EvoTank : MonoBehaviour
         scroll = GUILayout.BeginScrollView(scroll);
         if (tab == 0) EnvTab(); else if (tab == 1) OrgTab(); else if (tab == 2) SpeciesTab(); else EventTab();
         GUILayout.EndScrollView(); GUILayout.EndArea();
+        LineStrip(Hh); Cards(W);
     }
 
     static readonly (string name, float[] env)[] PRESETS = {
@@ -434,6 +453,7 @@ public class EvoTank : MonoBehaviour
         if (st == null || st.id != sel.id) { GUILayout.Label("상자 안의 개체를 누르면 그 개체의 에너지 수지·형질이 나온다.", sL); return; }
         int v = V, q = World.Ix(sel.slot, v, sel.k); var m = w.M(sel.slot, v, sel.k); var sp = w.species.TryGetValue(st.sp, out var x) ? x : null;
         GUILayout.Label($"<b>{sp?.name}</b>", sB); GUILayout.Label(sp?.ko ?? "", sS);
+        if (follow >= 0) GUILayout.Label("<color=#7fe0ff>혈통 따라가는 중</color> — 이 개체는 그 계통의 대표 표본이다(시뮬레이션은 개체가 아니라 무리를 계산한다). 계통이 사라지면 가장 많은 후손으로 넘어간다. T: 타임라인", sS);
         string stage = !st.dev ? "" : sel.k == 0 ? " · 알·유생" : sel.k == st.K - 1 ? " · 성체" : $" · 어린 개체 {sel.k}/{st.K - 1}";
         GUILayout.Label($"{World.GradeName[World.Grade(st)]}{stage}\n몸길이 {Len(m.L * 1e-6f)} · 세포 {Num(m.C)}개 · 헤엄 {Len(m.speed * 1e-6f)}/s\n임계 산소 {m.pcrit:0.0}% atm · 이 칸 {Num(w.cnt[q] / World.VML)}마리/mL · 세대 {st.gen:0}", sL);
         w.Budget(st, v, ref m, w.gP[q], w.gB[q], bud);
@@ -458,20 +478,19 @@ public class EvoTank : MonoBehaviour
 
     void SpeciesTab()
     {
-        GUILayout.Label("살아 있는 종(많은 순). 누르면 그 종이 가장 많은 곳으로 간다.", sS);
+        GUILayout.Label("살아 있는 종(많은 순). 누르면 그 종의 혈통을 따라가며 가장 많은 곳으로 간다.", sS);
         foreach (var sp in w.species.Values.Where(x => x.total > 0).OrderByDescending(x => x.total).Take(30))
         {
             var c = Color.HSVToRGB(Mathf.Repeat(sp.hue / 360, 1), 0.6f, 1);
             if (GUILayout.Button($"<color=#{ColorUtility.ToHtmlStringRGB(c)}>●</color> <b>{sp.name}</b>  {World.GradeName[sp.grade]}\n<size=11>{sp.ko} · {sp.total:0.0e0}마리</size>", new GUIStyle(sBtn) { alignment = TextAnchor.MiddleLeft, richText = true }))
-            {
-                int best = -1; double bt = 0; foreach (int s in w.live) if (w.strains[s].sp == sp.id && w.strains[s].total > bt) { bt = w.strains[s].total; best = s; }
-                if (best >= 0) { var st = w.strains[best]; int bk = 0; for (int k = 1; k < st.K; k++) if (st.stage[k] > 0) bk = k; Focus(best, st.K > 1 ? bk : 0); }
-            }
+                GoSpecies(sp);
         }
     }
 
     void EventTab()
     {
+        Tree();
+        GUILayout.Space(8); GUILayout.Label("<b>사건 기록</b>", sL);
         for (int i = w.events.Count - 1; i >= Math.Max(0, w.events.Count - 60); i--)
         {
             var e = w.events[i]; bool big = e.type == "grade" || e.type == "scale";
