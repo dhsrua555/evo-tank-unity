@@ -260,6 +260,7 @@ namespace Evo
         public int Vox(int c, double z) { int y = 0; while (y < nyR[c] - 1 && ZE[y + 1] <= z) y++; return y * LS + c; }   // 해역 c, 수심 z(m) → 칸
         readonly int[] tb = new int[V];                                         // 칸 → 모양 캐시 수온 칸
         double[] qa = new double[0];                                            // 해역 사이 맞닿은 면 ÷ 중심 거리(링크 × 층, m). × Kh = 교환 유량
+        double qmax;                                                            // 칸마다 Σ qa ÷ 부피의 최댓값(1/m²). × Kh·틱 = 틱당 바뀌는 물 몫 → 수평 섞기를 몇 번에 나눌지
         List<(int nb, int li)>[] adj = new List<(int, int)>[0];                 // 해역 → 이웃 해역·링크
         int nsub = 1;                                                           // 세로 섞임 잘게 나눈 횟수(틱마다)
         public readonly Strain[] strains = new Strain[SMAX];
@@ -364,6 +365,14 @@ namespace Evo
                 double f = geo.rKind[a] == 2 || geo.rKind[b] == 2 ? P.LANDX : 1;
                 for (int y = 0; y < Math.Min(nyR[a], nyR[b]); y++) qa[li * NY + y] = f * e * Geo.CELL * Math.Min(dz[y * LS + a], dz[y * LS + b]) / dist;
             }
+            // 얕고 좁은 조간대는 한 틱에 제 부피보다 많은 물을 바다와 바꾼다 → 한 번에 풀면 값이 넘쳐 음수·발산(NaN). Mix가 이 값으로 잘게 나눈다
+            var fo = new double[V];
+            for (int li = 0; li < geo.links.Count; li++)
+            {
+                var (a, b, _, _) = geo.links[li];
+                for (int y = 0; y < NY && qa[li * NY + y] > 0; y++) { int va = y * LS + a, vb = y * LS + b; fo[va] += qa[li * NY + y] / (vol[va] * 1e-6); fo[vb] += qa[li * NY + y] / (vol[vb] * 1e-6); }
+            }
+            qmax = fo.Max();
         }
 
         public static int Ix(int s, int v, int k) => (s * V + v) * KM + k;
@@ -974,16 +983,19 @@ namespace Evo
                     a[v] = tmp[v] + d / dz[v] * dt;
                 }
             }
-            Array.Copy(a, tmp, V);
-            double kh = P.KH_H * 3600 * P.DT;
-            for (int li = 0; li < geo.links.Count; li++)
+            double kh = P.KH_H * 3600 * P.DT; int hs = Math.Max(1, (int)Math.Ceiling(qmax * kh * 2)); kh /= hs;   // 한 번에 바뀌는 물이 칸 부피의 절반을 넘지 않게
+            for (int h = 0; h < hs; h++)
             {
-                var (ra, rb, _, _) = geo.links[li];
-                for (int y = 0; y < NY; y++)
+                Array.Copy(a, tmp, V);
+                for (int li = 0; li < geo.links.Count; li++)
                 {
-                    double Q = qa[li * NY + y] * kh; if (Q <= 0) break;   // m³(틱당)
-                    int va = y * LS + ra, vb = y * LS + rb; double f = Q * (tmp[vb] - tmp[va]);
-                    a[va] += f / (vol[va] * 1e-6); a[vb] -= f / (vol[vb] * 1e-6);
+                    var (ra, rb, _, _) = geo.links[li];
+                    for (int y = 0; y < NY; y++)
+                    {
+                        double Q = qa[li * NY + y] * kh; if (Q <= 0) break;   // m³(한 번에)
+                        int va = y * LS + ra, vb = y * LS + rb; double f = Q * (tmp[vb] - tmp[va]);
+                        a[va] += f / (vol[va] * 1e-6); a[vb] -= f / (vol[vb] * 1e-6);
+                    }
                 }
             }
         }

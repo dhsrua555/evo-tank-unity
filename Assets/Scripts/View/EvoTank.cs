@@ -212,7 +212,7 @@ public partial class EvoTank : MonoBehaviour
             var st = w.strains[s];
             for (int k = 0; k < st.K; k++)
             {
-                double c = Dens(s, k); if (c <= 0) continue;
+                double c = Dens(s, k); if (!(c > 0) || double.IsInfinity(c)) continue;   // NaN·무한대는 건너뛴다(개체 수 계산이 넘쳐 메모리를 다 먹지 않게)
                 var m = w.M(s, v, k); float L = m.L * 1e-6f;
                 if (L < B * 0.006f || L > B * 0.5f || (m.sessile || Crawls(st, k, m)) && yF < -H) continue;   // 붙어 살거나 바닥을 기는 것은 바닥이 보일 때만
                 cand.Add(new Cand { s = s, k = k, L = L, e = c * boxML, m = m }); sum += cand[^1].e; occ += cand[^1].e * Math.Pow(L / B, 3);

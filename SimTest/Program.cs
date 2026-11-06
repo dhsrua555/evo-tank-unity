@@ -29,6 +29,7 @@ static class Program
     static int Main(string[] a)
     {
         if (Environment.GetEnvironmentVariable("GEO") is string gs) { GeoDump(int.Parse(gs)); return 0; }
+        if (Environment.GetEnvironmentVariable("MIXP") is string mp) { for (int sd = 1; sd <= int.Parse(mp); sd++) { var (f, c) = MixF(new World(sd)); if (f > 1) Console.WriteLine($"seed {sd} maxF {f:F2} at {c}"); } return 0; }
         string sc = a.Length > 0 ? a[0] : "control"; int days = a.Length > 1 ? int.Parse(a[1]) : 30, seed = a.Length > 2 ? int.Parse(a[2]) : 1;
         int every = a.Length > 3 ? int.Parse(a[3]) : Math.Max(1, days / 10);
         var w = new World(seed);
@@ -50,6 +51,8 @@ static class Program
             int tpd = (int)(24 / w.P.DT); for (int h = 0; h < tpd; h++) w.Step();   // 하루 = 24 h / DT 틱
             ms = s1.Elapsed.TotalMilliseconds / tpd;
             if (d % every == 0 || d == days) Report(w, d, ms);
+            if (Environment.GetEnvironmentVariable("NEGP") != null) foreach (var (n, arr) in new[] { ("nut", w.nut), ("bac", w.bac), ("dox", w.dox), ("pom", w.pom), ("dom", w.dom), ("cya", w.cya) }) for (int v = 0; v < World.V; v++) if (arr[v] < 0) { Console.WriteLine($"NEG day {d} {n}={arr[v]:G3} at {w.geo.Name(v % World.LS)} y {v / World.LS}"); break; }
+            if (Nan(w) is string bad) { Console.WriteLine($"NAN day {d}: {bad}"); foreach (var e in w.events.TakeLast(8)) Console.WriteLine($"  [{w.Time(e.t)}] {e.type} {e.text}"); return 1; }
             if (w.live.Count == 0) { Console.WriteLine("ALL EXTINCT"); break; }
         }
         var pp = Environment.GetEnvironmentVariable("PATHP"); if (pp != null) PathProbe(w, int.Parse(pp));
@@ -60,6 +63,44 @@ static class Program
         foreach (var e in w.events.Where(e => e.type == "grade")) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
         Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} looks {string.Join(",", w.looksSeen.Select(Taxa.Name))}");
         return 0;
+    }
+
+    // 수평 섞기(양해법)의 틱당 바깥 교환 몫 최댓값: 2를 넘으면 진동하며 커진다
+    static (double, string) MixF(World w)
+    {
+        var g = w.geo; var sum = new double[World.V]; double kh = w.P.KH_H * 3600 * w.P.DT;
+        foreach (var (a, b, e, dist) in g.links)
+        {
+            double f = g.rKind[a] == 2 || g.rKind[b] == 2 ? w.P.LANDX : 1;
+            for (int y = 0; y < Math.Min(w.nyR[a], w.nyR[b]); y++)
+            {
+                int va = y * World.LS + a, vb = y * World.LS + b; double Q = f * e * Geo.CELL * Math.Min(w.dz[va], w.dz[vb]) / dist * kh;
+                sum[va] += Q / (w.vol[va] * 1e-6); sum[vb] += Q / (w.vol[vb] * 1e-6);
+            }
+        }
+        int m = 0; for (int v = 1; v < World.V; v++) if (sum[v] > sum[m]) m = v;
+        return (sum[m], $"{g.Name(m % World.LS)} y {m / World.LS} cells {g.rCells[m % World.LS]}");
+    }
+
+    // 수치 오류 감시: 처음 NaN·무한대가 생긴 곳
+    static string Nan(World w)
+    {
+        static bool Bad(double x) => !double.IsFinite(x);
+        for (int e = 0; e < Ev.N; e++) if (Bad(w.env[e])) return $"env[{e}]";
+        foreach (var (n, a) in new[] { ("T", w.T), ("I", w.I), ("U", w.U) }) for (int v = 0; v < World.V; v++) if (Bad(a[v])) return $"{n}[{v}] reg {v % World.LS} y {v / World.LS} vol {w.vol[v]}";
+        foreach (var (n, a) in new[] { ("nut", w.nut), ("bac", w.bac), ("dox", w.dox), ("pom", w.pom), ("dom", w.dom), ("cya", w.cya), ("vol", w.vol) }) for (int v = 0; v < World.V; v++) if (Bad(a[v])) return $"{n}[{v}] reg {v % World.LS} y {v / World.LS} vol {w.vol[v]}";
+        foreach (int s in w.live)
+        {
+            var st = w.strains[s];
+            for (int i = 0; i < st.g.Length; i++) if (Bad(st.g[i])) return $"gene {Gn.Def[i].k} strain {st.id}";
+            for (int v = 0; v < World.V; v++) for (int k = 0; k < st.K; k++)
+            {
+                double c = w.cnt[World.Ix(s, v, k)]; if (Bad(c)) return $"cnt strain {st.id} v {v} reg {v % World.LS} y {v / World.LS} k {k} vol {w.vol[v]}";
+                if (c > 0 && w.vol[v] <= 0) return $"cnt>0 in dry cell strain {st.id} reg {v % World.LS} y {v / World.LS}";
+                if (c > 0) { var m = w.M(s, v, k); if (Bad(m.sink) || Bad(m.L)) return $"morph strain {st.id} reg {v % World.LS} y {v / World.LS} k {k} sink {m.sink} L {m.L} T {w.T[v]} C {m.C} esd {m.esd}"; }
+            }
+        }
+        return null;
     }
 
     static void GeoDump(int seed)
