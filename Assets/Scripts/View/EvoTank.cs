@@ -31,7 +31,7 @@ public partial class EvoTank : MonoBehaviour
 
     float B = 3e-4f, Bt = 3e-4f; bool fit = true;    // 상자 한 변(m)과 목표값. fit = 다음 Scan에서 한 번 가장 큰 생물에 맞춤
     float conc = 1;
-    float yaw = 35, pitch = 18, dist = 9; Vector3 m0; bool dragging, overUI;
+    float yaw = 35, pitch = 18, dist = 9, camDist = 9; Vector3 m0; bool dragging, overUI;
     (int slot, int k) want = (-1, 0);                  // 종 목록에서 고른 것: 다음 표본에서 하나 고른다
 
     sealed class Av { public int id, slot, k; public Vector3 p, dir; public float L, spd, sink, t0, rate, grow = 1; public bool sessile; public Quaternion rot; }
@@ -50,7 +50,7 @@ public partial class EvoTank : MonoBehaviour
         cam.fieldOfView = 50; cam.nearClipPlane = 0.05f; cam.farClipPlane = 300; cam.clearFlags = CameraClearFlags.SolidColor;
         mMicro = new Material(Shader.Find("Evo/Micro")); mMacro = new Material(Shader.Find("Evo/Macro"));
         mDots = new Material(Shader.Find("Evo/Dots"));
-        mpb = new MaterialPropertyBlock();
+        mpb = new MaterialPropertyBlock(); LookInit();
         dots = DotsMesh(3000); floorM = FloorMesh(); Cells();
         Fonts();
         var args = Environment.GetCommandLineArgs(); int ai = Array.IndexOf(args, "-shots");
@@ -103,6 +103,8 @@ public partial class EvoTank : MonoBehaviour
         double d0 = py; MoveBy(new Vector3(0, -1f, 0)); yield return wait;   // 헤엄 점검: 1 m 내려가면 수심이 그만큼 바뀐다
         Debug.Log($"[EvoTank] swim depth {d0:0.00}->{py:0.00} {(Math.Abs(py - d0 - 1) < 1e-3 ? "ok" : "FAIL")} avs {avs.Count}"); yield return Snap("2-swim");
         float bk = Bt; Bt = 1; yield return wait; yield return Snap("2b-wide"); Bt = bk; MoveBy(new Vector3(0, 1f, 0)); yield return wait;   // 제자리로
+        double pk = py; float bk2 = Bt; MoveBy(new Vector3(0, (float)(py - 0.08), 0)); Bt = 0.4f; float pp = pitch; pitch = -30; yield return wait; yield return Snap("6-surface"); pitch = pp;   // 물속 느낌: 수면 가까이·깊은 곳
+        MoveBy(new Vector3(0, -6f, 0)); yield return wait; yield return Snap("6b-deep"); MoveBy(new Vector3(0, (float)(py - pk), 0)); Bt = bk2; yield return wait;
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
         Application.Quit();
     }
@@ -230,10 +232,10 @@ public partial class EvoTank : MonoBehaviour
     // ---------- 그리기 ----------
     void Draw()
     {
-        bool ms = MacroStyle; int v = V; float I = Mix(w.I), sun = Mathf.Clamp01(I * 1.6f), u = BOX / B;
+        bool ms = MacroStyle; int v = V; float I = Mix(w.I), sun = Mathf.Clamp01(I * 1.6f), u = BOX / B; LookBegin();
         // 이 깊이까지 내려온 햇빛 색: 빨강이 먼저 줄어 깊을수록 청록. 물빛 = 그 빛이 물에 흩어진 색
         var lc = new Vector3(Mathf.Exp(-SIGMA.x * (float)py), Mathf.Exp(-SIGMA.y * (float)py), Mathf.Exp(-SIGMA.z * (float)py)); lc /= Mathf.Max(lc.x, Mathf.Max(lc.y, lc.z));
-        var water = Color.Lerp(new Color(0.01f, 0.03f, 0.06f), new Color(0.1f + 0.12f * lc.x, 0.33f * lc.y, 0.45f * lc.z), sun);
+        var water = Color.Lerp(new Color(0.01f, 0.03f, 0.06f), new Color(0.1f + 0.14f * lc.x, 0.42f * lc.y, 0.55f * lc.z), sun);
         cam.backgroundColor = ms ? water : new Color(0.01f, 0.012f, 0.02f);
         Shader.SetGlobalVector("_FogCol", water); Shader.SetGlobalFloat("_Sun", sun);
         Shader.SetGlobalVector("_Sigma", SIGMA / u); Shader.SetGlobalVector("_LightCol", new Vector4(lc.x, lc.y, lc.z, 1));
@@ -248,7 +250,8 @@ public partial class EvoTank : MonoBehaviour
                 pitch = Mathf.Lerp(pitch, 10, k);
             }
         }
-        cam.transform.position = target + Quaternion.Euler(pitch, yaw, 0) * new Vector3(0, 0, -dist); cam.transform.LookAt(target);
+        var cp = target + Quaternion.Euler(pitch, yaw, 0) * new Vector3(0, 0, -dist); cp.y = Mathf.Clamp(cp.y, yF + 0.05f, yS - 0.05f);   // 카메라는 늘 물속(수면 위·바닥 밑으로 안 나감)
+        cam.transform.position = cp; cam.transform.LookAt(target); camDist = (cp - target).magnitude;
         foreach (var a in avs)
         {
             var st = w.strains[a.slot]; if (st == null || st.id != a.id) continue;
@@ -256,7 +259,8 @@ public partial class EvoTank : MonoBehaviour
             // 관찰자 둘레 구 가장자리에서 물빛으로 녹는다. 하나를 고르면 나머지는 흐리게
             mpb.SetFloat("_Fade", a == sel ? 1 : Mathf.Clamp01((H - (a.p - target).magnitude) / 1.2f) * (sel != null ? 0.45f : 1));
             mpb.SetFloat("_Sel", a == sel ? 1 : 0); mpb.SetFloat("_T0", a.t0); mpb.SetFloat("_Rate", a.rate);
-            Graphics.DrawMesh(mesh, Matrix4x4.TRS(a.p, a.rot, Vector3.one * Mathf.Max(a.L, m.L * 1e-6f) * u * Mathf.SmoothStep(0.3f, 1, a.grow)), ms ? mMacro : mMicro, 0, null, 0, mpb);
+            var mx = Matrix4x4.TRS(a.p, a.rot, Vector3.one * Mathf.Max(a.L, m.L * 1e-6f) * u * Mathf.SmoothStep(0.3f, 1, a.grow));
+            Graphics.DrawMesh(mesh, mx, ms ? mMacro : mMicro, 0, null, 0, mpb); LookBody(mesh, mx, mpb);
         }
         // 너무 작아 몸을 못 그리는 것: 미생물 모드는 세균, 거시 모드는 미생물 안개
         double boxML = (double)B * B * B * 1e6, small = 0;
@@ -272,6 +276,7 @@ public partial class EvoTank : MonoBehaviour
             float ox = -(float)Frac(px * u / BOX) * BOX, oz = -(float)Frac(pz * u / BOX) * BOX;
             for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) Graphics.DrawMesh(floorM, Matrix4x4.Translate(new Vector3(ox + i * BOX, yF + H, oz + j * BOX)), mMacro, 0);
         }
+        LookEnd(ms, u, sun);
     }
 
     // ---------- 조작 ----------

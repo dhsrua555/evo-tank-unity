@@ -17,6 +17,7 @@ Shader "Evo/Snow"
             float4 _Par;   // x 반지름 y 알파 z 보이는 반지름 w 거리 1에서 1픽셀의 화면 단위
             float4 _Mot;   // x 가라앉기(주기/초) y 떨림(주기 비율) z 바닥 높이 w 수면 높이
             float4 _Col;
+            float4 _DoF;   // 전역: 초점 거리, 조리개, 최대 흐림(픽셀), 거리 1에서 1픽셀의 화면 단위
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float a : TEXCOORD1; };
             v2f vert (appdata v)
@@ -26,7 +27,8 @@ Shader "Evo/Snow"
                 float3 c = frac(v.vertex.xyz + float3(0, -t * _Mot.x, 0) + j);
                 float3 w = _Off.xyz + c * _Off.w;
                 float4 vp = mul(UNITY_MATRIX_V, float4(w, 1));
-                float z = max(0.01, -vp.z), r = max(_Par.x, 1.3 * z * _Par.w);
+                float z = max(0.01, -vp.z), coc = min(_DoF.z, abs(z - _DoF.x) / z * _DoF.y);
+                float r = max(_Par.x, max(1.3, coc * 0.5) * z * _Par.w);   // 1픽셀보다 작거나 초점 밖이면 넓이를 지키며 퍼진다(보케)
                 vp.xy += v.uv * r;
                 o.pos = mul(UNITY_MATRIX_P, vp);
                 float fade = saturate((_Par.z - length(w)) / (_Par.z * 0.35)) * step(_Mot.z, w.y) * step(w.y, _Mot.w);
