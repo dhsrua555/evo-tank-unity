@@ -7,3 +7,8 @@ Build/
 SimTest/bin/
 SimTest/obj/
 *.csproj.user
+Builds/
+/*.csproj
+/*.slnx
+/*.sln
+SimTest/*.log
