@@ -53,7 +53,7 @@ public partial class EvoTank
         Cells();
         var d = dm * (BOX / B);
         if (d.sqrMagnitude > BOX * BOX) { avs.Clear(); sel = null; tRes = 0; return; }
-        foreach (var a in avs) { a.p -= d; if (a.sessile) a.p.y = yF; a.p = Wrap(a.p); }
+        foreach (var a in avs) { a.p -= d; if (a.sessile || a.crawl) a.p.y = yF; a.p = Wrap(a.p); }
         dotOff += d / BOX;
     }
 

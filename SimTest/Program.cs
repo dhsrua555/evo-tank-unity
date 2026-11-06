@@ -57,7 +57,7 @@ static class Program
         var pe = Environment.GetEnvironmentVariable("PROBE"); if (pe != null) Probe(w, int.Parse(pe), Environment.GetEnvironmentVariable("PROBE_SP"));
         Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}  mutants {w.mutKeep}/{w.mutTry}");
         foreach (var e in w.events.Where(e => e.type == "grade")) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
-        Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} max grade {w.gradesSeen.Max()}");
+        Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} looks {string.Join(",", w.looksSeen.Select(Taxa.Name))}");
         return 0;
     }
 
@@ -109,7 +109,7 @@ static class Program
         }
         double Tot(Strain st) { double t = 0; for (int v = 0; v < World.V; v++) for (int k = 0; k < World.KM; k++) t += w.cnt[World.Ix(st.slot, v, k)]; return t; }
         var t0 = list.ToDictionary(x => x.st.id, x => Tot(x.st));
-        Console.WriteLine($"# probe parent id{par.id} {World.GradeName[World.Grade(par)]} n={par.total:G3} cells {par.g[Gn.Cells]:F1} size {par.g[Gn.Size]:F2} photo {par.g[Gn.Photo]:F2} phago {par.g[Gn.Phago]:F2} diff {par.g[Gn.Diff]:F2}");
+        Console.WriteLine($"# probe parent id{par.id} {Taxa.Name(par)} n={par.total:G3} cells {par.g[Gn.Cells]:F1} size {par.g[Gn.Size]:F2} photo {par.g[Gn.Photo]:F2} phago {par.g[Gn.Phago]:F2} diff {par.g[Gn.Diff]:F2}");
         for (int t = 0; t < days * 12; t++) w.Step();
         double rc = Math.Log(Math.Max(1, ctl.total) / t0[ctl.id]) / days;
         foreach (var (name, st) in list.OrderByDescending(x => x.st.total / t0[x.st.id]))
@@ -120,7 +120,7 @@ static class Program
     // 어류로 가는 길의 단계별 가상 유전형을 넣고 생물량 성장률을 잰다(그 생태계에서 살 수 있나)
     static void PathProbe(World w, int days)
     {
-        w.P.MUT_NEW = 0; w.P.MUT_FLOOR = 0; w.PruneTo(12);
+        w.P.MUT_NEW = 0; w.P.MUT_FLOOR = 0; w.PruneTo(26);
         var par = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First();
         var steps = new (string name, (int g, float v)[] set)[] {
             ("colony4", new[] { (Gn.Cells, 2f) }),
@@ -134,6 +134,21 @@ static class Program
             ("chordate", new[] { (Gn.Cells, 20f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.8f), (Gn.Neuro, 0.7f), (Gn.Bilat, 0.8f), (Gn.Skel, 0.5f), (Gn.Circ, 0.4f), (Gn.Eye, 0.3f), (Gn.Elong, 2f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f) }),
             ("fish1cm", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f) }),
             ("fishE13", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 13f) }),
+            // 4단계 부품 조합
+            ("burrower", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Elong, 2f), (Gn.Seg, 4f), (Gn.Burrow, 0.8f), (Gn.Detr, 0.9f) }),
+            ("polychaete", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Elong, 2f), (Gn.Seg, 4f), (Gn.Limb, 0.5f) }),
+            ("arthro", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Cells, 18f), (Gn.Elong, 1.2f), (Gn.Seg, 4f), (Gn.Limb, 0.7f), (Gn.Exo, 0.6f), (Gn.Circ, 0.5f), (Gn.Eye, 0.4f) }),
+            ("bigarthro", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Cells, 25f), (Gn.Elong, 1.2f), (Gn.Seg, 4f), (Gn.Limb, 0.7f), (Gn.Exo, 0.6f), (Gn.Circ, 0.5f), (Gn.Eye, 0.4f) }),
+            ("urchin", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.4f), (Gn.Bilat, 0f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f) }),
+            ("copepod", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Cells, 14f), (Gn.Elong, 1f), (Gn.Seg, 3f), (Gn.Limb, 0.7f), (Gn.Exo, 0.5f), (Gn.Eye, 0.3f), (Gn.PreyR, 2.5f) }),
+            ("trilobite", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Cells, 18f), (Gn.Elong, 1f), (Gn.Seg, 4f), (Gn.Limb, 0.6f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.6f), (Gn.Circ, 0.5f), (Gn.Eye, 0.5f), (Gn.Detr, 0.9f), (Gn.Burrow, 0.6f) }),
+            ("snail", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Elong, 0.5f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f), (Gn.Jaw, 0.5f), (Gn.Herb, 0.6f), (Gn.Circ, 0.5f) }),
+            ("clam", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Neuro, 0.3f), (Gn.Elong, 0.3f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f), (Gn.Burrow, 0.7f), (Gn.Cilia, 0.7f), (Gn.Phago, 0.7f), (Gn.Circ, 0.5f) }),
+            ("arrow", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Elong, 2f), (Gn.Jaw, 0.6f), (Gn.Transp, 0.7f), (Gn.Ambush, 0.7f), (Gn.Eye, 0.3f), (Gn.Pigment, 0f) }),
+            ("jawless", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f) }),
+            ("shark", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f), (Gn.Jaw, 0.7f), (Gn.Mineral, 0f), (Gn.Limb, 0.5f) }),
+            ("bony", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f), (Gn.Jaw, 0.7f), (Gn.Mineral, 0.6f), (Gn.Limb, 0.5f) }),
+            ("school", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f), (Gn.Jaw, 0.7f), (Gn.Mineral, 0.6f), (Gn.Limb, 0.5f), (Gn.School, 0.8f), (Gn.Cells, 24f) }),
         };
         if (Environment.GetEnvironmentVariable("PRE") is string pre)   // 먼저 동물 플랑크톤(벌레형·자포형)을 넣어 자리 잡게 한 뒤 나머지를 넣는다(먹이 사슬 순서)
         {
@@ -141,7 +156,7 @@ static class Program
             { var g = (float[])par.g.Clone(); g[Gn.Attach] = 0; g[Gn.Size] = 3.3f; g[Gn.Buoy] = 0; foreach (var (j, v) in set) g[j] = v; w.Inject(par.slot, g, 1e-5); }
             for (int t = 0; t < int.Parse(pre) * 12; t++) w.Step();
             par = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First();   // 그새 합쳐졌을 수 있다
-            Console.WriteLine($"# pre {pre}d: " + string.Join(" ", w.live.Select(i => w.strains[i]).Where(s => World.Grade(s) >= 4).Select(s => $"{World.GradeName[World.Grade(s)]} {s.total:G3}")));
+            Console.WriteLine($"# pre {pre}d: " + string.Join(" ", w.live.Select(i => w.strains[i]).Where(s => Taxa.Of(s) >= Look.Polyp).Select(s => $"{Taxa.Name(s)} {s.total:G3}")));
         }
         var list = new List<(string, Strain)>();
         foreach (var (name, set) in steps)
@@ -181,7 +196,7 @@ static class Program
             var m = w.MorphT(st, 15, st.K - 1, 0);
             bool alive = w.strains[st.slot] == st; var (ld, lb) = alive ? (days, Bio(st)) : last[st.id];
             string stg = alive ? string.Join(",", Enumerable.Range(0, st.K).Select(k => st.stage[k] < 1 ? "0" : Math.Log10(st.stage[k]).ToString("F0"))) : "";
-            Console.WriteLine($"  {name,-9} {World.GradeName[World.Grade(st)],-6} K{st.K} adult L {m.L:G3}um pcrit {m.pcrit:F1}% speed {m.speed:G3}um/s  bio growth {Math.Log(Math.Max(1e-30, lb) / b0[st.id]) / Math.Max(1, ld) * 100:+0.0;-0.0}%/일  {(alive ? "alive " + stg : $"멸종 {ld + 1}일째")}");
+            Console.WriteLine($"  {name,-9} {Taxa.Name(st),-6} K{st.K} adult L {m.L:G3}um pcrit {m.pcrit:F1}% speed {m.speed:G3}um/s  bio growth {Math.Log(Math.Max(1e-30, lb) / b0[st.id]) / Math.Max(1, ld) * 100:+0.0;-0.0}%/일  {(alive ? "alive " + stg : $"멸종 {ld + 1}일째")}");
         }
     }
 
@@ -189,14 +204,14 @@ static class Program
     {
         var m = w.MeanGenes();
         int alive = w.species.Values.Count(s => s.total > 0);
-        int maxG = w.live.Count == 0 ? 0 : w.live.Max(s => World.Grade(w.strains[s]));
+        int maxG = w.live.Select(s => Taxa.Of(w.strains[s])).Distinct().Count();   // 지금 있는 몸 설계 수
         double maxL = 0, maxC = 0; Strain big = null;
         foreach (int s in w.live) { var st = w.strains[s]; if (st.total < 10) continue; double L = w.AdultL(st); if (L > maxL) { maxL = L; big = st; } maxC = Math.Max(maxC, st.C[st.K - 1]); }
         double ds = 0, db = 0, ns = 0, nb = 0, bs = 0, cy = 0, pm = 0, dm = 0, a = 0;   // 표층·바닥 평균(해역 넓이 가중)
         for (int c = 0; c < w.NR; c++) { double ar = w.geo.rArea[c]; a += ar; ds += ar * w.dox[c]; db += ar * w.dox[w.Bot(c)]; ns += ar * w.nut[c]; nb += ar * w.nut[w.Bot(c)]; bs += ar * w.bac[c]; cy += ar * w.cya[c]; pm += ar * w.pom[c]; dm += ar * w.dom[c]; }
         ds /= a; db /= a; ns /= a; nb /= a; bs /= a; cy /= a; pm /= a; dm /= a;
         Console.WriteLine($"d{d,5} ms {ms,5:F2} strains {w.live.Count,3} sp {alive,3} N/mL {w.totalCount / w.volTot,8:G3} bio {w.totalBio / w.volTot,8:G3} " +
-            $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy:G2} pom {pm:F2} dom {dm:F2} grade {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
+            $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy:G2} pom {pm:F2} dom {dm:F2} looks {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
         Console.WriteLine($"      earth T {w.env[Ev.Temp]:F1} (base {w.tBase:F1}) CO2 {w.co2:F0} O2 {w.env[Ev.O2]:F1} bur {w.burRate:G3} wMul {w.wMul:F2} ice {w.ice:F2} sea {w.geo.sea:+0;-0} aer {w.aer:F2} dark {w.dark:F2} regions {w.NR} land {w.geo.LandCells()} regrid {w.regridN} iceR {w.iceR.Take(w.NR).Count(x => x > 0.5f)}");
         if (Environment.GetEnvironmentVariable("BUD") != null && big != null || Environment.GetEnvironmentVariable("BUD") != null && w.live.Count > 0)
         {
@@ -211,7 +226,7 @@ static class Program
             {
                 double bio = 0, best = 0; Strain top = null;
                 foreach (int s in w.live) { var st = w.strains[s]; double n = 0; for (int k = 0; k < st.K; k++) { n += w.cnt[World.Ix(s, c, k)]; bio += w.cnt[World.Ix(s, c, k)] * st.C[k] * Math.Pow(st.esd0 / 10, 3); } if (n > best) { best = n; top = st; } }
-                Console.WriteLine($"      r{c,-2} {Geo.DName(w.geo.rDepth[c]),-4} {Geo.LName(w.geo.rLat[c])} {w.geo.rDepth[c],5:0}m lat {w.geo.rLat[c],2:0} SST {w.sst[c],4:F1} MLD {w.mld[c],3:0} nut {w.nut[c],5:F2} chl {w.chl[c],7:G2} bio {bio / w.vol[c],7:G2} DObot {w.dox[w.Bot(c)],4:F1} I {w.I[c]:F2} top id{top?.id} {(top != null ? World.GradeName[World.Grade(top)] : "")} size {top?.g[Gn.Size]:F1} photo {top?.g[Gn.Photo]:F2} topt {top?.g[Gn.Topt]:F0}");
+                Console.WriteLine($"      r{c,-2} {Geo.DName(w.geo.rDepth[c]),-4} {Geo.LName(w.geo.rLat[c])} {w.geo.rDepth[c],5:0}m lat {w.geo.rLat[c],2:0} SST {w.sst[c],4:F1} MLD {w.mld[c],3:0} nut {w.nut[c],5:F2} chl {w.chl[c],7:G2} bio {bio / w.vol[c],7:G2} DObot {w.dox[w.Bot(c)],4:F1} I {w.I[c]:F2} top id{top?.id} {(top != null ? Taxa.Name(top) : "")} size {top?.g[Gn.Size]:F1} photo {top?.g[Gn.Photo]:F2} topt {top?.g[Gn.Topt]:F0}");
             }
         if (Environment.GetEnvironmentVariable("TOP") != null)
             foreach (var st in w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).Take(5))
@@ -222,7 +237,7 @@ static class Program
         if (big != null && big.g[Gn.Cells] >= 1)
         {
             var g = big.g;
-            Console.WriteLine($"      biggest: {World.GradeName[World.Grade(big)]} n={big.total:G3} cells {g[Gn.Cells]:F1} K {big.K} diff {g[Gn.Diff]:F2} gut {g[Gn.Gut]:F2} neuro {g[Gn.Neuro]:F2} bilat {g[Gn.Bilat]:F2} circ {g[Gn.Circ]:F2} skel {g[Gn.Skel]:F2} egg {g[Gn.Egg]:F1}");
+            Console.WriteLine($"      biggest: {Taxa.Name(big)} n={big.total:G3} cells {g[Gn.Cells]:F1} K {big.K} diff {g[Gn.Diff]:F2} gut {g[Gn.Gut]:F2} neuro {g[Gn.Neuro]:F2} bilat {g[Gn.Bilat]:F2} circ {g[Gn.Circ]:F2} skel {g[Gn.Skel]:F2} egg {g[Gn.Egg]:F1}");
         }
     }
 }

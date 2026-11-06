@@ -70,7 +70,7 @@ public partial class EvoTank
         Fill(new Rect(a.x, a.y - 0.5f, d.magnitude, 1), c); GUI.matrix = mx;
     }
 
-    string StageName(Strain st, int k) => st.K <= 1 ? "단세포" + (World.Grade(st) <= 1 && Bodies.PlanOf(st) is var p && p != Bodies.Plan.Plain ? " · " + Bodies.PlanName[(int)p] : "") : k == 0 ? "어린 단계" : k == st.K - 1 ? "어른" : $"자라는 중({k + 1}/{st.K})";
+    string StageName(Strain st, int k) => st.K <= 1 ? Taxa.Name(st) : k == 0 ? "어린 단계" : k == st.K - 1 ? "어른" : $"자라는 중({k + 1}/{st.K})";
 
     // 표본 쟁반: 살아 있는 종마다 가장 많은 계통의 어른 모습. '같은 크기'(칸을 채움) ↔ '실제 비율'(가장 큰 것 기준)
     void Tray(float W, float Hh)
@@ -94,7 +94,7 @@ public partial class EvoTank
             var tr = new Rect(r.x + 11 + (96 - ts) / 2, r.y + 6 + (96 - ts) / 2, ts, ts);
             if (tex) GUI.DrawTexture(tr, tex); else Fill(tr, new Color(1, 1, 1, 0.05f));
             GUI.Label(new Rect(r.x + 4, r.y + 104, 112, 18), SpName(st.sp), sT);
-            GUI.Label(new Rect(r.x + 4, r.y + 122, 112, 18), $"{Len(L * 1e-6f)} · {World.GradeName[World.Grade(st)]}", sTd);
+            GUI.Label(new Rect(r.x + 4, r.y + 122, 112, 18), $"{Len(L * 1e-6f)} · {Taxa.Name(st)}", sTd);
             if (GUI.Button(r, GUIContent.none, GUIStyle.none) && w.species.TryGetValue(st.sp, out var sp)) { showTray = false; GoSpecies(sp); }
         }
         GUI.EndScrollView();

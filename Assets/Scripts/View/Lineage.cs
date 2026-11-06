@@ -105,7 +105,7 @@ public partial class EvoTank
         if (sel.pinch >= 1)
         {
             var side = sel.rot * Vector3.forward * sel.L * (BOX / B) * 0.36f;
-            var sib = new Av { id = sel.id, slot = sel.slot, k = sel.k, grade = sel.grade, L = sel.L, spd = sel.spd, sink = sel.sink, sessile = sel.sessile, t0 = sel.t0 + 1.7f, rate = UnityEngine.Random.Range(0.8f, 1.25f), vs = sel.vs, ph = sel.ph + 3, p = sel.p - side, dir = sel.dir, rot = sel.rot, grow = 0.55f };   // 크기 0.3+0.7·smooth(0.55) ≈ 0.7: 잘록해진 반쪽과 비슷
+            var sib = new Av { id = sel.id, slot = sel.slot, k = sel.k, look = sel.look, L = sel.L, spd = sel.spd, sink = sel.sink, sessile = sel.sessile, t0 = sel.t0 + 1.7f, rate = UnityEngine.Random.Range(0.8f, 1.25f), vs = sel.vs, ph = sel.ph + 3, p = sel.p - side, dir = sel.dir, rot = sel.rot, grow = 0.55f };   // 크기 0.3+0.7·smooth(0.55) ≈ 0.7: 잘록해진 반쪽과 비슷
             sel.p += side; sel.grow = 0.55f; sel.pinch = -1; avs.Add(sib);
             if (!divTold) { divTold = true; toast = "<b>분열</b> — 앞쪽 딸세포를 계속 따라갑니다"; toastT = 4; }
             return;

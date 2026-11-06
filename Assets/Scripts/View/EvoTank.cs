@@ -34,7 +34,7 @@ public partial class EvoTank : MonoBehaviour
     float yaw = 35, pitch = 18, dist = 9, camDist = 9; Vector3 m0; bool dragging, overUI;
     (int slot, int k) want = (-1, 0);                  // 종 목록에서 고른 것: 다음 표본에서 하나 고른다
 
-    sealed class Av { public int id, slot, k, grade; public Vector3 p, dir, vs = Vector3.one; public float L, spd, sink, t0, rate, grow = 1, pinch = -1, ph; public bool sessile; public Quaternion rot; }   // vs 개체마다 조금 다른 몸 비율, pinch 분열 진행(0–1)
+    sealed class Av { public int id, slot, k; public Look look; public Vector3 p, dir, vs = Vector3.one; public float L, spd, sink, t0, rate, grow = 1, pinch = -1, ph; public bool sessile, crawl; public Quaternion rot; }   // vs 개체마다 조금 다른 몸 비율, pinch 분열 진행(0–1)
     readonly List<Av> avs = new(); Av sel; float tRes, tScan;
     struct Cand { public int s, k; public float L; public double e; public Morph m; }
     readonly List<Cand> cand = new();
@@ -69,37 +69,49 @@ public partial class EvoTank : MonoBehaviour
         new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Elong, 2f) },
         new[] { (Gn.Cells, 20f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.8f), (Gn.Neuro, 0.7f), (Gn.Bilat, 0.8f), (Gn.Skel, 0.5f), (Gn.Circ, 0.4f), (Gn.Eye, 0.3f), (Gn.Elong, 2f) },
         new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f) },
+        // 4단계 몸 설계(부품 조합): 갯지렁이 · 절지동물 · 요각류 · 삼엽충 · 고둥 · 조개 · 화살벌레 · 불가사리 · 성게 · 산호 · 칠성장어 · 갑주어 · 판피어 · 상어 · 경골어류
+        Wm((Gn.Elong, 2f), (Gn.Seg, 4f), (Gn.Burrow, 0.8f)), Wm((Gn.Elong, 2f), (Gn.Seg, 4f), (Gn.Limb, 0.5f)), Wm((Gn.Cells, 18f), (Gn.Elong, 1.2f), (Gn.Seg, 4f), (Gn.Limb, 0.7f), (Gn.Exo, 0.6f), (Gn.Circ, 0.5f), (Gn.Eye, 0.4f), (Gn.Burrow, 0.6f)),
+        Wm((Gn.Cells, 14f), (Gn.Elong, 1f), (Gn.Seg, 3f), (Gn.Limb, 0.7f), (Gn.Exo, 0.5f), (Gn.Eye, 0.3f), (Gn.PreyR, 2.5f)), Wm((Gn.Cells, 18f), (Gn.Elong, 1f), (Gn.Seg, 4f), (Gn.Limb, 0.6f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.6f), (Gn.Circ, 0.5f), (Gn.Eye, 0.5f), (Gn.Burrow, 0.6f)),
+        Wm((Gn.Elong, 0.5f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f), (Gn.Jaw, 0.5f), (Gn.Herb, 0.6f), (Gn.Circ, 0.5f)), Wm((Gn.Neuro, 0.3f), (Gn.Elong, 0.3f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f), (Gn.Burrow, 0.7f), (Gn.Cilia, 0.7f), (Gn.Circ, 0.5f)),
+        Wm((Gn.Elong, 2f), (Gn.Jaw, 0.6f), (Gn.Transp, 0.7f), (Gn.Ambush, 0.7f), (Gn.Eye, 0.3f), (Gn.Pigment, 0f)),
+        Wm((Gn.Bilat, 0f), (Gn.Neuro, 0.4f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f), (Gn.Limb, 0.5f)), Wm((Gn.Bilat, 0f), (Gn.Neuro, 0.4f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f)),
+        Wm((Gn.Bilat, 0f), (Gn.Neuro, 0.3f), (Gn.Gut, 0.6f), (Gn.Attach, 0.7f), (Gn.Mineral, 0.6f), (Gn.Cells, 12f)),
+        Fi(), Fi((Gn.Mineral, 0.6f)), Fi((Gn.Jaw, 0.7f), (Gn.Exo, 0.5f), (Gn.Mineral, 0.6f)), Fi((Gn.Jaw, 0.7f), (Gn.Limb, 0.5f)), Fi((Gn.Jaw, 0.7f), (Gn.Mineral, 0.6f), (Gn.Limb, 0.5f)),
     };
+    static (int g, float v)[] Wm(params (int, float)[] x) => new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f) }.Concat(x).ToArray();
+    static (int g, float v)[] Fi(params (int, float)[] x) => new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f), (Gn.Jaw, 0f) }.Concat(x).ToArray();
     System.Collections.IEnumerator Shots(string dir, bool gallery)
     {
         System.IO.Directory.CreateDirectory(dir); var galS = new List<Strain>();
         if (gallery)
         {
+            w.PruneTo(GAL.Length + 4);
             var par = w.strains[w.live[0]];
             foreach (var set in GAL)
             {
                 var g = (float[])par.g.Clone(); foreach (var (j, x) in set) g[j] = x;
                 var ns = w.Inject(par.slot, g, 1e-6); if (ns == null) continue; galS.Add(ns);
-                for (int v = 0; v < World.V; v++) { double c = 0; for (int k = 0; k < ns.K; k++) c += w.cnt[World.Ix(ns.slot, v, k)]; for (int k = 0; k < ns.K; k++) w.cnt[World.Ix(ns.slot, v, k)] = Math.Round(c / ns.K); }
+                for (int v = 0; v < World.V; v++) { double c = 0; for (int k = 0; k < ns.K; k++) c += w.cnt[World.Ix(ns.slot, v, k)]; for (int k = 0; k < ns.K; k++) w.cnt[World.Ix(ns.slot, v, k)] = c > 0 ? Math.Max(1, Math.Round(c / ns.K)) : 0; }
             }
         }
         System.Collections.IEnumerator Snap(string n)
         {
             yield return new WaitForEndOfFrame(); ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, n + ".png"));
-            Debug.Log($"[EvoTank] shot {n} avs {avs.Count} B {B:G3} depth {py:0.00} conc {conc:G3} sel {sel != null} live {w.live.Count} ms {frameSim:0.0} | " + string.Join(" ", avs.GroupBy(a => (World.Grade(w.strains[a.slot]), a.k, (int)(a.L * 1e6))).OrderByDescending(gr => gr.Count()).Take(8).Select(gr => $"g{gr.Key.Item1}k{gr.Key.Item2}:{gr.Key.Item3}um×{gr.Count()}"))); yield return null;
+            Debug.Log($"[EvoTank] shot {n} avs {avs.Count} B {B:G3} depth {py:0.00} conc {conc:G3} sel {sel != null} live {w.live.Count} ms {frameSim:0.0} | " + string.Join(" ", avs.GroupBy(a => ((int)a.look, a.k, (int)(a.L * 1e6))).OrderByDescending(gr => gr.Count()).Take(8).Select(gr => $"g{gr.Key.Item1}k{gr.Key.Item2}:{gr.Key.Item3}um×{gr.Count()}"))); yield return null;
         }
         var wait = new WaitForSecondsRealtime(3);
         yield return wait; yield return Snap("1-start"); noDots = true; yield return null; yield return Snap("1b-nodots"); noDots = false;
-        if (gallery)   // 단세포 몸 설계마다 확대 카드 그림을 따로 저장(card-<설계>.png)
+        if (gallery)   // 몸 설계마다 확대 카드 그림을 따로 저장(단세포 card-<설계>.png, 다세포 card-L<몸 설계>.png = 어른 단계)
         {
             Unfollow(); var tex = new Texture2D(512, 512, TextureFormat.RGB24, false);
-            foreach (var st in galS.Concat(w.live.Select(x => w.strains[x])).Where(x => w.strains[x.slot] == x && World.Grade(x) == 0).GroupBy(x => (Bodies.PlanOf(x), x.aspect < 1.5f)).Select(gp => gp.First()).ToList())
+            foreach (var st in galS.Concat(w.live.Select(x => w.strains[x])).Where(x => w.strains[x.slot] == x).GroupBy(x => Taxa.Of(x) == Look.Cell ? (int)Bodies.PlanOf(x) * 2 + (x.aspect < 1.5f ? 0 : 1) : 100 + (int)Taxa.Of(x) * 2 + (Taxa.Of(x) == Look.Echino && x.g[Gn.Limb] < 0.3f ? 1 : 0)).Select(gp => gp.First()).ToList())
             {
-                sel = new Av { id = st.id, slot = st.slot, dir = Vector3.forward, rot = Quaternion.identity, L = w.M(st.slot, V, 0).L * 1e-6f, rate = 1 };
+                var lk = Taxa.Of(st); int k = lk == Look.Cell ? 0 : st.K - 1;
+                sel = new Av { id = st.id, slot = st.slot, k = k, look = lk, dir = Vector3.forward, rot = Quaternion.identity, L = w.M(st.slot, V, k).L * 1e-6f, rate = 1 };
                 cYaw = 60; cPitch = 14; cDragT = Time.time; yield return null; yield return null;
                 RenderTexture.active = cardRT; tex.ReadPixels(new Rect(0, 0, 512, 512), 0, 0); RenderTexture.active = null;
-                System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, $"card-{(int)Bodies.PlanOf(st)}{Bodies.PlanOf(st)}{(st.aspect < 1.5f ? "" : "-long")}.png"), tex.EncodeToPNG());
-                Debug.Log($"[EvoTank] plan {Bodies.PlanOf(st)} {StageName(st, 0)} verts {cardMesh?.vertexCount} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, lk == Look.Cell ? $"card-{(int)Bodies.PlanOf(st)}{Bodies.PlanOf(st)}{(st.aspect < 1.5f ? "" : "-long")}.png" : $"card-L{(int)lk:00}{lk}{(lk == Look.Echino && st.g[Gn.Limb] < 0.3f ? "-urchin" : "")}.png"), tex.EncodeToPNG());
+                Debug.Log($"[EvoTank] plan {(lk == Look.Cell ? Bodies.PlanOf(st).ToString() : lk.ToString())} {StageName(st, k)} verts {cardMesh?.vertexCount} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
             }
             sel = null;
         }
@@ -114,7 +126,7 @@ public partial class EvoTank : MonoBehaviour
             for (int i = 0; i < vv.Length; i++) if (Mathf.Abs(vv[i].z) < 0.03f && cc[i].a > 0.99f) { my = Mathf.Max(my, Mathf.Abs(vv[i].y)); mxx = Mathf.Max(mxx, Mathf.Abs(vv[i].x)); }
             Debug.Log($"[EvoTank] body mid half-height {my:0.000} half-width {mxx:0.000} Form {w.strains[sel.slot].g[Gn.Form]:0.00}");
         }
-        if (sel != null) Debug.Log($"[EvoTank] card {(cardMesh != null ? "ok" : "FAIL")} grade {World.Grade(w.strains[sel.slot])} k {sel.k} bounds {cardMesh?.bounds.size} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
+        if (sel != null) Debug.Log($"[EvoTank] card {(cardMesh != null ? "ok" : "FAIL")} look {Taxa.Of(w.strains[sel.slot])} k {sel.k} bounds {cardMesh?.bounds.size} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
         // 혈통 점검: 후손 있는 계통을 없애면 그 후손으로, 후손 없는 계통을 없애면 '끊김' 카드(또는 그새 생긴 후손)로
         void Kill(int id) { int s = idSlot[id]; for (int v = 0; v < World.V; v++) for (int k = 0; k < World.KM; k++) w.cnt[World.Ix(s, v, k)] = 0; }
         Index(); int f0 = w.live.Select(x => w.strains[x].id).FirstOrDefault(id => BestDesc(id) >= 0);
@@ -197,7 +209,7 @@ public partial class EvoTank : MonoBehaviour
             {
                 double c = Dens(s, k); if (c <= 0) continue;
                 var m = w.M(s, v, k); float L = m.L * 1e-6f;
-                if (L < B * 0.006f || L > B * 0.5f || m.sessile && yF < -H) continue;   // 붙어 사는 것은 바닥이 보일 때만
+                if (L < B * 0.006f || L > B * 0.5f || (m.sessile || Crawls(st, k, m)) && yF < -H) continue;   // 붙어 살거나 바닥을 기는 것은 바닥이 보일 때만
                 cand.Add(new Cand { s = s, k = k, L = L, e = c * boxML, m = m }); sum += cand[^1].e; occ += cand[^1].e * Math.Pow(L / B, 3);
                 if (L > bigL) { bigL = L; big = cand.Count - 1; }
             }
@@ -232,14 +244,18 @@ public partial class EvoTank : MonoBehaviour
     }
     static long Key(int s, int k) => ((long)s << 8) | (uint)k;
 
+    // 바닥을 기는 몸: 시뮬의 저서(굴 파기) + 껍데기·골판으로 무거운 연체·극피동물. 유생은 헤엄친다
+    static bool Crawls(Strain st, int k, in Morph m) => !m.sessile && (m.benthic || (k > 0 || st.K == 1) && Taxa.Of(st) is Look.Snail or Look.Clam or Look.Echino);
+
     Av Spawn(in Cand c)
     {
         var st = w.strains[c.s];
-        var a = new Av { id = st.id, slot = c.s, k = c.k, L = c.L, spd = c.m.speed * 1e-6f, sink = c.m.sink / 3600f, sessile = c.m.sessile, t0 = UnityEngine.Random.value * 100, grade = World.Grade(st),
+        var a = new Av { id = st.id, slot = c.s, k = c.k, L = c.L, spd = c.m.speed * 1e-6f, sink = c.m.sink / 3600f, sessile = c.m.sessile, t0 = UnityEngine.Random.value * 100, look = Taxa.Of(st),
             rate = UnityEngine.Random.Range(0.8f, 1.25f), vs = new Vector3(UnityEngine.Random.Range(0.9f, 1.1f), UnityEngine.Random.Range(0.9f, 1.1f), UnityEngine.Random.Range(0.9f, 1.1f)) };   // 같은 계통도 개체마다 박동 빠르기·몸 비율이 조금씩 다르다
         a.p = UnityEngine.Random.insideUnitSphere * H; a.p.y = Mathf.Clamp(a.p.y, yF, yS);
         a.dir = UnityEngine.Random.onUnitSphere; a.rot = UnityEngine.Random.rotation;
         if (a.sessile) { a.p.y = yF; a.rot = Quaternion.LookRotation(Vector3.up, Vector3.forward) * Quaternion.Euler(0, 0, UnityEngine.Random.value * 360); }
+        else if (a.crawl = Crawls(st, c.k, c.m)) { a.p.y = yF; a.dir = Quaternion.Euler(0, UnityEngine.Random.value * 360, 0) * Vector3.forward; a.rot = Quaternion.LookRotation(a.dir); }
         return a;
     }
 
@@ -252,6 +268,12 @@ public partial class EvoTank : MonoBehaviour
             a.grow = Mathf.Min(1, a.grow + dt * 0.8f);
             if (a.pinch >= 0) { a.pinch += dt / 1.5f; if (a != sel && a.pinch > 1) a.pinch = -1; }   // 분열 중: 가운데가 잘록해진다(고른 개체는 Divide가 둘로 나눈다)
             if (a.sessile) continue;
+            if (a.crawl)   // 바닥을 긴다(굴 파는 벌레·고둥·조개·극피동물)
+            {
+                var dd = UnityEngine.Random.insideUnitSphere * dt; dd.y = 0; a.dir = (a.dir + dd).normalized;
+                a.p += a.dir * Mathf.Min(a.spd * u, BOX * 0.3f) * dt; a.p.y = yF; a.p = Wrap(a.p);
+                a.rot = Quaternion.Slerp(a.rot, Quaternion.LookRotation(a.dir), 1 - Mathf.Exp(-dt * 3)); continue;
+            }
             if (a.L < 20e-6f) a.p += UnityEngine.Random.insideUnitSphere * Mathf.Sqrt(10 * 2.2e-19f / (a.L * 0.5f) * dt) * u;   // 브라운 운동: D = kT/(6πηr), 물 20 °C
             if (a.spd > 0 && a.L < 2e-3f)
             {
@@ -263,8 +285,8 @@ public partial class EvoTank : MonoBehaviour
             }
             else if (a.spd > 0)
             {
-                a.dir = (a.dir + UnityEngine.Random.insideUnitSphere * dt * (a.grade >= 6 ? 0.5f : 1.5f)).normalized;
-                float th = a.grade == 4 ? 0.3f + 2.2f * Mathf.Max(0, Mathf.Cos(3 * (T * a.rate + a.t0))) : 1;   // 해파리: 갓이 오므라들 때 나아간다(셰이더 맥동과 같은 위상)
+                a.dir = (a.dir + UnityEngine.Random.insideUnitSphere * dt * (a.look >= Look.Lancelet ? 0.5f : 1.5f)).normalized;
+                float th = a.look == Look.Jelly ? 0.3f + 2.2f * Mathf.Max(0, Mathf.Cos(3 * (T * a.rate + a.t0))) : 1;   // 해파리: 갓이 오므라들 때 나아간다(셰이더 맥동과 같은 위상)
                 a.p += a.dir * Mathf.Min(a.spd * u, BOX * 0.3f) * th * dt;
                 a.rot = Quaternion.Slerp(a.rot, Quaternion.LookRotation(a.dir), 1 - Mathf.Exp(-dt * 5));
             }
@@ -272,7 +294,7 @@ public partial class EvoTank : MonoBehaviour
             a.p.y -= Mathf.Clamp(a.sink * u, -BOX * 0.2f, BOX * 0.2f) * dt;
             a.p = Wrap(a.p);
         }
-        if (sel != null && !sel.sessile) MoveBy(sel.p / u);   // 고른 개체와 함께 헤엄친다(떠다니는 원점)
+        if (sel != null && !sel.sessile) MoveBy(new Vector3(sel.p.x, sel.crawl ? 0 : sel.p.y, sel.p.z) / u);   // 고른 개체와 함께 헤엄친다(떠다니는 원점)
     }
 
     // 물고기 떼: 같은 계통끼리 방향 맞추기·모이기·부딪히지 않기(boids, Reynolds 1987)
@@ -280,7 +302,7 @@ public partial class EvoTank : MonoBehaviour
     {
         foreach (var a in avs)
         {
-            if (a.grade < 6 || a.spd <= 0 || a.sessile) continue;
+            if (a.look < Look.Lancelet || a.spd <= 0 || a.sessile) continue;
             Vector3 al = Vector3.zero, co = Vector3.zero, se = Vector3.zero; int n = 0; float R = a.L * u * 6, Rs = a.L * u * 1.2f;
             foreach (var o in avs)
             {
@@ -447,8 +469,8 @@ public partial class EvoTank : MonoBehaviour
         top = new Rect(10, 10, W - 20, 40); panel = new Rect(W - 370, 246, 360, Hh - 256); info = new Rect(10, Hh - 132, 520, 122);
         // 머리
         GUI.Box(top, GUIContent.none, sBox);
-        int nsp = w.species.Values.Count(x => x.total > 0), gmax = w.gradesSeen.Count > 0 ? w.gradesSeen.Max() : 0;
-        GUI.Label(new Rect(22, 18, W - 420, 26), $"<b>진화 수조</b>   {w.Time(w.tick)}   ·   종 {nsp}   ·   개체 {w.totalCount:0.0e0}   ·   가장 발달한 체제: <b>{World.GradeName[gmax]}</b>", sL);
+        int nsp = w.species.Values.Count(x => x.total > 0);
+        GUI.Label(new Rect(22, 18, W - 420, 26), $"<b>진화 수조</b>   {w.Time(w.tick)}   ·   종 {nsp}   ·   개체 {w.totalCount:0.0e0}   ·   몸 설계 <b>{w.looksSeen.Count}</b>가지", sL);
         for (int i = 0; i < 4; i++) if (GUI.Button(new Rect(W - 372 + i * 90, 15, 86, 30), SPN[i], speed == i ? sOn : sBtn)) speed = i;
         // 아래 왼쪽: 축척·층·모드
         GUI.Box(info, GUIContent.none, sBox);
@@ -580,7 +602,7 @@ public partial class EvoTank : MonoBehaviour
         GUILayout.Label($"<b>{sp?.name}</b>", sB); GUILayout.Label(sp?.ko ?? "", sS);
         if (follow >= 0) GUILayout.Label("<color=#7fe0ff>혈통 따라가는 중</color> — 이 개체는 그 계통의 대표 표본이다(시뮬레이션은 개체가 아니라 무리를 계산한다). 계통이 사라지면 가장 많은 후손으로 넘어간다. T: 타임라인", sS);
         string stage = !st.dev ? "" : sel.k == 0 ? " · 알·유생" : sel.k == st.K - 1 ? " · 성체" : $" · 어린 개체 {sel.k}/{st.K - 1}";
-        GUILayout.Label($"{World.GradeName[World.Grade(st)]}{stage}\n몸길이 {Len(m.L * 1e-6f)} · 세포 {Num(m.C)}개 · 헤엄 {Len(m.speed * 1e-6f)}/s\n임계 산소 {m.pcrit:0.0}% atm · 이 칸 {Num(w.cnt[q] / w.vol[v])}마리/mL · 세대 {st.gen:0}", sL);
+        GUILayout.Label($"{Taxa.Name(st)}{stage}\n몸길이 {Len(m.L * 1e-6f)} · 세포 {Num(m.C)}개 · 헤엄 {Len(m.speed * 1e-6f)}/s\n임계 산소 {m.pcrit:0.0}% atm · 이 칸 {Num(w.cnt[q] / w.vol[v])}마리/mL · 세대 {st.gen:0}", sL);
         w.Budget(st, v, ref m, w.gP[q], w.gB[q], bud);
         GUILayout.Space(6); GUILayout.Label("<b>에너지 수지</b> (시간당, 들어옴 / 나감)", sL);
         string[] nm = { "녹은 유기물", "광합성", "세균 먹기", "포식", "기초 대사", "형질 유지", "몸 구조", "삼투 조절", "삼투 손상", "자외선", "산소", "온도" };
@@ -607,7 +629,7 @@ public partial class EvoTank : MonoBehaviour
         foreach (var sp in w.species.Values.Where(x => x.total > 0).OrderByDescending(x => x.total).Take(30))
         {
             var c = Color.HSVToRGB(Mathf.Repeat(sp.hue / 360, 1), 0.6f, 1);
-            if (GUILayout.Button($"<color=#{ColorUtility.ToHtmlStringRGB(c)}>●</color> <b>{sp.name}</b>  {World.GradeName[sp.grade]}\n<size=11>{sp.ko} · {sp.total:0.0e0}마리</size>", new GUIStyle(sBtn) { alignment = TextAnchor.MiddleLeft, richText = true }))
+            if (GUILayout.Button($"<color=#{ColorUtility.ToHtmlStringRGB(c)}>●</color> <b>{sp.name}</b>  {Taxa.Name(sp.look)}\n<size=11>{sp.ko} · {sp.total:0.0e0}마리</size>", new GUIStyle(sBtn) { alignment = TextAnchor.MiddleLeft, richText = true }))
                 GoSpecies(sp);
         }
     }

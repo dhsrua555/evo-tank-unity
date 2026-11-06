@@ -29,7 +29,11 @@ namespace Evo
         public const int Size = 0, Osmo = 1, Vacuole = 2, Wall = 3, Flagella = 4, Chemo = 5, Eye = 6, Photo = 7, Phago = 8,
             Aerobic = 9, Pigment = 10, Topt = 11, Tbreadth = 12, Mutrate = 13, Elong = 14, Spines = 15, Lorica = 16, Cilia = 17,
             Plastic = 18, Cells = 19, Form = 20, Diff = 21, Attach = 22, Buoy = 23, Gut = 24, Neuro = 25, Bilat = 26, Circ = 27,
-            Skel = 28, Egg = 29, N = 30;
+            Skel = 28, Egg = 29,
+            Seg = 30, Limb = 31, Exo = 32, Mineral = 33, Jaw = 34, Herb = 35, Detr = 36, Ambush = 37, Burrow = 38, Toxin = 39, Transp = 40, School = 41, PreyR = 42, N = 43;
+        // 몸 부품(발생하는 다세포에서만 뜻이 있다): 단세포·군체에서는 돌연변이도 거리 계산도 하지 않는다
+        public static bool BodyOnly(int j) => j >= Seg && j <= Jaw || j == Burrow || j == School;
+        public static bool BodyReady(float[] g) => g[Cells] >= 4 && g[Diff] >= 0.4f;
         // 키, 이름, 최소, 최대, 시작, 돌연변이 표준편차, 종 거리 척도(0 = 거리에 안 셈)
         public static readonly GeneDef[] Def = {
             new("size", "세포 크기", 1, 8, 2.6f, 0.12f, 0.7f),            // log₂ 지름(μm): 2–256 μm, 시작 6 μm(세균을 가장 잘 먹는 크기, 첫 진핵생물 = 식세포 편모충)
@@ -62,6 +66,20 @@ namespace Evo
             new("circ", "순환·아가미", 0, 1, 0, 0.05f, 0.25f),            // 확산 한계를 넘는 산소 운반
             new("skel", "척삭·골격", 0, 1, 0, 0.05f, 0.25f),
             new("egg", "알 크기", 0, 24, 0, 0.3f, 2),                     // log₂ 알(번식체) 세포 수
+            // 4단계: 몸 부품·식성·사냥·방어. 이득과 비용은 물리로만(MorphT·Attack·Digest·Budget)
+            new("seg", "체절", 0, 6, 0, 0.25f, 1.5f),                       // log₂ 마디 수 1–64: 다리 수, 연동 운동(땅 파기)
+            new("limb", "부속지(다리·지느러미)", 0, 1, 0, 0.05f, 0.25f),   // 지렛대(골격·외골격)가 있어야 힘을 쓴다: 헤엄·기기·긁기
+            new("exo", "외골격·갑옷", 0, 1, 0, 0.05f, 0.25f),             // 덜 소화됨·근육 지렛대 / 탈피(자라기 느림)·피부 호흡 막힘·클수록 무거움
+            new("mineral", "광물화(껍데기·뼈)", 0, 1, 0, 0.05f, 0.25f),    // 외골격 → 껍데기, 척삭 → 뼈. 무겁고 찬물에서 비싸다
+            new("jaw", "턱", 0, 1, 0, 0.05f, 0.25f),                       // 입이 커지고 갑옷을 깨뜨린다(골격이 있어야)
+            new("herb", "식물 소화", 0, 1, 0, 0.05f, 0.25f),               // 세포벽·광합성 먹이 소화 / 긴 장 = 덜 먹음
+            new("detr", "부스러기 먹기", 0, 1, 0.5f, 0.05f, 0.25f),        // 바다눈·퇴적물을 얼마나 삼키나(밥통을 채우는 몫)
+            new("ambush", "매복", 0, 1, 0, 0.05f, 0.25f),                  // 가만히 기다림: 만남↓·들킴↓·헤엄 비용↓ (Kiørboe 2011)
+            new("burrow", "땅 파기", 0, 1, 0, 0.05f, 0.25f),               // 바닥 속에 숨어 퇴적물을 먹는다
+            new("toxin", "독", 0, 1, 0, 0.05f, 0.25f),                     // 포식자가 뱉는다
+            new("transp", "투명함", 0, 1, 0, 0.05f, 0.25f),                // 눈으로 찾는 포식자에게 덜 보임(색소·껍데기·큰 몸이면 소용없다)
+            new("school", "떼짓기", 0, 1, 0, 0.05f, 0.25f),                // 눈·신경이 있어야. 무리가 빽빽하면 한 마리가 잡힐 확률↓
+            new("preyr", "먹이 크기비", 0.5f, 4, 1.5f, 0.15f, 0.8f),        // ln(몸길이 ÷ 좋아하는 먹이 길이), 몸 수준 섭식. 1.5 ≈ 4.5배
         };
     }
 
@@ -134,6 +152,7 @@ namespace Evo
         public float BURY = 0.002f / 24;  // 퇴적물 속 유기물이 묻혀 순환에서 빠지는 속도(시간당). 묻힌 탄소만큼 길게 보면 산소가 남는다(Berner 2004)
         public float CYA_G = 0.05f, CYA_M = 0.006f, CYA_IK = 0.05f;   // 남세균(1 μm 광합성 세균): 최대 성장(시간당, 하루 ~1회 분열), 바이러스 사망, 광포화
         public float JUMP = 1e-8f;        // 단세포의 먼 거리 이동(시간당, 표층에서 아무 해역으로)
+        public float SED_Q = 0.3f;        // 퇴적물 유기물의 먹이 질(대부분 분해 안 되는 찌꺼기)
         public float SZM = -0.25f;        // 바깥 사망률 ∝ 질량^−¼ (Peterson & Wroblewski 1984, McGurk 1986)
         // 지구 시스템(Earth.cs). 지질 과정은 압축: 생태 1일 = 지질 1000년
         public float TAU_C = 300;         // CO₂가 풍화로 평형을 찾는 시간(일 = 지질 30만 년; 규산염 풍화 온도조절기, Walker 1981)
@@ -166,13 +185,15 @@ namespace Evo
     public sealed class Species
     {
         public int id, parent; public float[] rep; public long born, ext = -1; public double total, peak, kills;
-        public string name, ko; public float hue; public bool named; public int grade;
+        public string name, ko; public float hue; public bool named; public Look look;
     }
 
     // 칸 하나에서 계통 하나·단계 하나의 실제 모양(가소성·온도 반영). 화면이 그릴 때도 쓴다.
     public struct Morph
     {
-        public float perf, kt, esd, cellL, spines, C, M, D, L, Leff, thick, expo, pcrit, speed, sink, pe, gapeC, lnOptC, gapeB, Rs, RsA, RsB, Fc, org, lnCell, lnL, lnLeff;   // Rs = RsA + RsB × 빛 몫(눈). ln 값은 포식 계산용
+        public float perf, kt, esd, cellL, spines, C, M, D, L, Leff, thick, expo, pcrit, speed, sink, pe, gapeC, lnOptC, gapeB, Rs, RsA, RsB, Fc, org, lnCell, lnL, lnLeff;
+        public float cruise, limb, jaw, armor, burrow, transp, school, toxin, herb, imaxF, lnPrey, graze;   // 4단계 부품: 돌아다니는 속도(매복이면 느림), 부속지·턱 효율, 갑옷, 땅 파기, 투명·떼·독, 식물 소화, 먹이 크기비
+        public bool benthic;   // 땅 파는 생물: 바닥 칸에 산다   // Rs = RsA + RsB × 빛 몫(눈). ln 값은 포식 계산용
         public bool sessile;
     }
 
@@ -206,7 +227,6 @@ namespace Evo
         public const int RMAX = 24, NY = 12, LS = RMAX, V = LS * NY, KM = 8;   // 크기 단계 최대 8
         public static readonly float[] ZE = { 0, 6, 12, 20, 30, 45, 65, 90, 130, 200, 400, 1000, 4500 };   // 층 경계 수심(m): 빛이 드는 위쪽을 잘게(16층도 시험: 계산만 늘었다)
         public const int SMAX = 256, NI = 1000, TB = 132;   // TB: 모양 캐시 수온 칸(0.5 °C, −2–64 °C)
-        public static readonly string[] GradeName = { "원생생물", "군체", "다세포 조류", "해면형", "자포형", "벌레형", "척삭동물형", "어류" };
 
         public Params P = new();
         public int seed; public long tick; public float[] env = new float[Ev.N], target = new float[Ev.N];
@@ -241,7 +261,7 @@ namespace Evo
         public readonly Dictionary<int, Rec> recs = new();
         public int pin = -1;   // 화면이 따라가는 계통 id(기록 정리에서 뺀다)
         public readonly List<(long t, string type, string text)> events = new();
-        public readonly HashSet<int> gradesSeen = new();
+        public readonly HashSet<Look> looksSeen = new();   // 나온 적 있는 몸 설계(순서 없음)
         public double totalCount, totalBio, births, deaths, kills;
         public long mutTry, mutKeep;   // 돌연변이 후보·기록한 수(누계)
         public readonly History hist = new();
@@ -293,7 +313,7 @@ namespace Evo
             this.seed = seed; tick = 0; nextId = 1; nextSp = 1;
             for (int e = 0; e < Ev.N; e++) env[e] = target[e] = envInit != null ? envInit[e] : Ev.Def[e].init;
             Array.Clear(cnt, 0, cnt.Length); Array.Clear(mu, 0, mu.Length); Array.Clear(cue, 0, cue.Length); Array.Clear(strains, 0, SMAX); Array.Clear(mcOk, 0, mcOk.Length);
-            live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); gradesSeen.Clear(); gradesSeen.Add(0);
+            live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); looksSeen.Clear(); looksSeen.Add(Look.Cell);
             Array.Clear(dep, 0, V); Array.Clear(depS, 0, depS.Length); Array.Clear(chl, 0, chl.Length);
             geo.sea = 0; geo.Generate(seed); geo.Regions(RMAX); Geometry(); EarthReset(); Tweaks();
             for (int v = 0; v < V; v++)
@@ -366,6 +386,7 @@ namespace Evo
             s.longAx = (float)Math.Max(a, b); s.thinAx = (float)Math.Min(a, b);
             // 밀도(kg/m³): 세포질 ~1050, 규산·석회 각과 뼈는 무겁고, 기포·기름·부레는 가볍다 (Walsby 1994)
             s.rho = 1050 + 300 * g[Gn.Lorica] + 40 * g[Gn.Wall] + 60 * g[Gn.Skel] - 90 * g[Gn.Buoy];
+            if (g[Gn.Cells] >= 4 && g[Gn.Diff] >= 0.5f) s.rho += 80 * g[Gn.Exo] + 600 * g[Gn.Mineral] * MathF.Max(g[Gn.Exo], 0.15f * g[Gn.Skel]);   // 키틴 ~1.2, 껍데기·뼈(탄산칼슘·인산칼슘 ~2.7)
             // 발생: 생식-체세포 분화(diff>0.5)가 있고 16세포 이상이면 한 세포(알)에서 자라는 개체 → 크기 단계(질량 10배마다)
             float cA = g[Gn.Cells] >= 4 && g[Gn.Diff] >= 0.5f ? MathF.Pow(2, g[Gn.Cells]) : MathF.Pow(2, MathF.Floor(g[Gn.Cells]));
             s.dev = g[Gn.Cells] >= 4 && g[Gn.Diff] >= 0.5f;
@@ -373,20 +394,6 @@ namespace Evo
             float c0 = MathF.Pow(2, MathF.Min(g[Gn.Egg], g[Gn.Cells] - 1));
             s.K = Math.Clamp((int)MathF.Ceiling(MathF.Log(cA / c0, 5)) + 1, 2, KM);
             for (int k = 0; k < s.K; k++) s.C[k] = c0 * MathF.Pow(cA / c0, k / (float)(s.K - 1));
-        }
-
-        public static int Grade(Strain s)
-        {
-            var g = s.g;
-            if (g[Gn.Cells] < 1) return 0;
-            if (!s.dev) return 1;
-            bool animal = g[Gn.Gut] > 0.5f || g[Gn.Neuro] > 0.5f;
-            if (!animal) return g[Gn.Photo] > 0.3f ? 2 : g[Gn.Attach] > 0.5f && g[Gn.Phago] > 0.3f ? 3 : 1;
-            if (g[Gn.Bilat] < 0.5f) return g[Gn.Attach] > 0.5f && g[Gn.Gut] < 0.5f ? 3 : 4;
-            if (g[Gn.Skel] < 0.4f) return 5;
-            float adultL = s.esd0 * MathF.Pow(s.C[s.K - 1], 1 / 3f) * s.longAx;   // μm
-            bool fish = g[Gn.Circ] > 0.5f && g[Gn.Eye] > 0.5f && g[Gn.Neuro] > 0.5f && g[Gn.Skel] > 0.6f && g[Gn.Attach] < 0.5f && g[Gn.Form] > 0.7f && adultL >= 1e4;
-            return fish ? 7 : 6;
         }
 
         public static float ThermalPerf(float[] g, float t)
@@ -430,7 +437,8 @@ namespace Evo
             float he = h / (1 + 300 * g[Gn.Circ] * g[Gn.Circ]);
             // 확산만으로 사는 몸은 두께 ~1 mm에서 산소 ~1% atm(≈5% PAL)이 필요하다(Catling 2005). 순환·아가미가 있으면 아가미 확산이 문턱을 정한다:
             // 어류 Pcrit ~3% atm(LC50 1.5 mg/L). 신경·근육(활동)이 많으면 수요↑
-            m.pcrit = (4e-8f * he * he + 2 * g[Gn.Circ]) * (1 + g[Gn.Neuro]);
+            float bd = s.dev ? 1 : 0;                                             // 몸 부품은 발생하는 다세포에서만
+            m.pcrit = (4e-8f * he * he + 2 * g[Gn.Circ]) * (1 + g[Gn.Neuro]) * (1 + 1.5f * bd * g[Gn.Exo] * (1 - g[Gn.Circ]));   // 외골격(큐티클)은 피부 호흡을 막는다 → 아가미가 없으면 산소가 더 필요
             m.sessile = g[Gn.Attach] > 0.5f && (!s.dev || k > 0);                 // 발생하는 부착 생물은 유생(단계 0)만 떠다닌다
             m.org = Math.Clamp(g[Gn.Circ] + g[Gn.Neuro], 0, 1) * (s.dev ? 1 : 0);
             // 헤엄: 편모 추진은 크기와 거의 무관, 섬모는 표면적에 비례해 큰 세포에서 빨라진다 (Fenchel 1987).
@@ -438,8 +446,17 @@ namespace Evo
             float drag = 1 + 0.1f * MathF.Abs(g[Gn.Elong]) + 0.8f * m.spines + 0.3f * g[Gn.Lorica];
             float sp = (150 * g[Gn.Flagella] + 250 * g[Gn.Cilia] * MathF.Pow(m.esd / 10, 0.8f)) / drag / (1 + 0.5f * g[Gn.Wall]);
             if (m.C > 1) sp *= MathF.Pow(m.C, -0.1f) * (1 + 0.5f * g[Gn.Diff]);
-            float muscle = s.dev ? 2 * g[Gn.Neuro] * (0.3f + 0.7f * g[Gn.Skel]) * (0.4f + 0.6f * g[Gn.Bilat]) * m.L : 0;
+            // 근육은 지렛대(척삭·골격, 외골격)에 붙어야 힘을 낸다. 부속지(다리·지느러미)는 지렛대와 마디(또는 척추)가 있어야 쓸모 있다. 무거운 갑옷은 느리게 한다
+            float lever = MathF.Max(g[Gn.Skel], 0.8f * g[Gn.Exo]), segF = MathF.Max(MathF.Min(1, g[Gn.Seg] / 3), g[Gn.Skel]);
+            m.limb = bd * g[Gn.Limb] * MathF.Max(0.3f, MathF.Max(g[Gn.Skel], g[Gn.Exo])) * (0.4f + 0.6f * segF);
+            float heavy = 1 + 0.6f * bd * g[Gn.Exo] * (0.5f + g[Gn.Mineral]);
+            float muscle = s.dev ? 2 * g[Gn.Neuro] * (0.3f + 0.7f * lever) * (0.4f + 0.6f * g[Gn.Bilat]) * (1 + 0.6f * m.limb) / heavy * m.L : 0;
             m.speed = m.sessile ? 0 : MathF.Max(sp, muscle);                      // μm/s
+            m.cruise = m.speed * (1 - 0.9f * g[Gn.Ambush]);                       // 매복: 평소엔 거의 안 움직이고(만남·들킴·헤엄 비용↓) 덮칠 때·도망칠 때만 전속력
+            m.burrow = bd * g[Gn.Burrow] * (k > 0 || s.K == 1 ? 1 : 0); m.benthic = m.burrow > 0.5f && !m.sessile;   // 유생은 떠다닌다
+            m.armor = bd * MathF.Max(g[Gn.Exo] * (0.5f + 0.5f * g[Gn.Mineral]), 0.6f * g[Gn.Skel] * g[Gn.Mineral]);
+            m.toxin = g[Gn.Toxin]; m.herb = g[Gn.Herb]; m.imaxF = 1 - 0.25f * g[Gn.Herb];   // 식물을 삭이는 긴 장 = 음식이 오래 머문다
+            m.school = bd * g[Gn.School] * g[Gn.Eye] * g[Gn.Neuro];
             // 침강(Stokes, m/h): v = Δρ g Vol / (6π μ r_drag Φ). 형태 저항 Φ: 길쭉함·가시·실 모양이 올린다 (Padisák 2003)
             float rhoW = 1000 + 0.76f * env[Ev.Salt], visc = 1.79e-3f * MathF.Exp(-0.0235f * t);
             float vol = m.C * MathF.PI / 6 * m.esd * m.esd * m.esd;             // μm³
@@ -461,9 +478,13 @@ namespace Evo
             float engulf = Math.Clamp((m.pe - 0.7f) / 0.3f, 0, 1);
             m.lnOptC = 1.0986f + 0.98f * g[Gn.Cilia] - 1.0986f * engulf;
             // 세포 수준 청소율: 섭식류(편모·섬모가 만드는 물살). 군체·해면은 겉 세포가 모두 거른다
-            m.Fc = m.pe < 0.02f ? 0 : P.CLR * m.pe * MathF.Pow(m.esd / 10, 2.3f) * (0.5f + sp / 150) * MathF.Pow(m.C, 0.85f) * m.expo;
+            m.Fc = m.pe < 0.02f ? 0 : P.CLR * m.pe * MathF.Pow(m.esd / 10, 2.3f) * (0.5f + sp / 150) * MathF.Pow(m.C, 0.85f) * m.expo * (1 - 0.8f * g[Gn.Ambush]);   // 매복하면 물살을 덜 일으킨다
             // 몸 수준 섭식(소화관): 입 = 몸길이의 ~1/3, 감지 거리 = 기계 감각(신경) + 눈(빛이 있어야)
-            m.gapeB = s.dev ? m.L * 0.33f * g[Gn.Gut] : 0;
+            m.jaw = bd * g[Gn.Jaw] * MathF.Max(0.2f, MathF.Max(g[Gn.Skel], g[Gn.Exo]));   // 턱은 단단한 데 붙어야 문다(턱뼈·큰턱)
+            m.gapeB = s.dev ? m.L * 0.33f * g[Gn.Gut] * (1 + 1.2f * m.jaw) : 0;
+            m.lnPrey = g[Gn.PreyR]; m.graze = MathF.Max(m.limb, m.jaw);           // 긁어 먹기(다리·치설·턱): 붙어 사는 먹이
+            // 투명함: 색소·엽록체·껍데기·큰 몸은 숨길 수 없다
+            m.transp = g[Gn.Transp] * (1 - g[Gn.Pigment]) * (1 - 0.8f * g[Gn.Photo]) * (1 - 0.7f * bd * g[Gn.Mineral] * MathF.Max(g[Gn.Exo], g[Gn.Skel])) * (1 - 0.5f * MathF.Min(1, m.L / 5e4f));
             m.RsA = m.L * (0.3f + 0.4f * g[Gn.Neuro]); m.RsB = m.L * 0.8f * g[Gn.Eye] * g[Gn.Eye] * g[Gn.Neuro];   // 1 g 어류 탐색 부피 ~1 m³/h (Hartvig 2011)
             m.Rs = m.RsA;
             return m;
@@ -581,18 +602,30 @@ namespace Evo
             }
             if (mi.gapeB > 0 && mj.Leff <= mi.gapeB)
             {
-                double lr = mi.lnL - mj.lnLeff - 1.5, pb = Math.Exp(-lr * lr / 1.2);   // 포식자:먹이 길이비 ~4.5 (질량비 ~100)
+                double lr = mi.lnL - mj.lnLeff - mi.lnPrey, pb = Math.Exp(-lr * lr / 1.2);   // 포식자:먹이 길이비(유전자, 처음 ~4.5 = 질량비 ~100)
                 if (pb > 1e-4)
                 {
-                    double R = (mi.Rs + (mi.L + mj.L) / 2) * 1e-4, vr = Math.Sqrt(mi.speed * mi.speed + mj.speed * mj.speed) * 0.36 + 0.36 * 20;
+                    // 감지 거리: 눈으로 보는 몫은 투명한 먹이에서 줄어든다. 만남 속도는 평소 돌아다니는 속도(매복이면 먹이가 다가와야 만난다)
+                    double R = (mi.Rs - (mi.Rs - mi.RsA) * 0.85 * mj.transp + (mi.L + mj.L) / 2) * 1e-4, vr = Math.Sqrt(mi.cruise * mi.cruise + mj.cruise * mj.cruise) * 0.36 + 0.36 * 20;
                     F = Math.Max(F, Math.PI * R * R * vr * kt * pb);                   // 만남 부피(mL/h) = π R² v_rel (Gerritsen & Strickler 1977)
                 }
             }
+            if (mj.sessile) F *= 1 + 2 * mi.graze;                                  // 다리·치설·턱으로 긁어 먹기
+            if (mj.benthic) F *= 1 - 0.8 * mj.burrow * (1 - Math.Max(mi.burrow, 0.5 * mi.graze));   // 모래 속: 파는 포식자만 꺼낸다
             return F;
         }
-        static double Escape(float[] gj, in Morph mj, double vi) => 1 / (1 + 0.5 * mj.speed / (vi + 30)) * (1 - 0.5 * gj[Gn.Eye] * gj[Gn.Neuro]);   // 빠르고 보는 먹이는 잘 도망친다
-        static double Digest(float[] gj, in Morph mi) => (1 - 0.7 * gj[Gn.Lorica]) * (1 - 0.3 * gj[Gn.Wall]) * (1 - 0.4 * gj[Gn.Skel] * (mi.gapeB > 0 ? 1 : 0));   // 각·벽·골판: 삼켜도 살아남음
-        double Imax(in Morph m, double kt) => P.MAXING * m.M * kt * Math.Pow(Math.Max(1, m.M / P.M0), -0.25 * m.org);
+        // 빠르고 보는 먹이는 잘 도망친다. 독이 있으면 뱉는다. 빽빽한 무리 속 한 마리는 덜 잡힌다(희석·혼란: 이웃이 몸길이 10배 안에 있어야)
+        static double Escape(float[] gj, in Morph mj, double vi, double dj)
+        {
+            double e = 1 / (1 + 0.5 * mj.speed / (vi + 30)) * (1 - 0.5 * gj[Gn.Eye] * gj[Gn.Neuro]) * (1 - 0.7 * mj.toxin);
+            if (mj.school > 0) { double nb = dj * Math.Pow(10 * mj.L * 1e-4, 3); e /= 1 + 3 * mj.school * Math.Min(1, nb); }
+            return e;
+        }
+        // 삼켜도 살아남는 몫(각·벽·골판·갑옷). 턱은 갑옷을 깨고, 식물 소화는 세포벽·광합성 먹이(질소가 적고 섬유가 많다)를 삭인다
+        static double Digest(float[] gj, in Morph mj, in Morph mi) => (1 - 0.7 * gj[Gn.Lorica]) * (1 - 0.3 * gj[Gn.Wall] * (1 - mi.herb)) * (1 - 0.2 * gj[Gn.Photo] * (1 - mi.herb))
+            * (1 - 0.4 * gj[Gn.Skel] * (mi.gapeB > 0 ? 1 : 0)) * (1 - 0.6 * mj.armor * (1 - 0.7 * mi.jaw));
+        static double Molt(Strain st) => st.dev ? 1 - 0.3 * st.g[Gn.Exo] : 1;   // 외골격은 벗고 새로 지어야 자란다(탈피): 자라기가 느리다
+        double Imax(in Morph m, double kt) => P.MAXING * m.M * kt * Math.Pow(Math.Max(1, m.M / P.M0), -0.25 * m.org) * m.imaxF;
         double Eff(float[] g, in Morph m, int v)
         {
             double o2s = dox[v] / (dox[v] + P.O2_K), aer = 1 + P.AER_GAIN * g[Gn.Aerobic] * o2s * Math.Min(1, dox[v] / Math.Max(1e-3, m.pcrit)) + 0.4 * (1 - g[Gn.Aerobic]) * (1 - o2s);
@@ -606,7 +639,7 @@ namespace Evo
 
         // 포식자 mi(유전자 gi)가 칸 v에서 만나는 먹이(에너지/h, 배부름 전): 세균·남세균(fb), 먹이 후보(S.pj·S.pw에), 부스러기(fd).
         // densI > 0이면 먹이 쪽 포식 신호(S.risk)도 더한다
-        double Food(Scratch S, int v, int np, in Morph mi, float[] gi, double kt, double densI, out double fb, out double fd, out int n2)
+        double Food(Scratch S, int v, int np, in Morph mi, float[] gi, double kt, double densI, out double fb, out double fd, out double fs, out int n2)
         {
             double pico = bac[v] + cya[v], detE = pom[v] / P.QN;   // 세균 + 남세균(크기가 비슷해 같은 먹이로 본다), 부스러기 에너지 밀도(10 μm 세포/mL 환산)
             // 세균(0.6 μm): 6 μm 안팎 세포가 가장 잘 먹고, 섬모(여과 섭식)는 큰 세포도 세균을 먹게 해 준다
@@ -620,7 +653,7 @@ namespace Evo
             {
                 int j = S.ord[p];   // 같은 계통도 먹는다(동족 포식) — 빼면 같은 크기의 돌연변이만 부모에게 잡아먹히는 허상이 생긴다
                 double a = Attack(in mi, in S.m[j], kt); if (a <= 0) continue;
-                double w = a * Escape(strains[S.idx[j]].g, in S.m[j], mi.speed) * S.dens[j];
+                double w = a * Escape(strains[S.idx[j]].g, in S.m[j], mi.speed, S.dens[j]) * S.dens[j];
                 S.pj[n2] = j; S.pw[n2] = w; n2++;
                 food += w * S.m[j].M;
                 if (densI > 0) S.risk[j] += densI * a;                              // 포식 신호(카이로몬)
@@ -630,10 +663,16 @@ namespace Evo
             if (mi.Fc > 0 && 5 <= mi.gapeC) { double lr = Math.Log(mi.cellL / 5) - mi.lnOptC; fd = mi.Fc * Math.Exp(-lr * lr / 0.8); }
             if (mi.gapeB >= 50)
             {
-                double lr = Math.Log(mi.L / 50) - 1.5, R = (mi.Rs + (mi.L + 50) / 2) * 1e-4, vr = mi.speed * 0.36 + 0.36 * 20;
+                double lr = Math.Log(mi.L / 50) - mi.lnPrey, R = (mi.Rs + (mi.L + 50) / 2) * 1e-4, vr = mi.cruise * 0.36 + 0.36 * 20;
                 fd = Math.Max(fd, Math.PI * R * R * vr * kt * Math.Exp(-lr * lr / 1.2));
             }
-            return food + fd * detE * P.DET_Q;
+            fd *= 0.4 + 1.2 * gi[Gn.Detr];                                          // 부스러기를 얼마나 삼키나: 밥통을 채워 다른 먹이를 밀어낸다(잡식 ↔ 전문가)
+            // 퇴적물(바닥에 쌓인 유기물): 바닥 칸에서 소화관 있는 동물이 기거나 파며 훑는 넓이(m²/h) × 넓이당 유기물. 땅 파면 훨씬 많이
+            fs = 0;
+            if (mi.gapeB > 0 && !mi.sessile && v == Bot(v % LS) && dep[v] > 0)
+                fs = mi.L * 1e-6 * Math.Max(mi.cruise, 0.2 * mi.speed) * 1e-6 * 3600 * (1 + 3 * mi.burrow) * (0.2 + 0.8 * gi[Gn.Detr]) * kt;
+            double sedE = fs > 0 ? dep[v] / geo.rArea[v % LS] : 0;
+            return food + fd * detE * P.DET_Q + fs * sedE * P.SED_Q;
         }
 
         void Voxel(int v)
@@ -645,13 +684,13 @@ namespace Evo
             if (n == 0) return;
             float t = T[v], kt = Kt(t), DT = P.DT; double Vv = vol[v];
             float o2s = (float)(dox[v] / (dox[v] + P.O2_K));
-            double bacEat = 0, detEat = 0, detE = pom[v] / P.QN, pico = bac[v] + cya[v];
+            double bacEat = 0, detEat = 0, sedEat = 0, detE = pom[v] / P.QN, pico = bac[v] + cya[v], sedE = dep[v] / geo.rArea[v % LS];
             for (int i = 0; i < n; i++)
             {
                 ref var mi = ref S.m[i];
                 if (mi.Fc <= 0 && mi.gapeB <= 0) continue;
                 var gi = strains[S.idx[i]].g; double dI = S.dens[i];
-                double food = Food(S, v, np, in mi, gi, kt, dI, out double fb, out double fd, out int n2);
+                double food = Food(S, v, np, in mi, gi, kt, dI, out double fb, out double fd, out double fs, out int n2);
                 double sat = 1 / (1 + food / Math.Max(Imax(in mi, kt), 1e-12));     // Holling II: 소화 시간
                 satA[Ix(S.idx[i], v, S.stg[i])] = (float)sat;
                 double eff = S.eff[i] = Eff(gi, in mi, v);
@@ -660,9 +699,11 @@ namespace Evo
                 bacEat += bEat * dI;
                 double dEat = fd * detE * sat;                                       // 먹은 부스러기(에너지/h/개체)
                 S.gainP[i] += dEat * P.DET_Q * eff; detEat += dEat * dI;
+                double sEat = fs * sedE * sat;                                       // 먹은 퇴적물 유기물(에너지/h/개체)
+                S.gainP[i] += sEat * P.SED_Q * eff; sedEat += sEat * dI;
                 for (int p = 0; p < n2; p++)
                 {
-                    int j = S.pj[p]; double eat = S.pw[p] * sat, dg = Digest(strains[S.idx[j]].g, in mi);
+                    int j = S.pj[p]; double eat = S.pw[p] * sat, dg = Digest(strains[S.idx[j]].g, in S.m[j], in mi);
                     S.gainP[i] += eat * dg * S.m[j].M * eff;
                     if (dI > 0) S.kill[j] += dI * eat * dg / S.dens[j];
                 }
@@ -671,6 +712,7 @@ namespace Evo
             double foodN = 0;
             if (bacEat > 0 && pico > 0) { double e = Math.Min(pico * 0.95, bacEat * DT), fc = cya[v] / pico; cya[v] -= e * fc; bac[v] -= e * (1 - fc); foodN += e * 2.9e-7; }
             if (detEat > 0) { double e = Math.Min(pom[v], detEat * DT * P.QN); pom[v] -= e; foodN += e; }
+            if (sedEat > 0) { double e = Math.Min(dep[v] * 0.5, sedEat * Vv * DT); dep[v] -= e; foodN += e * P.QN / Vv; }   // 퇴적물(에너지 총량) → 먹은 질소(μM)
             // 에너지 수지 → 성장·출생·사망
             double pool = nut[v], born = 0, died = 0, killed = 0, o2c = 0, o2p = 0, needW = 0, deadN = 0, domUse = 0;
             for (int i = 0; i < n; i++)
@@ -697,7 +739,7 @@ namespace Evo
                     if (!st.dev) bth = r.Poisson(c * mm * DT * (1 - load));         // 분열
                     else if (k < st.K - 1)
                     {
-                        double gamma = mm / (st.C[k + 1] / st.C[k] - 1);              // 다음 단계로 넘어가는 속도. 단계 안 개체는 C_k로 세므로 번 만큼만 자라야 질량이 보존된다(ln 비로 하면 질량이 저절로 생겨 20년 뒤 폭주). 단계 5배 간격: 실제보다 (r−1)/ln r ≈ 2.5배 늦게 자란다
+                        double gamma = mm / (st.C[k + 1] / st.C[k] - 1) * Molt(st);              // 다음 단계로 넘어가는 속도. 단계 안 개체는 C_k로 세므로 번 만큼만 자라야 질량이 보존된다(ln 비로 하면 질량이 저절로 생겨 20년 뒤 폭주). 단계 5배 간격: 실제보다 (r−1)/ln r ≈ 2.5배 늦게 자란다
                         up = r.Binom(c - d, 1 - Math.Exp(-gamma * DT));
                     }
                     else bth = r.Poisson(c * E * 0.9 / (st.C[0] * cellB) * DT * (1 - load));   // 성체: 알·번식체
@@ -758,7 +800,9 @@ namespace Evo
             double sc = m.org > 0 ? Math.Pow(Math.Max(1, m.M / P.M0), -0.25 * m.org) : 1;                // 조직·순환이 있으면 대사 ∝ 질량^0.75 (DeLong 2010)
             const double K = 0.4;   // 웹판 계수(틱당)를 시간당으로
             B[4] = (P.BASAL * V10 + P.FIX) * kt * C * sc;
-            B[5] = ((0.006 * g[Gn.Photo] + 0.002 * g[Gn.Phago] + 0.004 * g[Gn.Aerobic] + 0.002 * g[Gn.Vacuole] + 0.003 * g[Gn.Buoy]) * V10
+            // 독(질소가 많은 2차 대사물)·식물 소화 효소·투명한 조직·떼짓기(경계·맞추기)
+            B[5] = ((0.006 * g[Gn.Photo] + 0.002 * g[Gn.Phago] + 0.004 * g[Gn.Aerobic] + 0.002 * g[Gn.Vacuole] + 0.003 * g[Gn.Buoy]
+                    + 0.004 * g[Gn.Toxin] + 0.002 * g[Gn.Herb] + 0.001 * g[Gn.Transp] + 0.002 * m.school) * V10
                 + lab * 0.002 * g[Gn.Flagella] * (m.esd / 8)
                 + lab * (0.001 * g[Gn.Eye] + 0.004 * g[Gn.Eye] * g[Gn.Eye]) * Math.Pow(V10, 0.6)
                 + (0.0015 * g[Gn.Chemo] + 0.003 * g[Gn.Pigment] + 0.005 * g[Gn.Wall] + 0.002 * lab * g[Gn.Cilia]) * A10) * K * kt * C * sc;
@@ -766,7 +810,10 @@ namespace Evo
             // 동물 기관(소화관·신경·순환·골격·좌우대칭): 기관 조직 유지비. 신경 조직은 비싸다(척추동물 뇌 = 대사의 수 %–20%)
             B[6] = ((0.003 * m.spines + 0.004 * g[Gn.Lorica] + 0.002 * g[Gn.Elong] * g[Gn.Elong] * (1 - 0.7 * g[Gn.Wall])) * A10
                 + (C > 1 ? 0.0012 + 0.002 * g[Gn.Diff] : 0) + 0.002 * g[Gn.Attach] + 0.0008 * g[Gn.Plastic]
-                + (st.dev ? (0.0015 * g[Gn.Gut] + 0.004 * g[Gn.Neuro] + 0.002 * g[Gn.Circ] + 0.002 * g[Gn.Skel] + 0.0008 * g[Gn.Bilat]) * V10 : 0)) * K * kt * C * sc;
+                + (st.dev ? (0.0015 * g[Gn.Gut] + 0.004 * g[Gn.Neuro] + 0.002 * g[Gn.Circ] + 0.002 * g[Gn.Skel] + 0.0008 * g[Gn.Bilat]) * V10 : 0)
+                // 몸 부품: 마디 되풀이, 부속지, 외골격(클수록 무겁다: 몸 5 cm면 두 배 — 절지동물 크기 한계), 광물화(찬물에선 탄산칼슘이 녹아 비싸다), 턱, 땅 파기(마디가 있으면 연동으로 덜 든다)
+                + (st.dev ? (0.0004 * g[Gn.Seg] + 0.0015 * g[Gn.Limb] + 0.002 * g[Gn.Exo] * (1 + m.L / 5e4) + 0.002 * g[Gn.Mineral] * Math.Max(g[Gn.Exo], 0.5 * g[Gn.Skel]) * (1 + Math.Max(0, (15 - t) / 15))
+                    + 0.001 * g[Gn.Jaw] + 0.003 * m.burrow / (1 + g[Gn.Seg] / 2)) * V10 : 0)) * K * kt * C * sc;
             float S = env[Ev.Salt]; double internal_ = Math.Max(P.OSMO_FLOOR, Math.Min(S, g[Gn.Osmo]));
             double osm = (P.OSMO_INT * internal_ + P.OSMO_CAP * g[Gn.Osmo]) * V10, od = 0;
             if (S > g[Gn.Osmo] * 1.08f) od = P.W_OUT * (S - g[Gn.Osmo] * 1.08) * A10;      // 탈수. 8%까지는 순응으로 버팀
@@ -782,8 +829,8 @@ namespace Evo
             // 산소: 혐기성의 산소 독성 + 산소가 임계보다 낮을 때 신경·근육 조직의 산소 부족
             B[10] = (P.O2_TOX * (o2 / 21) * (1 - g[Gn.Aerobic]) * (1 - g[Gn.Aerobic]) * V10 + (1 - hyp) * g[Gn.Neuro] * 0.004 * V10 * kt) * C * sc;
             B[11] = ((perf < 0.3 ? 0.012 * (0.3 - perf) / 0.3 : 0) + (t > 62 ? 0.02 * (t - 62) : 0)) * V10 * C * sc;   // 진핵 한계 ~60°C. 대사처럼 몸 크기에 따라 준다
-            double swim = 0.0004 * (m.esd / 10) * (m.speed / 100) * (m.speed / 100) * kt;   // 세포 헤엄 동력은 작다(Stokes)
-            if (m.org > 0 && m.L > 0) { double bl = m.speed / m.L; swim = 0.3 * B[4] * bl * bl / 4; }   // 근육 유영: 2 BL/s면 기초 대사의 30%
+            double swim = 0.0004 * (m.esd / 10) * (m.cruise / 100) * (m.cruise / 100) * kt;   // 세포 헤엄 동력은 작다(Stokes). 매복하면 덜 헤엄친다
+            if (m.org > 0 && m.L > 0) { double bl = m.cruise / m.L, re = m.L * m.cruise * 1e-6; swim = Math.Max(swim, 0.3 * B[4] * bl * bl / 4 * Math.Min(1, re)); }   // 근육 유영: 2 BL/s면 기초 대사의 30%. 레이놀즈 수 1 밑(섬모로 헤엄치는 작은 유생)은 점성 영역이라 BL/s가 커도 싸다
             double cost = B[4] + B[5] + B[6] + B[7] + B[8] + B[9] + B[10] + B[11] + swim;
             B[12] = B[4] + B[5] + B[6] + swim;                                     // 산소를 쓰는 호흡(용존 산소 소비)
             double net = B[0] + B[1] + B[2] + B[3] - cost;
@@ -806,7 +853,7 @@ namespace Evo
                 {
                     int q = (v * KM) + k; double n = cnt[b0 + q]; if (n <= 0) continue;
                     var m = M(s, v, k);
-                    if (m.sessile) { dst[y < yb ? q + LK : q] += n; continue; }      // 부착 생물은 바닥에 내려앉아 산다
+                    if (m.sessile || m.benthic) { dst[y < yb ? q + LK : q] += n; continue; }   // 부착 생물·땅 파는 생물은 바닥에 내려앉아 산다
                     double hov = Math.Max(0, Math.Abs(m.sink) - m.speed * 3600e-6);   // 헤엄치는 생물은 제 속도만큼 가라앉음·떠오름을 버틴다(헤엄 비용은 늘 냄)
                     double fs = Math.Sign(m.sink) * hov * DT / h;                   // 침강(+아래) 또는 떠오름(−)
                     double sw = Math.Min(0.9, m.speed * 3600e-6 * DT / h);
@@ -994,7 +1041,7 @@ namespace Evo
                 if (vb < 0) return -1;
                 var (mm, d, bA) = Rates(x, vb, k, cnt[Ix(par.slot, vb, pk)] / vol[vb]);
                 if (!x.dev) { lnR = Math.Log(Math.Max(1e-9, mm) / d); Tg = 1 / d; }
-                else if (k < x.K - 1) { double gm = Math.Max(0, mm) / (x.C[k + 1] / x.C[k] - 1); lnR += Math.Log(Math.Max(1e-9, gm / (gm + d))); Tg += 1 / (gm + d); }
+                else if (k < x.K - 1) { double gm = Math.Max(0, mm) / (x.C[k + 1] / x.C[k] - 1) * Molt(x); lnR += Math.Log(Math.Max(1e-9, gm / (gm + d))); Tg += 1 / (gm + d); }
                 else { lnR += Math.Log(Math.Max(1e-9, bA) / d); Tg += 1 / d; }
             }
             return lnR / Tg;
@@ -1005,16 +1052,16 @@ namespace Evo
         {
             var S = scratch.Value; int n = Gather(S, v, false, out int np);
             var m = MorphAt(x, v, k, 0); double kt = m.kt;
-            double food = Food(S, v, np, in m, x.g, kt, 0, out double fb, out double fd, out int n2);
+            double food = Food(S, v, np, in m, x.g, kt, 0, out double fb, out double fd, out double fs, out int n2);
             double sat = 1 / (1 + food / Math.Max(Imax(in m, kt), 1e-12)), eff = Eff(x.g, in m, v);
-            double gB = fb * (bac[v] + cya[v]) * sat * P.BAC_E * eff, gP = fd * pom[v] / P.QN * sat * P.DET_Q * eff;
-            for (int p = 0; p < n2; p++) { int j = S.pj[p]; gP += S.pw[p] * sat * Digest(strains[S.idx[j]].g, in m) * S.m[j].M * eff; }
+            double gB = fb * (bac[v] + cya[v]) * sat * P.BAC_E * eff, gP = (fd * pom[v] / P.QN * P.DET_Q + fs * dep[v] / geo.rArea[v % LS] * P.SED_Q) * sat * eff;
+            for (int p = 0; p < n2; p++) { int j = S.pj[p]; gP += S.pw[p] * sat * Digest(strains[S.idx[j]].g, in S.m[j], in m) * S.m[j].M * eff; }
             double kill = 0;   // 이 칸 포식자들이 나를 잡아먹는 속도
             for (int i = 0; i < n; i++)
             {
                 if (S.dens[i] <= 0) continue; ref var mi = ref S.m[i]; if (mi.Fc <= 0 && mi.gapeB <= 0) continue;
                 double a = Attack(in mi, in m, kt); if (a <= 0) continue;
-                kill += S.dens[i] * a * Escape(x.g, in m, mi.speed) * satA[Ix(S.idx[i], v, S.stg[i])] * Digest(x.g, in mi);
+                kill += S.dens[i] * a * Escape(x.g, in m, mi.speed, densVir) * satA[Ix(S.idx[i], v, S.stg[i])] * Digest(x.g, in m, in mi);
             }
             double E = Budget(x, v, ref m, gP, gB, S.B);
             double cellB = m.esd * m.esd * m.esd * 1e-3 + P.FIXB, mm = E / (m.C * cellB), load = Load(x.g, v);
@@ -1117,7 +1164,7 @@ namespace Evo
             var c = (float[])g.Clone(); int n = 1 + (int)r.Poisson(0.3);   // 대부분 유전자 하나(0.5로 올리면 해로운 다중 돌연변이만 늘었다)
             for (int i = 0; i < n; i++)
             {
-                int j = (int)(r.U() * Gn.N); var G = Gn.Def[j];
+                int j = (int)(r.U() * Gn.N); if (Gn.BodyOnly(j) && !Gn.BodyReady(g)) j = (int)(r.U() * Gn.Seg); var G = Gn.Def[j];   // 몸이 없으면 몸 부품 대신 다른 유전자
                 double d = r.Gauss() * G.sd * P.MUT_SD; if (r.U() < P.MUT_BIG) d *= 4;         // 드물게 효과 큰 돌연변이(대부분 해롭다: Fisher)
                 if ((j == Gn.Cells || j == Gn.Egg) && r.U() < 0.15) d = r.U() < 0.5 ? 1 : -1;   // 세포 수 두 배·절반(분열 뒤 안 떨어지기)
                 c[j] = j == Gn.Mutrate ? Math.Clamp(c[j] * (float)Math.Exp(d), G.lo, G.hi) : Math.Clamp(c[j] + (float)d, G.lo, G.hi);
@@ -1127,7 +1174,8 @@ namespace Evo
 
         public static double Dist(float[] a, float[] b)
         {
-            double s = 0; for (int i = 0; i < Gn.N; i++) { float sc = Gn.Def[i].sc; if (sc > 0) { double d = (a[i] - b[i]) / sc; s += d * d; } }
+            bool body = Gn.BodyReady(a) || Gn.BodyReady(b);
+            double s = 0; for (int i = 0; i < Gn.N; i++) { float sc = Gn.Def[i].sc; if (sc > 0 && (body || !Gn.BodyOnly(i))) { double d = (a[i] - b[i]) / sc; s += d * d; } }
             return Math.Sqrt(s);
         }
 
@@ -1160,22 +1208,22 @@ namespace Evo
             }
         }
 
-        // 하루마다: 종 분화·새 단계(등급) 판정, 기록
+        // 하루마다: 종 분화·처음 나온 몸 설계 판정, 기록
         void Daily()
         {
             double thr = Math.Max(1e4, totalCount * 2e-4);
             for (int li = 0; li < live.Count; li++)
             {
                 var st = strains[live[li]];
-                int gr = Grade(st);
-                if (!gradesSeen.Contains(gr) && st.total >= Math.Min(thr, 50)) { gradesSeen.Add(gr); Log("grade", $"처음으로 {GradeName[gr]} 등장"); }
-                if (st.total < thr && !(gr >= 3 && st.total >= 50)) continue;      // 큰 생물은 수가 적어도 종으로 인정
+                var lk = Taxa.Of(st);
+                if (!looksSeen.Contains(lk) && st.total >= Math.Min(thr, 50)) { looksSeen.Add(lk); Log("grade", $"처음으로 {Taxa.Name(st)} 몸 설계 등장"); }
+                if (st.total < thr && !(st.dev && st.total >= 50)) continue;      // 발생하는 다세포는 수가 적어도 종으로 인정
                 var sp = species[st.sp];
                 if (Dist(st.g, sp.rep) <= P.SPEC_D) continue;
-                var ns = NewSpecies(st.g, sp.id); ns.grade = gr; Names.Name(ns, species.Values);
+                var ns = NewSpecies(st.g, sp.id); ns.look = lk; Names.Name(ns, species.Values);
                 ns.named = true; st.sp = ns.id;
                 foreach (int o in live) { var so = strains[o]; if (so.sp == sp.id && Dist(so.g, ns.rep) < Dist(so.g, sp.rep)) so.sp = ns.id; }
-                Log("sp", $"신종: {ns.name} — {ns.ko} ({Names.Of(sp)}에서 갈라짐)");
+                Log("sp", $"신종: {ns.name} — {Taxa.Name(st)} · {ns.ko} ({Names.Of(sp)}에서 갈라짐)");
             }
             if (recs.Count > 6000) PruneRecs();
             hist.Add(this);
@@ -1247,14 +1295,39 @@ namespace Evo
             ("Cephalo", "bilateralis", "좌우대칭", g => (g[Gn.Bilat] - 0.45f) / 0.15f),
             ("Branchio", "respirans", "아가미", g => (g[Gn.Circ] - 0.45f) / 0.15f),
             ("Chordo", "dorsalis", "척삭", g => (g[Gn.Skel] - 0.4f) / 0.15f),
+            ("Arthro", "articulata", "마디", g => (g[Gn.Seg] - 2) / 1),
+            ("Podo", "pedata", "다리·지느러미", g => (g[Gn.Limb] - 0.45f) / 0.15f),
+            ("Ostraco", "armata", "갑옷", g => (g[Gn.Exo] - 0.45f) / 0.15f),
+            ("Calci", "calcarea", "껍데기·뼈", g => (g[Gn.Mineral] - 0.45f) / 0.15f),
+            ("Gnatho", "mordax", "턱", g => (g[Gn.Jaw] - 0.45f) / 0.15f),
+            ("Phyto", "herbivora", "초식", g => (g[Gn.Herb] - 0.45f) / 0.15f),
+            ("Sapro", "detritivora", "부스러기 먹기", g => (g[Gn.Detr] - 0.8f) / 0.1f),
+            ("Lochi", "insidians", "매복", g => (g[Gn.Ambush] - 0.45f) / 0.15f),
+            ("Orycto", "fossor", "땅 파기", g => (g[Gn.Burrow] - 0.45f) / 0.15f),
+            ("Toxo", "venenata", "독", g => (g[Gn.Toxin] - 0.4f) / 0.15f),
+            ("Hyalo", "hyalina", "투명", g => (g[Gn.Transp] - 0.45f) / 0.15f),
+            ("Agelo", "gregaria", "떼짓기", g => (g[Gn.School] - 0.45f) / 0.15f),
+            ("Macro", "vorax", "큰 먹이", g => (0.9f - g[Gn.PreyR]) / 0.25f),
+            ("Micro", "colatrix", "작은 먹이 거르기", g => (g[Gn.PreyR] - 2.6f) / 0.4f),
         };
         static readonly string[] PLAIN = { "primigenia", "communis", "vulgaris", "simplex", "antiqua", "nova", "modesta", "pelagica", "errans", "parva" };
 
-        static string Suffix(float[] g)
+        static string Suffix(float[] g, Look lk)
         {
-            if (g[Gn.Skel] > 0.6f && g[Gn.Neuro] > 0.5f && g[Gn.Circ] > 0.5f) return "ichthys";
-            if (g[Gn.Neuro] > 0.5f && g[Gn.Bilat] > 0.5f) return "helmis";
-            if (g[Gn.Gut] > 0.5f) return "cnida";
+            switch (lk)
+            {
+                case Look.Jawless: case Look.Armored: case Look.Placoderm: case Look.Shark: case Look.Bony: return "ichthys";
+                case Look.Lancelet: return "chorda";
+                case Look.Arthropod: case Look.Copepod: return "caris";
+                case Look.Trilobite: return "lobus";
+                case Look.Snail: return "gastra";
+                case Look.Clam: return "concha";
+                case Look.Annelid: case Look.Polychaete: return "nereis";
+                case Look.ArrowWorm: return "sagitta";
+                case Look.Flatworm: return "helmis";
+                case Look.Echino: return "aster";
+                case Look.Polyp: case Look.Coral: case Look.Jelly: return "cnida";
+            }
             if (g[Gn.Cells] >= 1) return g[Gn.Attach] > 0.5f && g[Gn.Phago] > 0.3f && g[Gn.Photo] < 0.3f ? "spongia" : g[Gn.Form] < 0.33f ? "nema" : g[Gn.Form] < 0.67f ? "phyllum" : "sphaera";
             if (g[Gn.Photo] > 0.4f) return g[Gn.Wall] > 0.4f ? "phyton" : g[Gn.Flagella] > 0.25f ? "monas" : "coccus";
             if (g[Gn.Cilia] > 0.4f) return "stoma";
@@ -1273,7 +1346,7 @@ namespace Evo
         public static void Name(Species sp, IEnumerable<Species> all)
         {
             var d = Describe(sp.rep);
-            string genus = (d.Count > 0 ? d[0].pre : "Proto") + Suffix(sp.rep);
+            string genus = (d.Count > 0 ? d[0].pre : "Proto") + Suffix(sp.rep, sp.look);
             string ep = d.Count > 1 ? d[1].ep : PLAIN[sp.id % PLAIN.Length];
             var used = new HashSet<string>(); foreach (var s in all) if (s.name != null) used.Add(s.name);
             string name = genus + " " + ep; int k = 2;
