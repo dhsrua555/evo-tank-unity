@@ -1,6 +1,7 @@
 // 진화 수조 3D. 시뮬레이션(Evo.World)은 물기둥 전체(10 m × 10 m × 20층 × 4기둥)의 모든 생물을 확률적으로 계산하고,
 // 화면은 그중 한 칸 안의 '관찰 상자'(한 변 B m)를 보여 준다. 상자 안 개체는 그 칸의 실제 밀도에서 뽑는다(농축 배율은 화면에 표시).
-// 축척: 기본은 지금 모드에서 가장 큰 생물에 맞춘다(B ≈ 몸길이 × 6). 개체를 누르면 그 개체에 맞추고 따라간다.
+// 축척: 처음 한 번만 지금 보는 곳의 가장 큰 생물에 맞춘다(B ≈ 몸길이 × 6). 그 뒤 축척은 사용자(휠·F·종 고르기)만 바꾼다.
+// 상자 안 개체 수는 실제 밀도 × 농축 배율. 배율은 개체 수가 NMIN–NMAX를 벗어날 때만 바꿔서, 축소하면 더 많이·확대하면 더 적게 보인다.
 // 모드: 1 mm 넘는 거시생물과 0.1 mm 안 되는 미생물이 함께 살면 둘을 나눠 본다(미생물 = 암시야 현미경, 거시생물 = 물속).
 using System;
 using System.Collections.Generic;
@@ -14,7 +15,7 @@ public class EvoTank : MonoBehaviour
     static void Boot() { if (!FindAnyObjectByType<EvoTank>()) new GameObject("EvoTank").AddComponent<EvoTank>(); }
 
     const float BOX = 10, H = BOX / 2;   // 상자 한 변(화면 단위)
-    const int TARGET = 150, PER = 60;    // 화면 개체 수 목표, 한 계통·단계당 최대
+    const int NMIN = 40, NMAX = 400, PER = 200;   // 화면 개체 수 범위, 한 계통·단계당 최대
     const float MICRO = 1e-4f;           // 0.1 mm: 미생물 / 거시생물 경계(맨눈 한계)
     const float SELZ = 3;                // 고른 개체: 상자 한 변 = 몸길이 × 3
     bool noDots;
@@ -28,7 +29,7 @@ public class EvoTank : MonoBehaviour
     static readonly string[] SPN = { "멈춤", "1일/초", "10일/초", "최대" };
     float mutX = 1, rateSel = 0.0001f;
 
-    float B = 3e-4f, Bt = 3e-4f; bool auto = true;   // 상자 한 변(m)과 목표값. auto = 가장 큰 생물에 맞춤
+    float B = 3e-4f, Bt = 3e-4f; bool fit = true;    // 상자 한 변(m)과 목표값. fit = 다음 Scan에서 한 번 가장 큰 생물에 맞춤
     int fy = 2, fc; bool macro, split; float maxL, conc = 1;
     float yaw = 35, pitch = 18, dist = 18; Vector3 m0; bool dragging, overUI;
     (int slot, int k) want = (-1, 0);                  // 종 목록에서 고른 것: 다음 표본에서 하나 고른다
@@ -86,11 +87,13 @@ public class EvoTank : MonoBehaviour
         }
         var wait = new WaitForSecondsRealtime(3);
         yield return wait; yield return Snap("1-start"); noDots = true; yield return null; yield return Snap("1b-nodots"); noDots = false;
+        int n0 = avs.Count; float b0 = Bt *= 2; yield return wait;   // 축소한 축척이 그대로 있는지, 개체가 늘어나는지
+        Debug.Log($"[EvoTank] zoomhold {(Bt == b0 && Mathf.Abs(B / b0 - 1) < 0.05f ? "ok" : "FAIL")} Bt {Bt:G3} B {B:G3} avs {n0}->{avs.Count}");
         if (split) { Mode(false); yield return wait; yield return Snap("2-micro"); Mode(true); yield return wait; }
         var big = avs.OrderByDescending(a => a.L).FirstOrDefault();
-        if (big != null) { sel = big; auto = false; Bt = big.L * SELZ; tab = 1; }
+        if (big != null) { sel = big; Bt = big.L * SELZ; tab = 1; }
         yield return wait; yield return Snap("3-select");
-        sel = null; auto = true; tab = 2; yield return null; yield return Snap("4-species");
+        sel = null; tab = 2; yield return null; yield return Snap("4-species");
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
         Application.Quit();
     }
@@ -119,9 +122,8 @@ public class EvoTank : MonoBehaviour
         maxL = 0; float minL = 1;
         foreach (int s in w.live) { var st = w.strains[s]; if (st.total < 10) continue; float L = w.AdultL(st) * 1e-6f; maxL = Mathf.Max(maxL, L); minL = Mathf.Min(minL, L); }
         bool was = split; split = maxL > 1e-3f && minL < MICRO;
-        if (split && !was) { macro = true; auto = true; w.Log("scale", "거시생물(1 mm 이상)이 나타나 미생물 관찰과 거시생물 관찰을 나눕니다."); }
-        if (sel != null) Bt = Mathf.Clamp(sel.L * SELZ, 2e-5f, 3);
-        else if (auto) { var (_, _, L) = Biggest(false); if (L > 0) Bt = Mathf.Clamp(L * 6, 2e-5f, 3); }
+        if (split && !was) { macro = B > 2e-3f; w.Log("scale", "거시생물(1 mm 이상)이 나타나 미생물 관찰과 거시생물 관찰을 나눕니다."); }   // 축척은 그대로
+        if (fit) { var b = Biggest(true); if (b.s < 0) b = Biggest(false); if (b.L > 0) { Bt = Mathf.Clamp(b.L * 6, 2e-5f, 3); fit = false; } }
     }
 
     // 지금 모드에서 가장 큰 것(계통, 단계, 길이 m). here = 보는 칸 안에서만
@@ -157,7 +159,7 @@ public class EvoTank : MonoBehaviour
                 if (L > bigL) { bigL = L; big = cand.Count - 1; }
             }
         }
-        conc = sum > 0 ? (float)(TARGET / sum) : 1;
+        double nOn = sum * conc; if (sum > 0 && (nOn > NMAX || nOn < NMIN)) conc = (float)((nOn > NMAX ? NMAX : NMIN) / sum);
         var have = new Dictionary<long, int>(); var keep = new HashSet<long>();
         foreach (var c in cand) keep.Add(Key(c.s, c.k));
         for (int i = avs.Count - 1; i >= 0; i--)
@@ -258,13 +260,13 @@ public class EvoTank : MonoBehaviour
         if (Input.GetMouseButtonUp(0) && dragging && (Input.mousePosition - downAt).sqrMagnitude < 36) Pick(mp);
         if (Input.GetMouseButtonDown(0)) downAt = mp;
         if (Input.GetMouseButtonUp(0) || Input.GetMouseButtonUp(1)) dragging = false;
-        float sc = Input.mouseScrollDelta.y; if (!overUI && sc != 0) { Bt = Mathf.Clamp(Bt * Mathf.Exp(-sc * 0.15f), 2e-5f, 3); auto = false; sel = null; }
+        float sc = Input.mouseScrollDelta.y; if (!overUI && sc != 0) { Bt = Mathf.Clamp(Bt * Mathf.Exp(-sc * 0.15f), 2e-5f, 3); fit = false; }
         if (Input.GetKeyDown(KeyCode.Space)) speed = speed == 0 ? 1 : 0;
         for (int i = 0; i < 4; i++) if (Input.GetKeyDown(KeyCode.Alpha1 + i)) speed = i;
         if (Input.GetKeyDown(KeyCode.PageUp)) Layer(-1);
         if (Input.GetKeyDown(KeyCode.PageDown)) Layer(1);
         if (Input.GetKeyDown(KeyCode.Tab) && split) Mode(!macro);
-        if (Input.GetKeyDown(KeyCode.F)) FitBiggest();
+        if (Input.GetKeyDown(KeyCode.F)) Fit();
         if (Input.GetKeyDown(KeyCode.Escape)) sel = null;
     }
     Vector3 downAt;
@@ -278,17 +280,17 @@ public class EvoTank : MonoBehaviour
             float r = a.L * u * 0.5f * f / sp.z + 8;
             if (((Vector2)sp - (Vector2)mp).sqrMagnitude < r * r && sp.z < bz) { bz = sp.z; best = a; }
         }
-        sel = best; if (sel != null) { auto = false; Bt = Mathf.Clamp(sel.L * SELZ, 2e-5f, 3); tab = 1; }
+        sel = best; if (sel != null) tab = 1;   // 고르기만 한다. 축척은 F로
     }
 
     void Layer(int d) { fy = Mathf.Clamp(fy + d, 0, World.NY - 1); sel = null; avs.Clear(); tRes = 0; }
-    void Mode(bool mac) { macro = mac; sel = null; auto = true; avs.Clear(); tScan = tRes = 0; }
+    void Mode(bool mac) { macro = mac; sel = null; fit = true; avs.Clear(); tScan = tRes = 0; }
 
-    // 가장 큰 생물에게: 그것이 가장 많은 층으로 가서 하나를 고른다
-    void FitBiggest()
+    // F: 고른 개체가 있으면 그것에 맞추고, 없으면 가장 큰 생물이 가장 많은 층으로 가서 하나를 고른다
+    void Fit()
     {
-        var (s, k, L) = Biggest(false); if (s < 0) return;
-        Focus(s, k);
+        if (sel != null) { Bt = Mathf.Clamp(sel.L * SELZ, 2e-5f, 3); return; }
+        var (s, k, _) = Biggest(false); if (s >= 0) Focus(s, k);
     }
     void Focus(int s, int k)
     {
@@ -376,13 +378,13 @@ public class EvoTank : MonoBehaviour
         GUI.Label(new Rect(22, Hh - 92, 500, 22), $"상자 한 변 {Len(B)}  ·  수심 {depth:0.00} m (층 {fy + 1}/{World.NY})  ·  {(conc >= 1 ? $"실제보다 {Num(conc)}배 농축" : $"실제의 1/{Num(1 / conc)}만 표시")}", sS);
         if (GUI.Button(new Rect(22, Hh - 64, 60, 26), "▲ 위", sBtn)) Layer(-1);
         if (GUI.Button(new Rect(86, Hh - 64, 60, 26), "▼ 아래", sBtn)) Layer(1);
-        if (GUI.Button(new Rect(150, Hh - 64, 150, 26), "가장 큰 생물에 맞추기", sBtn)) FitBiggest();
+        if (GUI.Button(new Rect(150, Hh - 64, 150, 26), sel != null ? "고른 개체에 맞추기" : "가장 큰 생물에 맞추기", sBtn)) Fit();
         if (split)
         {
             if (GUI.Button(new Rect(304, Hh - 64, 106, 26), "미생물 관찰", !macro ? sOn : sBtn)) Mode(false);
             if (GUI.Button(new Rect(414, Hh - 64, 106, 26), "거시생물 관찰", macro ? sOn : sBtn)) Mode(true);
         }
-        GUI.Label(new Rect(22, Hh - 34, 500, 22), "끌기: 돌려 보기 · 휠: 축척 · 클릭: 개체 고르기 · PgUp/PgDn: 층 · Space: 멈춤 · F: 가장 큰 생물", sS);
+        GUI.Label(new Rect(22, Hh - 34, 500, 22), "끌기: 돌려 보기 · 휠: 축척 · 클릭: 개체 고르기 · PgUp/PgDn: 층 · Space: 멈춤 · F: 맞추기", sS);
         // 오른쪽 판
         GUI.Box(panel, GUIContent.none, sBox);
         for (int i = 0; i < TABS.Length; i++) if (GUI.Button(new Rect(panel.x + 8 + i * 86, panel.y + 8, 82, 28), TABS[i], tab == i ? sOn : sBtn)) { tab = i; scroll = Vector2.zero; }
@@ -421,7 +423,7 @@ public class EvoTank : MonoBehaviour
             GUILayout.EndHorizontal();
         }
         GUILayout.Space(10);
-        if (GUILayout.Button("이 환경에서 새로 시작(공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; auto = true; split = false; }
+        if (GUILayout.Button("이 환경에서 새로 시작(공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; fit = true; split = false; }
         GUILayout.Space(6);
         GUILayout.Label($"물기둥 {World.NY * World.DZ:0} m · 칸 {World.V}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
     }
