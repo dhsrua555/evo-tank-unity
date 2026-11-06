@@ -209,7 +209,8 @@ namespace Evo
             var r = new Rng((ulong)seed * 1000003UL + (ulong)ch.id);
             static float Refl(float x) => x > 1 ? 2 - x : x < -1 ? -2 - x : x;
             for (int i = 0; i < 8; i++) ch.vis[i] = Refl(par.vis[i] + 0.15f * (float)(2 * r.U() - 1));
-            int a = (int)(r.U() * 8), b = (a + 1 + (int)(r.U() * 7)) % 8;
+            int[] shp = { 0, 3, 5, 6, 7 };   // 첫 진단 형질은 윤곽(길쭉함·단면 골 수·달걀꼴·납작함·부속지)에서: 색만 다른 종이 없게
+            int a = shp[(int)(r.U() * shp.Length)], b = (a + 1 + (int)(r.U() * 7)) % 8;
             ch.vis[a] = Refl(par.vis[a] + (r.U() < 0.5 ? -1 : 1) * (0.6f + 0.4f * (float)r.U()));
             ch.vis[b] = Refl(par.vis[b] + (r.U() < 0.5 ? -1 : 1) * (0.4f + 0.3f * (float)r.U()));
             ch.hue = (par.hue + (r.U() < 0.5 ? -1 : 1) * (35 + 35 * (float)r.U()) + 360) % 360;

@@ -57,12 +57,15 @@ public static class Bodies
     static void Sig(MB b, bool dev)
     {
         float e = 1 + (dev ? 0.25f : 0.4f) * VS[0], sx = 1 / Mathf.Sqrt(e), rot = VS[1] * 18;
-        float fl = 1 + (dev ? 0.15f : 0.25f) * VS[6], tp = (dev ? 0.15f : 0.3f) * VS[5];
-        int lobes = 3 + Mathf.RoundToInt(2 * (VS[3] + 1)); float la = (dev ? 0.025f : 0.06f) * (VS[7] + 1);
+        float fl = 1 + (dev ? 0.15f : 0.35f) * VS[6], tp = (dev ? 0.15f : 0.35f) * VS[5];
+        int lobes = 3 + Mathf.RoundToInt(2 * (VS[3] + 1)); float la = (dev ? 0.025f : 0.08f) * (VS[7] + 1);
         int kind = VS[2] < -0.5f ? 0 : VS[2] < 0 ? 1 : VS[2] < 0.5f ? 2 : 3;
         float f = 2.5f + 1.5f * (VS[3] + 1), amp = 0.3f + 0.2f * (VS[4] + 1), ph = VS[3] * 7;
         float zr = 1e-6f; foreach (var p in b.v) zr = Mathf.Max(zr, Mathf.Abs(p.z));
         Vector3 Sc(Vector3 p) { float rad = (1 + tp * p.z / zr) * (1 + la * Mathf.Sin(Mathf.Atan2(p.y, p.x) * lobes + ph)); return new Vector3(sx * fl * rad, sx / fl * rad, e); }
+        // 휨: 긴 몸은 바나나꼴로 휜다(반달 돌말·굽은 사슬). 몸길이 쪽(z) 끝으로 갈수록 옆으로 밀린다
+        float bend = (dev ? 0 : 0.35f) * VS[4] * zr * e; var bd = new Vector3(0.8f, 0.6f, 0);
+        Vector3 Bent(Vector3 q) => q + bd * (bend * ((q.z * q.z) / (zr * zr * e * e) - 0.33f));
         for (int i = 0; i < b.v.Count; i++)
         {
             var p = b.v[i]; float pat = kind switch
@@ -77,11 +80,11 @@ public static class Bodies
             var c2 = Color.HSVToRGB(h, Mathf.Clamp01(sa * (1 + 0.8f * amp * pat) + 0.25f * amp * pat), va * (1 - 0.8f * amp * pat));
             c2.a = c.a + (1 - c.a) * 0.6f * amp * pat; b.c[i] = c2;   // 비치는 세포도 무늬 자리는 진해져 보인다
             var S = Sc(p);
-            b.v[i] = Vector3.Scale(p, S);
+            b.v[i] = Bent(Vector3.Scale(p, S));
             var n = b.n[i]; b.n[i] = new Vector3(n.x / S.x, n.y / S.y, n.z / S.z).normalized;
             b.d[i] = Vector3.Scale(b.d[i], S);
         }
-        for (int i = 0; i < b.parts.Count; i++) { var (nm, p) = b.parts[i]; b.parts[i] = (nm, Vector3.Scale(p, Sc(p))); }
+        for (int i = 0; i < b.parts.Count; i++) { var (nm, p) = b.parts[i]; b.parts[i] = (nm, Bent(Vector3.Scale(p, Sc(p)))); }
     }
 
     static Vector3 Mk(MB b, string name, Vector3 p) { b.Mark(name, p); return p; }   // 그 자리에 이름표를 달고 자리를 그대로 돌려준다

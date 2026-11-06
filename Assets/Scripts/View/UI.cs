@@ -107,7 +107,10 @@ public partial class EvoTank
         sTab = Btn(clear, Round(2, Color.clear, new Color(1, 1, 1, 0.25f), 2), clear, DIM, 2); sTab.fontSize = 14; sTab.border = new RectOffset(2, 2, 3, 3);
         sTabOn = Btn(Round(2, Color.clear, ACC, 3), Round(2, Color.clear, ACC, 3), Round(2, Color.clear, ACC, 3), Color.white, 2); sTabOn.font = fontB; sTabOn.fontSize = 14; sTabOn.border = sTab.border;
         var cN = Round(11, new Color(1, 1, 1, 0.05f), new Color(1, 1, 1, 0.12f)); var cH = Round(11, new Color(1, 1, 1, 0.1f), new Color(1, 1, 1, 0.2f)); var cO = Round(11, new Color(ACC.r, ACC.g, ACC.b, 0.2f), new Color(ACC.r, ACC.g, ACC.b, 0.75f));
-        sChip = Btn(cN, cH, cH, DIM, 11); sChip.fontSize = 12; sChip.padding = new RectOffset(10, 10, 3, 4); sChipOn = Btn(cO, cO, cO, Color.white, 11); sChipOn.fontSize = 12; sChipOn.padding = sChip.padding;
+        // 칩: 높이 24에 맞는 반지름(9-slice 테두리가 높이보다 크면 위아래 테두리가 겹쳐 글자 가운데 회색 띠가 생긴다)
+        var kN = Round(8, new Color(1, 1, 1, 0.05f), new Color(1, 1, 1, 0.12f)); var kH = Round(8, new Color(1, 1, 1, 0.1f), new Color(1, 1, 1, 0.2f)); var kO = Round(8, new Color(ACC.r, ACC.g, ACC.b, 0.2f), new Color(ACC.r, ACC.g, ACC.b, 0.75f));
+        sChip = Btn(kN, kH, kH, DIM, 8); sChip.fontSize = 12; sChip.padding = new RectOffset(10, 10, 4, 4); sChip.fixedHeight = 24;
+        sChipOn = Btn(kO, kO, kO, Color.white, 8); sChipOn.fontSize = 12; sChipOn.padding = sChip.padding; sChipOn.fixedHeight = 24;
         sIco = Btn(clear, bH, bA, TXT, 7); sIco.padding = new RectOffset(6, 6, 6, 6);
         sBox = new GUIStyle { normal = { background = bg }, border = new RectOffset(15, 15, 15, 15) };
         sCard = new GUIStyle { normal = { background = Round(8, new Color(1, 1, 1, 0.035f), new Color(1, 1, 1, 0.06f)) }, border = new RectOffset(11, 11, 11, 11), padding = new RectOffset(10, 10, 8, 8), margin = new RectOffset(0, 0, 3, 5) };

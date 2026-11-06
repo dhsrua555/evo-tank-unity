@@ -49,7 +49,7 @@ Shader "Evo/Floor"
                 float3 col = _Base.rgb * (0.7 + 0.6 * h) * lerp(float3(0.9, 0.95, 1.06), float3(1.08, 1.02, 0.92), hv);   // 알갱이 빛깔이 조금씩 다르다
                 float3 c = col * (0.25 + 0.9 * dif * (0.3 + 0.7 * _Sun)) * _LightCol.rgb;
                 float3 vd = normalize(_WorldSpaceCameraPos - i.wp), T = exp(-distance(_WorldSpaceCameraPos, i.wp) * _Sigma.rgb);
-                T *= 1 - smoothstep(0.6, 1, max(abs(i.wp.x), abs(i.wp.z)) / _FR);   // 판 가장자리가 수평선처럼 또렷이 잘리지 않게
+                T *= 1 - smoothstep(0.3, 1, length(i.wp.xz) / _FR);   // 판 가장자리가 수평선처럼 또렷이 잘리지 않게
                 return fixed4(c * T + WaterCol(-vd) * (1 - T), 1);
             }
             ENDCG
