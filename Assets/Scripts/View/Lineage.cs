@@ -246,14 +246,21 @@ public partial class EvoTank
     {
         var ph = new Strain { id = r.id, g = r.g, hue = r.hue }; World.Shape(ph);
         int k = ph.K - 1; var m = w.MorphAt(ph, V, k, 0); bool mac = m.L * 1e-6f >= MICRO;
-        var mesh = Bodies.Get(ph, k, m, 0, 0);
-        var eye = Quaternion.Euler(16, yaw, 0) * new Vector3(0, 0, -2.3f);
+        Render1(rt, Bodies.Get(ph, k, m, 0, 0), mac, Quaternion.Euler(16, yaw, 0) * new Vector3(0, 0, -2.3f), r.id, 1);
+    }
+
+    // 메시 하나를 rt에 그린다(몸길이 1이 화면의 80%쯤). 돌려주는 값 = 메시 좌표 → 화면 행렬(이름표용)
+    Matrix4x4 Render1(RenderTexture rt, Mesh mesh, bool mac, Vector3 eye, float t0, float rate)
+    {
+        cb ??= new CommandBuffer { name = "portrait" }; mpbP ??= new MaterialPropertyBlock();
         var view = Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(eye, Quaternion.LookRotation(-eye), Vector3.one).inverse;
-        mpbP.SetFloat("_Fade", 1); mpbP.SetFloat("_Sel", 0); mpbP.SetFloat("_T0", r.id); mpbP.SetFloat("_Rate", 1);
+        var proj = Matrix4x4.Perspective(30, 1, 0.05f, 50);
+        mpbP.SetFloat("_Fade", 1); mpbP.SetFloat("_Sel", 0); mpbP.SetFloat("_T0", t0); mpbP.SetFloat("_Rate", rate);
         cb.Clear(); cb.SetRenderTarget(rt); cb.ClearRenderTarget(true, true, mac ? new Color(0.08f, 0.2f, 0.27f) : new Color(0.01f, 0.012f, 0.02f));
-        cb.SetViewProjectionMatrices(view, Matrix4x4.Perspective(30, 1, 0.05f, 50));
+        cb.SetViewProjectionMatrices(view, proj);
         cb.SetGlobalVector("_WorldSpaceCameraPos", eye);
         cb.DrawMesh(mesh, Matrix4x4.identity, mac ? mMacro : mMicro, 0, 0, mpbP);
         Graphics.ExecuteCommandBuffer(cb);
+        return proj * view;
     }
 }
