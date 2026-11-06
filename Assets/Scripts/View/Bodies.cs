@@ -30,17 +30,58 @@ public static class Bodies
     static readonly Dictionary<Mesh, (string name, Vector3 p)[]> partsOf = new();
     public static (string name, Vector3 p)[] Parts(Mesh m) => m && partsOf.TryGetValue(m, out var a) ? a : Array.Empty<(string, Vector3)>();
     public static int Count => cache.Count;
+    public static void Clear() { foreach (var x in cache.Values) UnityEngine.Object.Destroy(x); cache.Clear(); partsOf.Clear(); }   // 새 세계: 종·계통 번호가 처음부터 다시 쓰인다
 
     public static Mesh Get(Strain st, int k, in Morph m, float swell, float chl)
     {
         int sq = Mathf.Clamp(Mathf.RoundToInt(m.spines * 7), 0, 7), cq = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(Mathf.Max(1, m.C), 2)), 0, 63);
         int sw = swell > 0.3f ? 2 : swell < -0.3f ? 1 : 0, ch = Mathf.Clamp(Mathf.RoundToInt(chl * 2), 0, 3);
-        long key = ((long)st.id << 20) | ((long)k << 17) | ((long)sq << 14) | ((long)cq << 8) | ((long)sw << 6) | ((long)ch << 4);
+        var sp = Sp?.Invoke(st.sp); VS = sp?.vis ?? Zero; HU = sp?.hue ?? HU;
+        long key = ((long)st.sp << 42) | ((long)st.id << 20) | ((long)k << 17) | ((long)sq << 14) | ((long)cq << 8) | ((long)sw << 6) | ((long)ch << 4);
         if (cache.TryGetValue(key, out var mesh)) return mesh;
         if (cache.Count > 700) { foreach (var x in cache.Values) UnityEngine.Object.Destroy(x); cache.Clear(); partsOf.Clear(); }
         var b = new MB(); var r = new System.Random(st.id * 31 + k);
-        Build(b, st, k, m, sw == 2 ? 1 : sw == 1 ? -1 : 0, ch / 2f, r);
+        Build(b, st, k, m, sw == 2 ? 1 : sw == 1 ? -1 : 0, ch / 2f, r); Sig(b, st.dev);
         mesh = b.Mesh(); cache[key] = mesh; partsOf[mesh] = b.parts.ToArray(); return mesh;
+    }
+
+    // 종 표지(Species.vis, 화면이 종 → 표지를 찾는 길). 그리는 동안 VS·HU에 둔다
+    public static Func<int, Species> Sp;
+    static readonly float[] Zero = new float[8];
+    static float[] VS = Zero; static float HU;
+
+    // 다 그린 몸에 종 표지를 입힌다: 몸 비율(길쭉·뭉툭), 색조를 조금 돌림(엽록체 초록도 황록·청록으로), 무늬(가로띠·세로줄·점·없음).
+    // 같은 몸 설계라도 종마다 눈에 띄게 다르다(실제 종 구별도 무늬·비율·부속지 수 같은 진단 형질로 한다)
+    // 종 표지(Species.vis)로 몸 전체를 고친다: 길쭉함·납작함·달걀꼴(앞뒤 굵기)·단면 골(이랑 수)·색조·무늬(띠/줄/점)와 그 진하기.
+    // 같은 몸 설계라도 종이 다르면 윤곽이 확실히 달라 보이게(발생 생물은 몸 틀이 무너지지 않게 조금 약하게)
+    static void Sig(MB b, bool dev)
+    {
+        float e = 1 + (dev ? 0.25f : 0.4f) * VS[0], sx = 1 / Mathf.Sqrt(e), rot = VS[1] * 18;
+        float fl = 1 + (dev ? 0.15f : 0.25f) * VS[6], tp = (dev ? 0.15f : 0.3f) * VS[5];
+        int lobes = 3 + Mathf.RoundToInt(2 * (VS[3] + 1)); float la = (dev ? 0.025f : 0.06f) * (VS[7] + 1);
+        int kind = VS[2] < -0.5f ? 0 : VS[2] < 0 ? 1 : VS[2] < 0.5f ? 2 : 3;
+        float f = 2.5f + 1.5f * (VS[3] + 1), amp = 0.3f + 0.2f * (VS[4] + 1), ph = VS[3] * 7;
+        float zr = 1e-6f; foreach (var p in b.v) zr = Mathf.Max(zr, Mathf.Abs(p.z));
+        Vector3 Sc(Vector3 p) { float rad = (1 + tp * p.z / zr) * (1 + la * Mathf.Sin(Mathf.Atan2(p.y, p.x) * lobes + ph)); return new Vector3(sx * fl * rad, sx / fl * rad, e); }
+        for (int i = 0; i < b.v.Count; i++)
+        {
+            var p = b.v[i]; float pat = kind switch
+            {
+                1 => Mathf.SmoothStep(0, 1, Mathf.Sin((p.z * f + ph) * Mathf.PI * 2) * 2.5f),                                    // 가로띠
+                2 => Mathf.SmoothStep(0, 1, Mathf.Sin(Mathf.Atan2(p.y, p.x) * Mathf.Round(f + 1) + ph) * 2.5f),                // 세로줄
+                3 => Mathf.SmoothStep(0, 1, (Mathf.Sin(p.x * f * 9 + ph) * Mathf.Sin(p.y * f * 9) * Mathf.Sin(p.z * f * 9 + 1) - 0.25f) * 4),   // 점
+                _ => 0
+            };
+            var c = b.c[i]; Color.RGBToHSV(c, out float h, out float sa, out float va);
+            if (sa > 0.08f) h = Mathf.Repeat(h + rot / 360f, 1);
+            var c2 = Color.HSVToRGB(h, Mathf.Clamp01(sa * (1 + 0.8f * amp * pat) + 0.25f * amp * pat), va * (1 - 0.8f * amp * pat));
+            c2.a = c.a + (1 - c.a) * 0.6f * amp * pat; b.c[i] = c2;   // 비치는 세포도 무늬 자리는 진해져 보인다
+            var S = Sc(p);
+            b.v[i] = Vector3.Scale(p, S);
+            var n = b.n[i]; b.n[i] = new Vector3(n.x / S.x, n.y / S.y, n.z / S.z).normalized;
+            b.d[i] = Vector3.Scale(b.d[i], S);
+        }
+        for (int i = 0; i < b.parts.Count; i++) { var (nm, p) = b.parts[i]; b.parts[i] = (nm, Vector3.Scale(p, Sc(p))); }
     }
 
     static Vector3 Mk(MB b, string name, Vector3 p) { b.Mark(name, p); return p; }   // 그 자리에 이름표를 달고 자리를 그대로 돌려준다
@@ -48,7 +89,7 @@ public static class Bodies
     // ---------- 색 ----------
     static Color Hue(float h, float s, float v, float a) { var c = Color.HSVToRGB(Mathf.Repeat(h / 360f, 1), s, v); c.a = a; return c; }
     static Color Col(float r, float g, float b, float a) => new Color(r, g, b, a);
-    static Color Cyto(float[] g, float hue) => Color.Lerp(Hue(hue, 0.25f, 0.95f, 0.35f), Col(1, 0.5f, 0.3f, 0.4f), g[Gn.Pigment] * 0.7f);
+    static Color Cyto(float[] g, float hue) => Color.Lerp(Hue(hue, 0.4f, 0.95f, 0.35f), Col(1, 0.5f, 0.3f, 0.4f), g[Gn.Pigment] * 0.7f);
 
     // ---------- 기본 도형 ----------
     // 회전타원체(울퉁불퉁 bump: 방향 → 반지름 배율)
@@ -159,7 +200,7 @@ public static class Bodies
                           + (swell < 0 ? 0.07f * Mathf.Sin(u.x * 17 + u.y * 13) * Mathf.Sin(u.z * 15) : 0))   // 고염에서 물이 빠져 쭈글쭈글
                       * (plan == Plan.Dino ? 1 - 0.18f * Mathf.Exp(-u.z * u.z / 0.008f) - 0.1f * Mathf.Exp(-u.x * u.x / 0.02f) * Mathf.Clamp01(-u.y * 3) * Mathf.Clamp01(0.3f - u.z * 3) : 1)   // 띠 홈 + 배 쪽 세로 홈
                       * (plan == Plan.Ciliate ? 1 - 0.28f * Mathf.Exp(-(u.y - 0.25f * u.z) * (u.y - 0.25f * u.z) / 0.03f) * Mathf.Clamp01(-u.x * 3) * Mathf.Clamp01(u.z * 2.5f + 0.4f) : 1);   // 구강 홈(비스듬히)
-        var cyto = Cyto(g, st.hue);
+        var cyto = Cyto(g, HU);
         float rmin = Mathf.Min(rad.x, Mathf.Min(rad.y, rad.z));
         Func<float, float> eug = null;   // 유글레나 단면 반지름(z): 앞은 둥글고 뒤는 뾰족한 방추형
         if (plan == Plan.Diatom) Frustule(b, ctr, rad, q, a, detail);
@@ -339,7 +380,7 @@ public static class Bodies
             int nfl = plan == Plan.Euglena || plan == Plan.Choano ? 1 : g[Gn.Flagella] > 0.55f ? 2 : 1;
             for (int f = 0; f < nfl; f++)
             {
-                float fl = (plan == Plan.Euglena ? 1 : 1.1f + g[Gn.Flagella]) * len; var pts = new Vector3[12];   // 유글레나 편모 ≈ 몸길이
+                float fl = (plan == Plan.Euglena ? 1 : 1.1f + g[Gn.Flagella]) * len * (1 + 0.35f * VS[7]); var pts = new Vector3[12];   // 유글레나 편모 ≈ 몸길이
                 var dirF = q * (f == 0 ? Vector3.forward : new Vector3(0.6f, 0, -0.8f));
                 var base0 = ctr + q * new Vector3(0, 0, f == 0 ? rad.z : 0.2f * rad.z) + q * (f == 0 ? Vector3.zero : Vector3.right * rad.x);
                 for (int i = 0; i < 12; i++) pts[i] = base0 + dirF * fl * i / 11f;
@@ -441,7 +482,7 @@ public static class Bodies
             float cl = 1f / n;
             for (int i = 0; i < n; i++)
             {
-                float z = -0.5f + (i + 0.5f) * cl; var p = new Vector3(Mathf.Sin(z * 5 + 1) * 0.04f, Mathf.Sin(z * 3) * 0.03f, z);
+                float z = -0.5f + (i + 0.5f) * cl; float cv = 1 + 1.5f * VS[6]; var p = new Vector3(Mathf.Sin(z * (5 + 3 * VS[5]) + 1) * 0.04f * cv, Mathf.Sin(z * 3) * 0.03f * cv, z);   // 사슬 굽이: 종마다 다르다
                 Cell(b, st, m, p, cl * 1.05f, Quaternion.identity, det, swell, chl, r, i == n - 1);
             }
         }
@@ -491,6 +532,7 @@ public static class Bodies
         }
         var col = Color.Lerp(Col(0.25f, 0.75f, 0.3f, 0.85f), Col(0.75f, 0.25f, 0.3f, 0.85f), g[Gn.Pigment]);   // 색소가 많으면 홍조류
         if (g[Gn.Pigment] > 0.3f && g[Gn.Pigment] < 0.6f) col = Col(0.55f, 0.45f, 0.2f, 0.85f);                 // 중간이면 갈조류 빛
+        col = Color.Lerp(col, Hue(HU, 0.55f, 0.75f, 0.85f), 0.2f);                                              // 종마다 조금씩 다른 빛
         float th = 0.012f + 0.02f * g[Gn.Form];
         void Branch(Vector3 p, Vector3 dir, float len, int depth)
         {
@@ -498,11 +540,11 @@ public static class Bodies
             for (int i = 0; i < 6; i++) pts[i] = p + dir * len * i / 5f + side * Mathf.Sin(i * 0.8f + depth) * len * 0.06f;
             Tube(b, pts, u => th * (1 - 0.4f * u) * Mathf.Pow(0.7f, 3 - depth), col, 4, SWAY, len * 0.15f, depth, Vector3.right); b.Mark(depth == 3 ? "주축" : "가지", pts[3]);
             if (depth == 0) return;
-            int nb = 2 + r.Next(2);
+            int nb = Mathf.Max(1, 2 + r.Next(2) + Mathf.RoundToInt(1.4f * VS[5]));   // 종마다 가지 수·벌림·길이가 다르다
             for (int i = 0; i < nb; i++)
             {
-                var d2 = (dir + RandIn(r) * 0.8f).normalized; if (d2.z < 0.1f) d2.z = 0.3f;
-                Branch(pts[2 + r.Next(4)], d2.normalized, len * 0.6f, depth - 1);
+                var d2 = (dir + RandIn(r) * 0.8f * (1 + 0.6f * VS[6])).normalized; if (d2.z < 0.1f) d2.z = 0.3f;
+                Branch(pts[2 + r.Next(4)], d2.normalized, len * (0.6f + 0.12f * VS[7]), depth - 1);
             }
         }
         if (g[Gn.Form] < 0.4f) Branch(new Vector3(0, 0, -0.5f), Vector3.forward, 0.45f, 3);
@@ -510,10 +552,10 @@ public static class Bodies
         {
             var stipe = new[] { new Vector3(0, 0, -0.5f), new Vector3(0.02f, 0, -0.25f), new Vector3(0, 0.01f, -0.05f) };
             Tube(b, stipe, u => 0.02f, col * 0.8f, 5, SWAY, 0.02f, 0, Vector3.right); b.Mark("줄기", stipe[1]);
-            int nl = 3 + (int)(g[Gn.Form] * 4);
+            int nl = Mathf.Max(2, 3 + (int)(g[Gn.Form] * 4) + Mathf.RoundToInt(2.5f * VS[5]));
             for (int i = 0; i < nl; i++)
             {
-                float ang = i * 2.4f, w = 0.08f + 0.06f * g[Gn.Form]; var dir = new Vector3(Mathf.Cos(ang) * 0.35f, Mathf.Sin(ang) * 0.35f, 1).normalized;
+                float ang = i * 2.4f, w = (0.08f + 0.06f * g[Gn.Form]) * (1 + 0.4f * VS[6]); var dir = new Vector3(Mathf.Cos(ang) * 0.35f, Mathf.Sin(ang) * 0.35f, 1).normalized;
                 var basep = stipe[2]; var tip = basep + dir * 0.5f; var side = Vector3.Cross(dir, Vector3.up).normalized * w;
                 var poly = new Vector3[8];
                 for (int j = 0; j < 4; j++) { float u = (j + 1) / 5f, wv = Mathf.Sin(u * Mathf.PI) * (1 + 0.15f * Mathf.Sin(u * 9)); poly[j] = Vector3.Lerp(basep, tip, u) + side * wv; poly[7 - j] = Vector3.Lerp(basep, tip, u) - side * wv; }
@@ -543,7 +585,7 @@ public static class Bodies
     // 자포동물형: 붙어 살면 폴립(기둥 + 촉수 고리), 떠다니면 해파리(맥동하는 갓 + 늘어진 촉수)
     static void Cnidarian(MB b, Strain st, in Morph m, System.Random r)
     {
-        var g = st.g; var col = Hue(st.hue, 0.35f, 0.95f, 0.5f); int nt = 6 + (int)(10 * g[Gn.Gut]);
+        var g = st.g; var col = Hue(HU, 0.35f, 0.95f, 0.5f); int nt = Mathf.Max(4, 6 + (int)(10 * g[Gn.Gut]) + Mathf.RoundToInt(4 * VS[5])); float tl = 1 + 0.5f * VS[7], bh = 1 + 0.35f * VS[6];
         if (m.sessile)
         {
             void Polyp(Vector3 o, float sc, int i0)
@@ -552,7 +594,7 @@ public static class Bodies
                 for (int i = 0; i < nt; i++)
                 {
                     float a = i * 2 * Mathf.PI / nt; var d = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0); var pts = new Vector3[8];
-                    for (int j = 0; j < 8; j++) { float u = j / 7f; pts[j] = o + (new Vector3(0, 0, 0.15f) + d * (0.07f + 0.25f * u) + Vector3.forward * (0.3f * Mathf.Sin(u * 2))) * sc; }
+                    for (int j = 0; j < 8; j++) { float u = j / 7f; pts[j] = o + (new Vector3(0, 0, 0.15f) + d * (0.07f + 0.25f * u * tl) + Vector3.forward * (0.3f * tl * Mathf.Sin(u * 2))) * sc; }
                     Tube(b, pts, u => 0.012f * (1 - 0.6f * u) * sc, col, 4, SWAY, 0.06f * sc, i + i0, d); if (i0 == 0) b.Mark("촉수", pts[5]);
                 }
             }
@@ -567,13 +609,13 @@ public static class Bodies
         }
         else
         {
-            int ib = b.v.Count; Lathe(b, Vector3.zero, Quaternion.identity, 0.05f, 0.5f, z => 0.32f * Mathf.Sqrt(Mathf.Max(0, 1 - Mathf.Pow((z - 0.05f) / 0.45f, 2))), z => col, 10, 16, 1, PULSE, 0.06f);
+            int ib = b.v.Count; Lathe(b, Vector3.zero, Quaternion.identity, 0.05f, 0.05f + 0.45f * bh, z => 0.32f / Mathf.Sqrt(bh) * Mathf.Sqrt(Mathf.Max(0, 1 - Mathf.Pow((z - 0.05f) / (0.45f * bh), 2))), z => col, 10, 16, 1, PULSE, 0.06f);   // 갓: 종마다 높이·너비가 다르다
             for (int i = ib; i < b.v.Count; i++) { var p = b.v[i]; b.d[i] = -new Vector3(p.x, p.y, 0).normalized * b.a[i].x; }   // 갓 가장자리가 안쪽으로 오므라든다(이때 물을 밀어낸다)
             b.Mark("갓", new Vector3(0.24f, 0, 0.32f));
             for (int i = 0; i < nt; i++)
             {
                 float a = i * 2 * Mathf.PI / nt; var d = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0); var pts = new Vector3[10];
-                for (int j = 0; j < 10; j++) { float u = j / 9f; pts[j] = d * 0.3f + new Vector3(0, 0, 0.05f - 0.55f * u); }
+                for (int j = 0; j < 10; j++) { float u = j / 9f; pts[j] = d * 0.3f / Mathf.Sqrt(bh) + new Vector3(0, 0, 0.05f - 0.55f * tl * u); }
                 Tube(b, pts, u => 0.006f, col * 0.9f, 3, SWAY, 0.08f, i * 0.7f, d); b.Mark("촉수", pts[6]);
             }
             Tube(b, new[] { new Vector3(0, 0, 0.1f), new Vector3(0, 0, -0.15f) }, u => 0.04f * (1 - u * 0.5f), col * 1.1f, 6, SWAY, 0.02f, 0, Vector3.right); b.Mark("입자루", new Vector3(0, 0, -0.12f));
@@ -594,7 +636,7 @@ public static class Bodies
         bool flatw = lk == Look.Flatworm;
         float th = tri ? 0.24f : cope ? 0.15f : arrow ? 0.05f : arth ? 0.1f : flatw ? 0.12f : 0.5f / Mathf.Max(3, st.aspect * 2);
         float al = 0.92f * (1 - 0.8f * m.transp);   // 투명한 몸은 흐리게(화살벌레·요각류)
-        var col = arth ? Color.Lerp(Hue(st.hue + 25, 0.6f, 0.7f, al), Col(0.8f, 0.75f, 0.62f, al), g[Gn.Mineral] * 0.7f) : Hue(st.hue, 0.45f, 0.9f, al);
+        var col = arth ? Color.Lerp(Hue(HU + 25, 0.6f, 0.7f, al), Col(0.8f, 0.75f, 0.62f, al), g[Gn.Mineral] * 0.7f) : Hue(HU, 0.45f, 0.9f, al);
         bool warn = g[Gn.Toxin] > 0.4f;   // 독이 있으면 노란 경고 띠
         Func<float, float> seg = z => ns > 1 ? Mathf.Abs(Mathf.Sin((z + 0.5f) * ns * Mathf.PI)) : 1;   // 마디 안 자리(마디 사이 = 0)
         Func<float, float> prof = cope ? (Func<float, float>)(z => { float u = z + 0.5f; return u > 0.4f ? Mathf.Sqrt(Mathf.Max(0.03f, 1 - Mathf.Pow((u - 0.68f) / 0.3f, 2))) : 0.28f * (0.6f + u); })   // 굵은 머리가슴 + 가는 배
@@ -706,9 +748,9 @@ public static class Bodies
     static void Mollusc(MB b, Strain st, in Morph m, Look lk)
     {
         var g = st.g; int i0 = b.v.Count;
-        var shell = Color.Lerp(Hue(st.hue + 30, 0.35f, 0.85f, 1), Col(0.92f, 0.88f, 0.8f, 1), 0.5f * g[Gn.Mineral]);
-        var band = Color.Lerp(shell, Hue(st.hue, 0.6f, 0.4f, 1), 0.55f + 0.4f * g[Gn.Pigment]);
-        var skin = Hue(st.hue + 10, 0.3f, 0.75f, 0.9f);
+        var shell = Color.Lerp(Hue(HU + 30, 0.35f, 0.85f, 1), Col(0.92f, 0.88f, 0.8f, 1), 0.5f * g[Gn.Mineral]);
+        var band = Color.Lerp(shell, Hue(HU, 0.6f, 0.4f, 1), 0.55f + 0.4f * g[Gn.Pigment]);
+        var skin = Hue(HU + 10, 0.3f, 0.75f, 0.9f);
         if (lk == Look.Snail)
         {
             Ellipsoid(b, Mk(b, "배발", new Vector3(0.14f, -0.16f, 0)), new Vector3(0.14f, 0.05f, 0.48f), Quaternion.identity, skin, 8);
@@ -760,7 +802,7 @@ public static class Bodies
     static void Echino(MB b, Strain st, in Morph m, System.Random r)
     {
         var g = st.g; int i0 = b.v.Count;
-        var col = Hue(st.hue + 15, 0.55f, 0.85f, 1); var knob = Color.Lerp(col, Col(0.95f, 0.9f, 0.8f, 1), 0.5f);
+        var col = Hue(HU + 15, 0.55f, 0.85f, 1); var knob = Color.Lerp(col, Col(0.95f, 0.9f, 0.8f, 1), 0.5f);
         if (g[Gn.Limb] >= 0.3f)
         {
             Ellipsoid(b, Mk(b, "가운데 원반", new Vector3(0, 0.06f, 0)), new Vector3(0.15f, 0.06f, 0.15f), Quaternion.identity, col, 8);
@@ -798,10 +840,10 @@ public static class Bodies
         float fishness = fish ? 1 : Mathf.Clamp01((g[Gn.Skel] - 0.4f) / 0.5f) * 0.5f;
         float depth = Mathf.Lerp(0.07f, 0.13f + 0.06f * g[Gn.Form], fishness) * (lk == Look.Jawless ? 0.6f : 1), width = depth * Mathf.Lerp(0.45f, 0.55f, fishness) * (armor ? 1.3f : 1);
         float al = 1 - 0.7f * m.transp;
-        Color top = shark ? Col(0.42f, 0.47f, 0.52f, al) : Hue(st.hue, 0.5f, 0.45f, al), belly = Col(0.92f, 0.94f, 0.97f, al), mid = shark ? Col(0.55f, 0.6f, 0.65f, al) : Hue(st.hue, 0.25f, 0.85f, al);
+        Color top = shark ? Col(0.42f, 0.47f, 0.52f, al) : Hue(HU, 0.5f, 0.45f, al), belly = Col(0.92f, 0.94f, 0.97f, al), mid = shark ? Col(0.55f, 0.6f, 0.65f, al) : Hue(HU, 0.25f, 0.85f, al);
         bool eel = lk == Look.Jawless;   // 칠성장어: 뱀장어 같은 긴 몸
         if (armor) { top = Color.Lerp(top, Col(0.5f, 0.45f, 0.38f, al), 0.6f); mid = Color.Lerp(mid, Col(0.75f, 0.7f, 0.6f, al), 0.5f); }
-        if (!fish) { top = Hue(st.hue, 0.2f, 0.85f, 0.75f * al); mid = Col(0.92f, 0.9f, 0.86f, 0.75f * al); }   // 창고기: 반투명한 옅은 몸
+        if (!fish) { top = Hue(HU, 0.2f, 0.85f, 0.75f * al); mid = Col(0.92f, 0.9f, 0.86f, 0.75f * al); }   // 창고기: 반투명한 옅은 몸
         float stripes = g[Gn.Pigment];
         Func<float, float> prof = z =>
         {
@@ -837,7 +879,7 @@ public static class Bodies
         }
         Func<Vector3, float> U = p => Mathf.Clamp01(0.5f - p.z);
         float fin = Mathf.Lerp(0.3f, 1, fishness) * (0.5f + 0.5f * g[Gn.Skel]) * (0.7f + 0.6f * g[Gn.Limb]);
-        var finC = shark ? Col(0.4f, 0.45f, 0.5f, 0.85f * al) : Hue(st.hue, 0.4f, 0.7f, 0.75f * al);
+        var finC = shark ? Col(0.4f, 0.45f, 0.5f, 0.85f * al) : Hue(HU, 0.4f, 0.7f, 0.75f * al);
         // 꼬리지느러미(상어는 위쪽 잎이 길다)
         float tz = -0.5f, th2 = depth * 1.4f * fin; b.Mark("꼬리지느러미", new Vector3(0, fish ? th2 * 0.6f : depth * 0.3f, tz - (fish ? 0.1f : 0.02f)));
         Fan(b, eel ? new[] { new Vector3(0, depth * 0.5f, tz + 0.15f), new Vector3(0, depth * 0.75f, tz + 0.02f), new Vector3(0, 0, tz - 0.05f), new Vector3(0, -depth * 0.6f, tz + 0.02f), new Vector3(0, -depth * 0.4f, tz + 0.12f) }

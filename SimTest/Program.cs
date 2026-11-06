@@ -34,6 +34,7 @@ static class Program
         int every = a.Length > 3 ? int.Parse(a[3]) : Math.Max(1, days / 10);
         var w = new World(seed);
         foreach (var f in typeof(Params).GetFields()) if (Environment.GetEnvironmentVariable("P_" + f.Name) is string pv) { f.SetValue(w.P, float.Parse(pv)); Console.WriteLine($"# P.{f.Name} = {pv}"); }   // 시험: P_이름=값으로 매개변수 바꾸기
+        if (Environment.GetEnvironmentVariable("P_PRIMO") != null) w.Reset(seed);   // 지도는 Reset에서 만들어지니 원시 바다 값을 바꿨으면 다시 만든다
         // 처음엔 원시 바다에서 시작해 목표 환경으로 천천히 바꾼다(진화적 구조)
         var tg = Sc[sc]; for (int e = 0; e < Ev.N; e++) w.SetTarget(e, tg[e]);
         if (Environment.GetEnvironmentVariable("O2BIO") != null) w.o2Bio = true;
@@ -58,9 +59,11 @@ static class Program
         var pp = Environment.GetEnvironmentVariable("PATHP"); if (pp != null) PathProbe(w, int.Parse(pp));
         var lp = Environment.GetEnvironmentVariable("LANDP"); if (lp != null) LandProbe(w, int.Parse(lp));
         if (Environment.GetEnvironmentVariable("RECS") != null) RecCheck(w);
+        var hp = Environment.GetEnvironmentVariable("HETP"); if (hp != null) HetProbe(w, int.Parse(hp));
         var pe = Environment.GetEnvironmentVariable("PROBE"); if (pe != null) Probe(w, int.Parse(pe), Environment.GetEnvironmentVariable("PROBE_SP"));
         Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}  mutants {w.mutKeep}/{w.mutTry}");
         foreach (var e in w.events.Where(e => e.type == "grade")) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
+        foreach (var e in w.events.Where(e => e.type == "earth" && (e.text.StartsWith("땅이") || e.text.StartsWith("조산"))).TakeLast(30)) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
         Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} looks {string.Join(",", w.looksSeen.Select(Taxa.Name))}");
         return 0;
     }
@@ -157,6 +160,36 @@ static class Program
         foreach (var (name, st) in list.OrderByDescending(x => x.st.total / t0[x.st.id]))
             Console.Write($"{name} {(Math.Log(Math.Max(1, st.total) / t0[st.id]) / days - rc) * 100:+0.0;-0.0}  ");
         Console.WriteLine("(%/일, 대조 대비)");
+    }
+
+    // 영양 방식 탐침: 진화한 군집에 순수 종속영양·순수 광합성·혼합영양 단세포를 조금 넣고 순성장(/일)과 먹이 이득을 잰다
+    static void HetProbe(World w, int days)
+    {
+        w.P.MUT_NEW = 0; w.PruneTo(12);
+        var par = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First();
+        var a0 = Gn.Def.Select(d => d.init).ToArray();
+        var list = new List<(string, Strain)>();
+        foreach (var (name, set) in new (string, (int, float)[])[] {
+            ("het3um", new[] { (Gn.Size, 1.6f), (Gn.Phago, 1f), (Gn.Photo, 0f) }), ("het6um", new[] { (Gn.Size, 2.6f), (Gn.Phago, 1f), (Gn.Photo, 0f) }),
+            ("het12um", new[] { (Gn.Size, 3.6f), (Gn.Phago, 1f), (Gn.Photo, 0f) }), ("het25um", new[] { (Gn.Size, 4.6f), (Gn.Phago, 1f), (Gn.Photo, 0f), (Gn.Cilia, 0.8f) }),
+            ("auto2um", new[] { (Gn.Size, 1f), (Gn.Phago, 0f), (Gn.Photo, 1f) }), ("auto6um", new[] { (Gn.Size, 2.6f), (Gn.Phago, 0f), (Gn.Photo, 1f) }),
+            ("mixo6um", new[] { (Gn.Size, 2.6f), (Gn.Phago, 1f), (Gn.Photo, 1f) }) })
+        {
+            var g = (float[])a0.Clone(); g[Gn.Topt] = par.g[Gn.Topt]; g[Gn.Osmo] = par.g[Gn.Osmo]; g[Gn.Aerobic] = par.g[Gn.Aerobic];
+            foreach (var (j, x) in set) g[j] = x;
+            var ns = w.Inject(par.slot, g, 1e-4); if (ns != null) list.Add((name, ns));
+        }
+        double Tot(Strain st) { double t = 0; for (int v = 0; v < World.V; v++) for (int k = 0; k < World.KM; k++) t += w.cnt[World.Ix(st.slot, v, k)]; return t; }
+        var t0 = list.ToDictionary(x => x.Item2.id, x => Tot(x.Item2));
+        double bs = 0, a = 0; for (int c = 0; c < w.geo.NO; c++) { bs += w.geo.rArea[c] * w.bac[c]; a += w.geo.rArea[c]; }
+        Console.WriteLine($"# hetprobe bac(surface) {bs / a:G3}/mL  parent {Taxa.Name(par)}");
+        for (int t = 0; t < days * 12; t++) w.Step();
+        foreach (var (name, st) in list)
+        {
+            int bv = 0; double bc = -1; for (int v = 0; v < World.V; v++) { double c = w.cnt[World.Ix(st.slot, v, 0)]; if (c > bc) { bc = c; bv = v; } }
+            int q = World.Ix(st.slot, bv, 0);
+            Console.WriteLine($"  {name,-8} net {Math.Log(Math.Max(1, Tot(st)) / t0[st.id]) / days:+0.00;-0.00}/일  mu {w.mu[q] * 24:+0.00;-0.00}/일 @{w.geo.Name(bv % World.LS)} y{bv / World.LS}  gainB {w.gB[q]:G3} gainP {w.gP[q]:G3} killed {w.kR[q] * 24:G3}/일 bac {w.bac[bv]:G3}");
+        }
     }
 
     // 땅: 마름 견디기가 다른 변이를 넣고(조간대·육지에도 조금 뿌림) 바다·조간대·육지별 생물량과 그 자리의 순이득(%/일)을 잰다
@@ -316,6 +349,31 @@ static class Program
             Console.WriteLine($"      top id{top.id} @r{bv % World.LS}y{bv / World.LS} n {top.total:G3} mu {w.mu[q]:G3}/h kill {w.kR[q]:G3}/h | osm {B[0]:G3} ph {B[1]:G3} bac {B[2]:G3} pred {B[3]:G3} | basal {B[4]:G3} traits {B[5]:G3} body {B[6]:G3} osmo {B[7] + B[8]:G3} uv {B[9]:G3} o2 {B[10]:G3} temp {B[11]:G3} net {B[13]:G3}");
         }
         Console.WriteLine($"      size {m[Gn.Size]:F2} cells {m[Gn.Cells]:F2} photo {m[Gn.Photo]:F2} phago {m[Gn.Phago]:F2} aer {m[Gn.Aerobic]:F2} osmo {m[Gn.Osmo]:F0} topt {m[Gn.Topt]:F1} pig {m[Gn.Pigment]:F2} vac {m[Gn.Vacuole]:F2} wall {m[Gn.Wall]:F2} gut {m[Gn.Gut]:F2} neuro {m[Gn.Neuro]:F2} diff {m[Gn.Diff]:F2}");
+        if (Environment.GetEnvironmentVariable("LOOKS") != null)   // 다양성: 종 유효 수(생물량 Shannon), 몸 설계 수, 단세포·군체·발생 몫, 영양 방식 몫(광합성·혼합·종속)
+        {
+            var bio = new double[3]; var nC = new int[3]; var tro = new double[3]; var spB = new Dictionary<int, double>();
+            foreach (int s in w.live)
+            {
+                var st = w.strains[s]; int c = st.dev ? 2 : st.g[Gn.Cells] >= 1 ? 1 : 0; double b = 0;
+                for (int k = 0; k < st.K; k++) b += st.stage[k] * st.C[k] * Math.Pow(st.esd0, 3) * 1e-3;
+                bio[c] += b; nC[c]++; spB[st.sp] = spB.GetValueOrDefault(st.sp) + b;
+                double ph = st.g[Gn.Photo], pg = st.g[Gn.Phago] * (1 - st.g[Gn.Wall]) * (1 - st.g[Gn.Wall]);
+                tro[ph >= 0.5 && pg < 0.3 ? 0 : ph < 0.3 ? 2 : 1] += b;
+            }
+            double tb = bio.Sum(), H = -spB.Values.Where(x => x > 0).Sum(x => x / tb * Math.Log(x / tb));
+            Console.WriteLine($"      LOOKS effSp {Math.Exp(H):F2} uni {bio[0] / tb:P0} ({nC[0]}) col {bio[1] / tb:P0} ({nC[1]}) dev {bio[2] / tb:P0} ({nC[2]}) | auto {tro[0] / tb:P0} mixo {tro[1] / tb:P0} het {tro[2] / tb:P0}");
+            var hab = new double[3]; int nL = 0, nS = 0;   // 사는 곳: 바다·조간대·육지 개체 탄소 몫, 대부분 조간대·육지에 사는 계통 수
+            foreach (int s in w.live)
+            {
+                var st = w.strains[s]; var x = new double[3];
+                for (int v = 0; v < World.V; v++) { int r = v % World.LS; if (r >= w.NR) continue; for (int k = 0; k < st.K; k++) x[w.geo.rKind[r]] += w.cnt[World.Ix(st.slot, v, k)] * st.C[k]; }
+                double t = x.Sum(); for (int i = 0; i < 3; i++) hab[i] += x[i]; if (x[2] > 0.5 * t) nL++; else if (x[1] > 0.5 * t) nS++;
+            }
+            double ht = Math.Max(1e-30, hab.Sum());
+            { int best = -1; double bx = 0; foreach (int s in w.live) { var st = w.strains[s]; double x = 0; for (int v = 0; v < World.V; v++) { int r = v % World.LS; if (r < w.NR && w.geo.rKind[r] > 0) for (int k = 0; k < st.K; k++) x += w.cnt[World.Ix(st.slot, v, k)] * st.C[k]; } if (x > bx) { bx = x; best = s; } }
+              if (best >= 0) { var st = w.strains[best]; Console.WriteLine($"      HAB top shore+land strain {Taxa.Name(st)} dry {st.g[Gn.Dry]:F2} cells {st.g[Gn.Cells]:F1} C {bx:G3} of {hab[1] + hab[2]:G3}"); } }
+            Console.WriteLine($"      HAB sea {hab[0] / ht:P1} shore {hab[1] / ht:P1} land {hab[2] / ht:P1} | strains shore {nS} land {nL} | land cells {w.geo.LandCells()} | mut try/keep sea {w.mutHab[0]}/{w.mutHab[3]} shore {w.mutHab[1]}/{w.mutHab[4]} land {w.mutHab[2]}/{w.mutHab[5]} | births/ind-tick sea {w.birthHab[0] / Math.Max(1, w.cntHab[0]):G3} shore {w.birthHab[1] / Math.Max(1, w.cntHab[1]):G3} land {w.birthHab[2] / Math.Max(1, w.cntHab[2]):G3} ind {w.cntHab[0]:G3}/{w.cntHab[1]:G3}/{w.cntHab[2]:G3}");
+        }
         if (Environment.GetEnvironmentVariable("REG") != null)   // 해역마다: 표층 수온·혼합층·영양염·엽록소·생물량, 바닥 산소, 표층에 가장 많은 계통
             for (int c = 0; c < w.NR; c++)
             {

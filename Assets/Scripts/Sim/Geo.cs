@@ -10,6 +10,7 @@ namespace Evo
         public const int G = 32;
         public const float CELL = 200e3f;   // m
         public readonly float[] h = new float[G * G];   // 고도(m, 해수면 0 기준)
+        public readonly float[] hM = new float[G * G];  // 다 자란 대륙의 고도. 원시 바다로 시작하면 지각 성장이 이리로 땅을 올린다
         public float sea;                                  // 해수면(m): 빙하기에 내려간다
         public readonly int[] reg = new int[G * G];       // 칸 → 해역(육지 −1)
         public readonly int[] sreg = new int[G * G], lreg = new int[G * G];   // 땅 칸 → 그 위도대의 조간대(바다와 맞닿은 칸만)·육지 해역(바다 칸 −1)
@@ -29,6 +30,7 @@ namespace Evo
         public static string LName(float lat) => lat < 23 ? "열대" : lat < 45 ? "온대" : "한대";
         public string Name(int c) => LName(rLat[c]) + " " + (rKind[c] == 1 ? "조간대" : rKind[c] == 2 ? "육지" : DName(rDepth[c]));
         public int Any(int i) => reg[i] >= 0 ? reg[i] : sreg[i] >= 0 ? sreg[i] : lreg[i];   // 지도 칸 → 화면에서 고를 해역(해안 땅 칸은 조간대)
+        public bool In(int i, int r) => reg[i] == r || sreg[i] == r || lreg[i] == r;   // 지도 칸 i가 해역 r에 드나 (해안 땅 칸은 조간대이자 육지)
 
         // 서쪽 대륙과 대륙붕, 동쪽 대양, 화산 섬 몇 개. 같은 시드면 같은 지도
         public void Generate(int seed)
@@ -71,6 +73,14 @@ namespace Evo
                     h[z * G + x] = Math.Max(h[z * G + x], -4500 + (top + 4500) * b);
                 }
             }
+        }
+
+        // 원시 바다: 땅이 frac만 남게 지도 전체를 낮춘다(시생누대 초 드러난 땅 ~2–3 %, Flament 2008). 다 자란 모습은 hM에 둔다
+        public void Drown(float frac)
+        {
+            Array.Copy(h, hM, h.Length);
+            var o = (float[])h.Clone(); Array.Sort(o); float D = o[Math.Clamp((int)((1 - frac) * o.Length), 0, o.Length - 1)] - 1;
+            if (D > 0) for (int i = 0; i < h.Length; i++) h[i] -= D;
         }
 
         static int DClass(float d) => d < 60 ? 0 : d < 250 ? 1 : d < 2500 ? 2 : 3;

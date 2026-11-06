@@ -121,7 +121,7 @@ public partial class EvoTank
     bool treeAll = true;
     static void Fill(Rect r, Color c) { var o = GUI.color; GUI.color = c; GUI.DrawTexture(r, Texture2D.whiteTexture); GUI.color = o; }
 
-    void Tree()
+    void Tree(bool big = false)
     {
         var ch = new Dictionary<int, List<Species>>();
         foreach (var s in w.species.Values) { int a = s.parent != s.id && w.species.ContainsKey(s.parent) ? s.parent : 0; if (!ch.TryGetValue(a, out var l)) ch[a] = l = new(); l.Add(s); }
@@ -135,12 +135,12 @@ public partial class EvoTank
         for (int i = 0; i < 1000 && w.species.TryGetValue(psp, out var ps); i++) { path.Add(ps.id); if (ps.parent == ps.id) break; psp = ps.parent; }
 
         GUILayout.BeginHorizontal();
-        GUILayout.Label("<b>계통수</b>  <size=11>굵은 색 = 살아 있음 · † = 멸종 · 흰 테두리 = 따라가는 혈통</size>", sL);
-        if (GUILayout.Button(treeAll ? "멸종 가지 숨기기" : "멸종 가지 보기", sBtn, GUILayout.Width(112))) treeAll = !treeAll;
+        if (GUILayout.Button(treeAll ? "절멸 가지 숨기기" : "절멸 가지 보기", treeAll ? sChip : sChipOn, GUILayout.Width(120))) Later(() => treeAll = !treeAll);
+        GUILayout.Label($"<size=11>종 {order.Count} · 현존 {order.Count(x => x.total > 0)}</size>", sS);
         GUILayout.EndHorizontal();
-        const float row = 16;
+        float row = big ? 20 : 16; var nameS = big ? new GUIStyle(sT) { fontSize = 13 } : sT; var nameD = big ? new GUIStyle(sTd) { fontSize = 13 } : sTd;
         var R = GUILayoutUtility.GetRect(300, order.Count * row + 38);   // 위 14 px = 사건 이름 줄
-        float now = Mathf.Max(1, w.tick), lw = Mathf.Min(140, R.width * 0.45f), iw = R.width - lw - 14;
+        float now = Mathf.Max(1, w.tick), lw = Mathf.Min(big ? 260 : 140, R.width * 0.45f), iw = R.width - lw - 14;
         float X(long t) => R.x + 4 + t / now * iw;
         var Y = new Dictionary<int, float>(); for (int i = 0; i < order.Count; i++) Y[order[i].id] = R.y + 22 + i * row;
         var lineC = new Color(0.45f, 0.55f, 0.65f, 0.6f);
@@ -159,10 +159,10 @@ public partial class EvoTank
             float y = Y[s.id]; bool alive = s.total > 0, on = path.Contains(s.id); long end = alive ? w.tick : s.ext;
             if (Y.TryGetValue(s.parent, out float py) && s.parent != s.id) Fill(new Rect(X(s.born), Mathf.Min(py, y), on ? 2 : 1, Mathf.Abs(y - py)), on ? Color.white : lineC);
             var c = alive ? Color.HSVToRGB(Mathf.Repeat(s.hue / 360, 1), 0.6f, 1) : new Color(0.42f, 0.47f, 0.52f);
-            float th = alive ? 4 : 1.5f, x0 = X(s.born), wd = Mathf.Max(2, X(end) - x0);
+            float th = alive ? (big ? 6 : 4) : 1.5f, x0 = X(s.born), wd = Mathf.Max(2, X(end) - x0);
             if (on) Fill(new Rect(x0 - 1.5f, y - th / 2 - 1.5f, wd + 3, th + 3), Color.white);
             Fill(new Rect(x0, y - th / 2, wd, th), c);
-            if (GUI.Button(new Rect(R.x + iw + 12, y - 8, lw, 16), (on ? "<b>" : "") + s.name + (alive ? "" : " †") + (on ? "</b>" : ""), alive ? sT : sTd) && alive) GoSpecies(s);
+            if (GUI.Button(new Rect(R.x + iw + 12, y - row / 2, lw, row), (on ? "<b>" : "") + s.name + (alive ? "" : " †") + (on ? "</b>" : ""), alive ? nameS : nameD) && alive) { GoSpecies(s); if (big) Later(() => win = 2); }
         }
         GUI.Label(new Rect(R.x + 4, R.yMax - 16, 120, 16), "0", sTd);
         GUI.Label(new Rect(R.x + iw - 116, R.yMax - 16, 120, 16), w.Time(w.tick), new GUIStyle(sTd) { alignment = TextAnchor.UpperRight });
@@ -178,7 +178,7 @@ public partial class EvoTank
     }
 
     // ---------- 혈통 타임라인: 공통 조상 → 지금, 몸 모양 줄 + 되감기 ----------
-    int scrub = -1; bool playing, showLine = true; float playT;
+    int scrub = -1; bool playing; float playT;
     Rec bigRec; RenderTexture bigRT;
 
     List<Rec> Chain(int id)
@@ -196,34 +196,59 @@ public partial class EvoTank
         if (++scrub >= n - 1) { scrub = -1; playing = false; }
     }
 
-    void LineStrip(float Hh)
+    // 진화 경로 창: 큰 초상 + 조상 계통 설명 · 가장 많이 바뀐 형질 그래프(공통 조상 → 지금) · 조상 줄 + 되감기
+    void PathWin(Rect R)
     {
         bigRec = null;
-        int id = follow >= 0 ? follow : gone?.id ?? -1; if (id < 0 || !showLine) return;
+        int id = follow >= 0 ? follow : gone?.id ?? -1;
+        if (id < 0) { GUI.Label(new Rect(R.x + 8, R.y + 8, R.width - 16, 60), "추적 중인 계통이 없다. 화면의 개체를 누르거나 '종' 탭·계통수에서 종을 고르면, 그 계통이 공통 조상에서 지금까지 어떻게 바뀌었는지 보여 준다.", sL); return; }
         var ch = Chain(id); if (ch.Count == 0) return;
-        float x0 = info.xMax + 10, x1 = panel.x - 10; if (x1 - x0 < 300) return;
-        var R = new Rect(x0, Hh - 162, x1 - x0, 152); line = R; GUI.Box(R, GUIContent.none, sBox);
-        int cur = scrub < 0 ? ch.Count - 1 : Mathf.Min(scrub, ch.Count - 1); var rc = ch[cur];
-        bigRec = rc; if (bigRT) GUI.DrawTexture(new Rect(R.x + 8, R.y + 8, 104, 104), bigRT);
-        GUI.Label(new Rect(R.x + 8, R.y + 114, 104, 18), $"조상 {cur + 1}/{ch.Count}", new GUIStyle(sTd) { alignment = TextAnchor.UpperCenter });
-        string life = rc.died < 0 ? $"{w.Time(rc.born)}에 생김 · 살아 있음" : $"{w.Time(rc.born)}–{w.Time(rc.died)} · {Cause(rc)}";
+        int cur = scrub < 0 ? ch.Count - 1 : Mathf.Min(scrub, ch.Count - 1); var rc = ch[cur]; bigRec = rc;
+        float ps = Mathf.Clamp(R.height - 180, 160, 440);
+        GUI.Box(new Rect(R.x, R.y, ps, ps), GUIContent.none, sCard); if (bigRT) GUI.DrawTexture(new Rect(R.x + 4, R.y + 4, ps - 8, ps - 8), bigRT);
+        GUI.Label(new Rect(R.x, R.y + ps + 4, ps, 18), $"조상 {cur + 1}/{ch.Count}", new GUIStyle(sTd) { alignment = TextAnchor.UpperCenter, fontSize = 12 });
+        string life = rc.died < 0 ? $"{w.Time(rc.born)}에 분기 · 현존" : $"{w.Time(rc.born)}–{w.Time(rc.died)} · {Cause(rc)}";
         string dif = cur > 0 ? Diff(ch[cur - 1].g, rc.g) : "공통 조상";
-        GUI.Label(new Rect(R.x + 120, R.y + 6, R.width - 128, 58), $"<b>{SpName(rc.sp)}</b>  <size=11>계통 {rc.id}{(cur == ch.Count - 1 && follow >= 0 ? " · 지금 따라가는 계통" : "")}</size>\n<size=11>{life}\n{dif}</size>", sL);
-        int n = Mathf.Max(2, Mathf.FloorToInt((R.width - 128) / 48)); float ty = R.y + 66;
+        var ph = new Strain { id = rc.id, sp = rc.sp, g = rc.g, hue = rc.hue }; World.Shape(ph);
+        float tx = R.x + ps + 18, tw = Mathf.Min(420, (R.width - ps) * 0.42f);
+        GUI.Label(new Rect(tx, R.y, tw, ps), $"<b>{SpName(rc.sp)}</b>\n<size=12><color=#8fa3b8>계통 {rc.id}{(cur == ch.Count - 1 && follow >= 0 ? " · 추적 중" : "")}</color></size>\n\n{Taxa.Name(ph)}\n<size=12>{life}</size>\n\n<size=12><color=#8fa3b8>직전 조상과 다른 점</color></size>\n{dif}", sL);
+        // 형질 그래프: 사슬 위에서 범위 대비 가장 많이 바뀐 유전자 여섯
+        float gx = tx + tw + 16, gw = R.xMax - gx, gh = (ps - 10) / 6f;
+        var top6 = Enumerable.Range(0, Gn.N).Select(i => (i, d: (ch.Max(c => c.g[i]) - ch.Min(c => c.g[i])) / Mathf.Max(1e-6f, Gn.Def[i].hi - Gn.Def[i].lo))).Where(x => x.d > 0.02f).OrderByDescending(x => x.d).Take(6).ToList();
+        GUI.Label(new Rect(gx, R.y - 18, gw, 16), "<size=11>형질 변화 (가로 = 조상 차례, 공통 조상 → 지금)</size>", sS);
+        for (int j = 0; j < top6.Count; j++)
+        {
+            int gi = top6[j].i; var d = Gn.Def[gi]; var r = new Rect(gx, R.y + j * gh, gw, gh - 6);
+            GUI.Box(r, GUIContent.none, sCard);
+            float lo = ch.Min(c => c.g[gi]), hi = ch.Max(c => c.g[gi]); if (hi - lo < 1e-6f) hi = lo + 1;
+            var pr = new Rect(r.x + 130, r.y + 6, r.width - 186, r.height - 12);
+            var ax = new GUIStyle(sTd) { fontSize = 10, alignment = TextAnchor.UpperLeft };   // 세로축: 사슬 위 최댓값·최솟값
+            GUI.Label(new Rect(pr.xMax + 6, pr.y - 3, 46, 14), $"{hi:0.##}", ax); GUI.Label(new Rect(pr.xMax + 6, pr.yMax - 12, 46, 14), $"{lo:0.##}", ax);
+            GUI.Label(new Rect(r.x + 8, r.y + 4, 120, r.height - 8), $"<size=12>{d.name}</size>\n<b>{rc.g[gi]:0.##}</b>", sL);
+            int cols = Mathf.Max(2, (int)(pr.width / 3));
+            for (int c = 0; c < cols; c++)
+            {
+                int i = Mathf.RoundToInt(c * (ch.Count - 1f) / (cols - 1)); float v = (ch[i].g[gi] - lo) / (hi - lo), x = pr.x + c * pr.width / cols;
+                Fill(new Rect(x, pr.yMax - v * pr.height - 1, 2.5f, Mathf.Max(2, v * pr.height + 1)), i <= cur ? new Color(ACC.r, ACC.g, ACC.b, 0.55f) : new Color(1, 1, 1, 0.12f));
+            }
+            Fill(new Rect(pr.x + cur / Mathf.Max(1f, ch.Count - 1) * pr.width, pr.y - 2, 1.5f, pr.height + 4), Color.white);
+        }
+        // 조상 줄
+        float ty = R.y + ps + 28, th = Mathf.Min(96, R.yMax - ty - 44);
+        int n = Mathf.Max(2, Mathf.FloorToInt(R.width / (th + 6)));
         for (int j = 0; j < Mathf.Min(n, ch.Count); j++)
         {
-            int i = ch.Count <= n ? j : Mathf.RoundToInt(j * (ch.Count - 1f) / (n - 1)); var tr = new Rect(R.x + 120 + j * 48, ty, 44, 44);
-            if (i == cur) Fill(new Rect(tr.x - 2, tr.y - 2, 48, 48), new Color(0.5f, 0.9f, 1f));
+            int i = ch.Count <= n ? j : Mathf.RoundToInt(j * (ch.Count - 1f) / (n - 1)); var tr = new Rect(R.x + j * (th + 6), ty, th, th);
+            if (i == cur) Fill(new Rect(tr.x - 2, tr.y - 2, th + 4, th + 4), ACC);
             var tex = Thumb(ch[i]); if (tex) GUI.DrawTexture(tr, tex); else Fill(tr, new Color(0, 0, 0, 0.3f));
             if (GUI.Button(tr, GUIContent.none, GUIStyle.none)) { scrub = i; playing = false; }
         }
-        float by = R.y + 118;
-        if (GUI.Button(new Rect(R.x + 120, by, 40, 26), playing ? "❚❚" : "▶", sBtn)) { playing = !playing; playT = 0; if (playing && cur >= ch.Count - 1) scrub = 0; }
-        if (GUI.Button(new Rect(R.x + 164, by, 50, 26), "지금", scrub < 0 ? sOn : sBtn)) { scrub = -1; playing = false; }
-        float sv = GUI.HorizontalSlider(new Rect(R.x + 222, by + 8, R.width - 232, 14), cur, 0, ch.Count - 1);
+        float by = R.yMax - 32;
+        if (IconBtn(new Rect(R.x, by, 40, 30), playing ? iPause : iPlay, playing, playing ? "멈춤" : "공통 조상부터 재생")) { playing = !playing; playT = 0; if (playing && cur >= ch.Count - 1) scrub = 0; }
+        if (GUI.Button(new Rect(R.x + 46, by, 64, 30), "현재", scrub < 0 ? sOn : sBtn)) { scrub = -1; playing = false; }
+        float sv = GUI.HorizontalSlider(new Rect(R.x + 120, by + 9, R.width - 130, 14), cur, 0, ch.Count - 1);
         if (Mathf.RoundToInt(sv) != cur) { scrub = Mathf.RoundToInt(sv); playing = false; }
     }
-    Rect line;
 
     void Cards(float W)
     {
@@ -255,12 +280,12 @@ public partial class EvoTank
             var rt = new RenderTexture(96, 96, 24) { antiAliasing = 4 }; rt.Create(); Portrait(rt, r, 35); thumbs[id] = rt;
         }
         needThumb.Clear();
-        if (bigRec != null) { if (!bigRT) { bigRT = new RenderTexture(208, 208, 24) { antiAliasing = 4 }; bigRT.Create(); } Portrait(bigRT, bigRec, Time.time * 25); }
+        if (bigRec != null) { if (!bigRT) { bigRT = new RenderTexture(320, 320, 24) { antiAliasing = 4 }; bigRT.Create(); } Portrait(bigRT, bigRec, Time.time * 25); }
     }
 
     void Portrait(RenderTexture rt, Rec r, float yaw)
     {
-        var ph = new Strain { id = r.id, g = r.g, hue = r.hue }; World.Shape(ph);
+        var ph = new Strain { id = r.id, sp = r.sp, g = r.g, hue = r.hue }; World.Shape(ph);
         int k = ph.K - 1; var m = w.MorphAt(ph, V, k, 0); bool mac = m.L * 1e-6f >= MICRO;
         Render1(rt, Bodies.Get(ph, k, m, 0, 0), mac, Quaternion.Euler(16, yaw, 0) * new Vector3(0, 0, -2.3f), r.id, 1, m.sessile);
     }

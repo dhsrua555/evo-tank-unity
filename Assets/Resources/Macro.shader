@@ -30,7 +30,10 @@ Shader "Evo/Macro"
                 float dif = saturate(dot(n, normalize(float3(0.25, 1, 0.15))) * 0.7 + 0.3);
                 if (_Sky.y > 0) dif *= 1 + _Sky.y * Caustic(_Obs.xz + i.wp.xz / _Obs.w, _Time.y) * saturate(n.y * 0.8 + 0.4);   // 빛물결: 위를 향한 면에
                 float rim = pow(1 - abs(dot(n, vd)), 3);
-                float3 c = i.col.rgb * (0.25 + 0.9 * dif * (0.3 + 0.7 * _Sun)) * _LightCol.rgb + rim * (0.25 + 0.5 * _Sel) * float3(0.7, 0.9, 1);
+                float3 L = normalize(float3(0.25, 1, 0.15));
+                float spec = pow(saturate(dot(n, normalize(L + vd))), 48) * 0.35 * _Sun;   // 젖은 겉의 반짝임
+                float sss = pow(saturate(dot(-vd, L)), 4) * (1 - abs(dot(n, vd))) * 0.35;    // 역광에서 얇은 몸이 비침
+                float3 c = i.col.rgb * (0.25 + 0.9 * dif * (0.3 + 0.7 * _Sun) + sss) * _LightCol.rgb + spec * _LightCol.rgb + rim * (0.25 + 0.5 * _Sel) * float3(0.7, 0.9, 1);
                 float3 T = exp(-distance(_WorldSpaceCameraPos, i.wp) * _Sigma.rgb) * _Fade;
                 return fixed4(c * T + WaterCol(-vd) * (1 - T), 1);   // 그 방향 배경과 같은 물빛으로 녹는다
             }

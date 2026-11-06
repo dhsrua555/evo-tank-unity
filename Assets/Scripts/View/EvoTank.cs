@@ -21,12 +21,11 @@ public partial class EvoTank : MonoBehaviour
     bool noDots;
 
     World w; Camera cam;
-    Material mMicro, mMacro, mDots; Mesh dots, floorM, floorL;
+    Material mMicro, mMacro, mDots, mFloor; Mesh dots, floorM;
     MaterialPropertyBlock mpb; readonly double[] bud = new double[14];
 
     int speed = 1; double acc; float frameSim;
     static readonly float[] TPS = { 0, 12, 120, 1e9f };
-    static readonly string[] SPN = { "멈춤", "1일/초", "10일/초", "최대" };
     float mutX = 1, rateSel = 0.0001f;
 
     float B = 3e-4f, Bt = 3e-4f; bool fit = true;    // 상자 한 변(m)과 목표값. fit = 다음 Scan에서 한 번 가장 큰 생물에 맞춤
@@ -46,12 +45,13 @@ public partial class EvoTank : MonoBehaviour
     {
         Application.targetFrameRate = 60;
         w = new World(Environment.TickCount & 0xffff) { o2Bio = true, autoQ = true, activity = 0.4f };   // 앱: 산소는 생물이, 사건은 자연이
+        Bodies.Sp = id => w.species.TryGetValue(id, out var s) ? s : null;   // 몸 그리기가 종 표지를 찾는 길
         cam = new GameObject("Camera").AddComponent<Camera>();
         cam.fieldOfView = 50; cam.nearClipPlane = 0.05f; cam.farClipPlane = 300; cam.clearFlags = CameraClearFlags.SolidColor;
-        mMicro = new Material(Shader.Find("Evo/Micro")); mMacro = new Material(Shader.Find("Evo/Macro"));
+        mMicro = new Material(Shader.Find("Evo/Micro")); mMacro = new Material(Shader.Find("Evo/Macro")); mFloor = new Material(Shader.Find("Evo/Floor"));
         mDots = new Material(Shader.Find("Evo/Dots"));
         mpb = new MaterialPropertyBlock(); LookInit();
-        dots = DotsMesh(3000); floorM = FloorMesh(new Color(0.55f, 0.48f, 0.36f)); floorL = FloorMesh(new Color(0.3f, 0.22f, 0.14f)); Cells();
+        dots = DotsMesh(3000); floorM = FloorMesh(); Cells();
         Fonts();
         var args = Environment.GetCommandLineArgs(); int ai = Array.IndexOf(args, "-shots");
         if (ai >= 0 && ai + 1 < args.Length) StartCoroutine(Shots(args[ai + 1], Array.IndexOf(args, "-gallery") >= 0));
@@ -116,6 +116,26 @@ public partial class EvoTank : MonoBehaviour
                 Debug.Log($"[EvoTank] plan {(lk == Look.Cell ? Bodies.PlanOf(st).ToString() : lk.ToString())} {StageName(st, k)} verts {cardMesh?.vertexCount} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
             }
             sel = null;
+            // 자매 종이 서로 달라 보이는지: 몸 설계마다 부모 종(왼쪽) + 자식 종 넷을 나란히 그린다 → sibs.png
+            var rts = new RenderTexture(256, 256, 24) { antiAliasing = 4 }; rts.Create();
+            var reps = galS.GroupBy(x => Taxa.Of(x) == Look.Cell ? (int)Bodies.PlanOf(x) : 100 + (int)Taxa.Of(x)).Select(gr => gr.First()).Take(8).ToList();
+            var sheet = new Texture2D(256 * 5, 256 * reps.Count, TextureFormat.RGB24, false);
+            for (int row = 0; row < reps.Count; row++)
+            {
+                var st = reps[row]; var par = w.species[st.sp];
+                for (int j = 0; j < 5; j++)
+                {
+                    var sp = par;
+                    if (j > 0) { sp = new Species { id = 90000 + row * 10 + j, parent = par.id }; Species.Inherit(sp, par, w.seed); w.species[sp.id] = sp; }
+                    var ph = new Strain { id = 800000 + row * 10 + j, sp = sp.id, g = st.g, hue = st.hue }; World.Shape(ph);
+                    int k = ph.K - 1; var m = w.MorphAt(ph, V, k, 0); bool mac = m.L * 1e-6f >= MICRO;
+                    Render1(rts, Bodies.Get(ph, k, m, 0, 0), mac, Quaternion.Euler(16, 60, 0) * new Vector3(0, 0, -2.3f), ph.id, 1, m.sessile);
+                    RenderTexture.active = rts; sheet.ReadPixels(new Rect(0, 0, 256, 256), 256 * j, 256 * (reps.Count - 1 - row)); RenderTexture.active = null;
+                    if (j > 0) w.species.Remove(sp.id);
+                }
+            }
+            sheet.Apply(); System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, "sibs.png"), sheet.EncodeToPNG()); rts.Release();
+            Debug.Log($"[EvoTank] sibs rows {reps.Count}: {string.Join(", ", reps.Select(x => Taxa.Of(x) == Look.Cell ? Bodies.PlanOf(x).ToString() : Taxa.Of(x).ToString()))}");
         }
         int n0 = avs.Count; float b0 = Bt *= 2; yield return wait;   // 축소한 축척이 그대로 있는지, 개체가 늘어나는지
         Debug.Log($"[EvoTank] zoomhold {(Bt == b0 && Mathf.Abs(B / b0 - 1) < 0.05f ? "ok" : "FAIL")} Bt {Bt:G3} B {B:G3} avs {n0}->{avs.Count}");
@@ -132,29 +152,31 @@ public partial class EvoTank : MonoBehaviour
         // 혈통 점검: 후손 있는 계통을 없애면 그 후손으로, 후손 없는 계통을 없애면 '끊김' 카드(또는 그새 생긴 후손)로
         void Kill(int id) { int s = idSlot[id]; for (int v = 0; v < World.V; v++) for (int k = 0; k < World.KM; k++) w.cnt[World.Ix(s, v, k)] = 0; }
         Index(); int f0 = w.live.Select(x => w.strains[x].id).FirstOrDefault(id => BestDesc(id) >= 0);
-        if (f0 > 0) { Follow(f0); Kill(f0); yield return wait; Debug.Log($"[EvoTank] linetest desc {(follow > 0 && follow != f0 && Chain(follow).Any(r => r.id == f0) ? "ok" : "FAIL")} {f0}->{follow}"); yield return Snap("3b-line"); }
+        if (f0 > 0) { Follow(f0); Kill(f0); yield return wait; Debug.Log($"[EvoTank] linetest desc {(follow > 0 && follow != f0 && Chain(follow).Any(r => r.id == f0) ? "ok" : "FAIL")} {f0}->{follow}"); win = 2; yield return null; yield return null; yield return Snap("3b-line"); win = 0; }
         Index(); int f1 = w.live.Select(x => w.strains[x].id).FirstOrDefault(id => BestDesc(id) < 0);
         if (f1 > 0) { Follow(f1); Kill(f1); yield return wait; Debug.Log($"[EvoTank] linetest gone {(gone?.id == f1 || follow > 0 && Chain(follow).Any(r => r.id == f1) ? "ok" : "FAIL")} {f1} follow {follow} gone {gone?.id} why {gone?.why}"); yield return Snap("3c-gone"); }
         sel = null; tab = 2; yield return null; yield return Snap("4-species");
         showTray = true; yield return wait; yield return Snap("4b-tray"); trayReal = true; yield return null; yield return Snap("4c-tray-real"); showTray = trayReal = false;
         double d0 = py; MoveBy(new Vector3(0, -1f, 0)); yield return wait;   // 헤엄 점검: 1 m 내려가면 수심이 그만큼 바뀐다
-        Debug.Log($"[EvoTank] swim depth {d0:0.00}->{py:0.00} {(Math.Abs(py - d0 - 1) < 1e-3 ? "ok" : "FAIL")} avs {avs.Count}"); yield return Snap("2-swim");
+        Debug.Log($"[EvoTank] swim depth {d0:0.00}->{py:0.00} floor {Floor:0.00} {(Math.Abs(py - Math.Min(d0 + 1, Floor)) < 1e-3 ? "ok" : "FAIL")} avs {avs.Count}"); yield return Snap("2-swim");
         float bk = Bt; Bt = 1; yield return wait; yield return Snap("2b-wide"); Bt = bk; MoveBy(new Vector3(0, 1f, 0)); yield return wait;   // 제자리로
         double pk = py; float bk2 = Bt; MoveBy(new Vector3(0, (float)(py - 0.08), 0)); Bt = 0.4f; float pp = pitch; pitch = -30; yield return wait; yield return Snap("6-surface"); pitch = pp;   // 물속 느낌: 수면 가까이·깊은 곳
         MoveBy(new Vector3(0, -6f, 0)); yield return wait; yield return Snap("6b-deep"); MoveBy(new Vector3(0, (float)(py - pk), 0)); Bt = bk2; yield return wait;
         int r0 = reg, rd = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] > w.geo.rDepth[rd]) rd = c;   // 해역 옮기기: 가장 깊은 바다 300 m
         GoTo(rd, 300); yield return wait; Debug.Log($"[EvoTank] region {r0}->{reg} {Geo.DName(w.geo.rDepth[reg])} depth {py:0} floor {Floor:0} vNear y{vNear / World.LS} {(reg == rd && Math.Abs(py - 300) < 1e-3 ? "ok" : "FAIL")}"); yield return Snap("7-ocean");
-        int rs = Array.IndexOf(w.geo.rKind, (byte)1), rl = Array.IndexOf(w.geo.rKind, (byte)2);   // 땅: 조간대 웅덩이, 육지 흙 속 물막
-        if (rs >= 0) { GoTo(rs, 0.5); yield return wait; Debug.Log($"[EvoTank] shore {w.geo.Name(reg)} floor {Floor:0.0} obs {obsCell} {(reg == rs && w.geo.Any(obsCell) == rs ? "ok" : "FAIL")}"); yield return Snap("7b-shore"); }
-        if (rl >= 0) { GoTo(rl, 0.05); yield return wait; Debug.Log($"[EvoTank] land {w.geo.Name(reg)} floor {Floor:0.00} obs {obsCell} {(reg == rl && w.geo.Any(obsCell) == rl ? "ok" : "FAIL")}"); yield return Snap("7c-land"); }
+        int rs = -1, rl = -1; for (int c = w.geo.NO; c < w.NR; c++) if (w.geo.rCells[c] > 0) { if (w.geo.rKind[c] == 1 && rs < 0) rs = c; if (w.geo.rKind[c] == 2 && rl < 0) rl = c; }   // 땅: 조간대 웅덩이, 육지 흙 속 물막
+        if (rs >= 0) { GoTo(rs, 0.5); yield return wait; Debug.Log($"[EvoTank] shore {w.geo.Name(reg)} floor {Floor:0.0} obs {obsCell} {(w.geo.rKind[reg] == 1 && w.geo.In(obsCell, reg) ? "ok" : "FAIL")}"); yield return Snap("7b-shore"); }
+        if (rl >= 0) { GoTo(rl, 0.05); yield return wait; Debug.Log($"[EvoTank] land {w.geo.Name(reg)} floor {Floor:0.00} obs {obsCell} {(w.geo.rKind[reg] == 2 && w.geo.In(obsCell, reg) ? "ok" : "FAIL")}"); yield return Snap("7c-land"); }
         GoTo(r0, 1.25); yield return wait;
         // 자연현상 점검: 지금 해역에 거대 화산, 빙하기 → 빙상·해수면·해역 다시 나누기, 계통수 사건 줄, 고급 패널
         tab = 0; qSel = 0; qSize = 3; float t0 = w.env[Ev.Temp]; FireQ(obsCell); yield return wait;
         Debug.Log($"[EvoTank] quake volcano {(w.quakes.Count > 0 && w.aer > 1 ? "ok" : "FAIL")} aer {w.aer:0.00} T {t0:0.0}->{w.env[Ev.Temp]:0.0} text {w.quakes[^1].text}"); yield return Snap("8-volcano");
         int rg0 = w.regridN; w.Fire(Qk.IceAge, 3, -1, World.IceAmp(3), 0, 40); speed = 3; yield return new WaitForSecondsRealtime(12);
         Debug.Log($"[EvoTank] quake ice ice {w.ice:0.00} sea {w.geo.sea:0} regrid {rg0}->{w.regridN} reg {reg}/{w.NR} obs {obsCell}->{w.geo.Any(obsCell)} {(w.regridN > rg0 && reg < w.NR && w.geo.Any(obsCell) == reg ? "ok" : "FAIL")} T {w.env[Ev.Temp]:0.0}"); yield return Snap("8b-ice");
-        speed = 0; tab = 3; yield return null; yield return Snap("8c-tree");
-        tab = 0; advanced = true; yield return null; yield return Snap("8d-advanced"); advanced = false;
+        speed = 0; win = 1; yield return null; yield return null; yield return Snap("8c-tree");
+        win = 2; yield return null; yield return null; yield return Snap("8e-path"); win = 0;
+        tab = 0; showCycle = showWorld = showAdv = true; yield return null; yield return null; yield return Snap("8d-advanced"); showCycle = showWorld = showAdv = false;
+        tab = 3; yield return null; yield return Snap("8f-log");
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
         Application.Quit();
     }
@@ -364,8 +386,17 @@ public partial class EvoTank : MonoBehaviour
         if (!noDots) { Graphics.DrawMesh(dots, Matrix4x4.identity, mDots, 0); Snow(u, sun, ms); }
         if (yF > -H)   // 바닥이 보이면: 모래 판을 시야를 덮게 깔고, 헤엄치면 함께 흘러간다
         {
-            float ox = -(float)Frac(px * u / BOX) * BOX, oz = -(float)Frac(pz * u / BOX) * BOX;
-            for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) Graphics.DrawMesh(kd == 2 ? floorL : floorM, Matrix4x4.Translate(new Vector3(ox + i * BOX, yF + H, oz + j * BOX)), mMacro, 0);
+            // 판 한 장의 실제 크기 T(m)는 축척 B에 가까운 2의 거듭제곱: 확대·축소하면 판이 관찰자 중심으로 함께 커지고 작아진다
+            // (예전: 판 크기가 화면에 고정이라 축척이 바뀔 때마다 무늬 위치 px·u가 크게 튀었다)
+            double T = Math.Pow(2, Math.Round(Math.Log(B, 2))); float S = (float)(T * u), sc = S / BOX;
+            float ox = -(float)Frac(px / T) * S, oz = -(float)Frac(pz / T) * S;
+            // 무늬 네 겹: 칸 크기 B/64·2^(j−f) … 무게 sin²(π(j+1−f)/4)(합 2) — 축척이 2배 바뀌면 겹 하나가 다음 겹 자리로 이어진다
+            double lb = Math.Log(B, 2); int k0 = (int)Math.Floor(lb); float fr = (float)(lb - k0); Vector4 L4 = default, W4 = default, OX = default, OZ = default;
+            for (int j = 0; j < 4; j++) { double Lj = Math.Pow(2, k0 - 6 + j); L4[j] = (float)Lj; W4[j] = 0.5f * Mathf.Pow(Mathf.Sin(Mathf.PI * (j + 1 - fr) / 4), 2); OX[j] = (float)Frac(px / (Lj * 64)); OZ[j] = (float)Frac(pz / (Lj * 64)); }
+            mFloor.SetVector("_L", L4); mFloor.SetVector("_W", W4); mFloor.SetVector("_OX", OX); mFloor.SetVector("_OZ", OZ);
+            mFloor.SetColor("_Base", kd == 2 ? new Color(0.36f, 0.27f, 0.17f) : new Color(0.62f, 0.55f, 0.42f)); mFloor.SetFloat("_Kind", kd == 2 ? 1 : 0); mFloor.SetFloat("_FR", 2 * S);
+            for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++)
+                Graphics.DrawMesh(floorM, Matrix4x4.Translate(new Vector3(ox + i * S, yF, oz + j * S)) * Matrix4x4.Scale(new Vector3(sc, sc, sc)) * Matrix4x4.Translate(new Vector3(0, H, 0)), mFloor, 0);
         }
         LookEnd(ms, u, sun);
     }
@@ -374,7 +405,7 @@ public partial class EvoTank : MonoBehaviour
     void Controls(float dt)
     {
         var mp = Input.mousePosition; var gp = new Vector2(mp.x, Screen.height - mp.y) / UIScale;
-        overUI = panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || line.Contains(gp) || gauge.Contains(gp) || mapR.Contains(gp) || card.Contains(gp) || tray.Contains(gp);
+        overUI = win != 0 || panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || gauge.Contains(gp) || mapR.Contains(gp) || card.Contains(gp) || tray.Contains(gp) || help && gp.y > Screen.height / UIScale - 200 && gp.x < 570;
         if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1)) { m0 = mp; dragging = !overUI; }
         if (dragging && (Input.GetMouseButton(0) || Input.GetMouseButton(1))) { var d = Input.mousePosition - m0; m0 = Input.mousePosition; if (d.sqrMagnitude > 0) lastDrag = Time.time; yaw += d.x * 0.25f; pitch = Mathf.Clamp(pitch - d.y * 0.25f, -80, 80); }
         if (Input.GetMouseButtonUp(0) && dragging && (Input.mousePosition - downAt).sqrMagnitude < 36) Pick(mp);
@@ -384,8 +415,9 @@ public partial class EvoTank : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Space)) speed = speed == 0 ? 1 : 0;
         for (int i = 0; i < 4; i++) if (Input.GetKeyDown(KeyCode.Alpha1 + i)) speed = i;
         if (Input.GetKeyDown(KeyCode.F)) Fit();
-        if (Input.GetKeyDown(KeyCode.Escape)) { sel = null; gone = null; Unfollow(); }
-        if (Input.GetKeyDown(KeyCode.T)) showLine = !showLine;
+        if (Input.GetKeyDown(KeyCode.Escape)) { if (win != 0) win = 0; else { sel = null; gone = null; Unfollow(); } }
+        if (Input.GetKeyDown(KeyCode.T)) win = win == 2 ? 0 : 2;
+        if (Input.GetKeyDown(KeyCode.G)) win = win == 1 ? 0 : 1;
         if (Input.GetKeyDown(KeyCode.M)) showCard = !showCard;
         if (Input.GetKeyDown(KeyCode.P)) showTray = !showTray;
     }
@@ -433,222 +465,10 @@ public partial class EvoTank : MonoBehaviour
         }
         var m = new Mesh { vertices = v, uv = uv, uv2 = id, triangles = t }; m.bounds = new Bounds(Vector3.zero, Vector3.one * 1000); return m;
     }
-    static Mesh FloorMesh(Color b)   // 모래(바다·조간대)·흙(육지)
+    static Mesh FloorMesh()   // 평평한 판: 무늬·기복은 Floor 셰이더가 실제 m 좌표로 그린다(판 크기가 바뀌어도 튀지 않게)
     {
-        var r = new System.Random(3); int n = 24; var v = new List<Vector3>(); var c = new List<Color>(); var t = new List<int>();
-        for (int i = 0; i <= n; i++) for (int j = 0; j <= n; j++)
-        {
-            float x = -H + BOX * i / n, z = -H + BOX * j / n; v.Add(new(x, -H + (float)r.NextDouble() * 0.06f, z));
-            float k = 0.8f + 0.2f * (float)r.NextDouble(); c.Add(new Color(b.r * k, b.g * k, b.b * k, 1));
-        }
-        for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) { int a = i * (n + 1) + j; t.AddRange(new[] { a, a + 1, a + n + 1, a + 1, a + n + 2, a + n + 1 }); }
-        var m = new Mesh(); m.SetVertices(v); m.SetColors(c); m.SetTriangles(t, 0); m.SetUVs(0, Enumerable.Repeat(Vector4.zero, v.Count).ToList()); m.RecalculateNormals(); return m;
-    }
-
-    // ---------- 화면(IMGUI) ----------
-    Font font, fontB; GUIStyle sL, sB, sS, sBtn, sOn, sBox, sT, sTd; Texture2D bg;
-    Rect panel, top, info; int tab; Vector2 scroll;
-    static readonly string[] TABS = { "자연", "생물", "종", "진화" };
-    float UIScale => Mathf.Max(0.75f, Mathf.Min(Screen.height / 900f, Screen.width / 1600f));
-
-    void Fonts()
-    {
-        font = Resources.Load<Font>("Fonts/Pretendard-Regular"); fontB = Resources.Load<Font>("Fonts/Pretendard-SemiBold");
-        if (!font) font = Font.CreateDynamicFontFromOSFont(new[] { "Noto Sans CJK KR", "Malgun Gothic", "Arial" }, 14);
-        if (!fontB) fontB = font;
-        bg = new Texture2D(1, 1); bg.SetPixel(0, 0, new Color(0.05f, 0.07f, 0.1f, 0.78f)); bg.Apply();
-    }
-    void Styles()
-    {
-        if (sL != null) return;
-        GUIStyle S(Font f, int size, Color c) => new() { font = f, fontSize = size, wordWrap = true, richText = true, normal = { textColor = c } };
-        sL = S(font, 14, new Color(0.88f, 0.92f, 0.96f)); sB = S(fontB, 16, Color.white); sS = S(font, 12, new Color(0.65f, 0.72f, 0.8f));
-        sBtn = new GUIStyle(GUI.skin.button) { font = font, fontSize = 13 }; sOn = new GUIStyle(sBtn) { font = fontB, normal = { textColor = new Color(0.5f, 0.9f, 1f) } };
-        sBox = new GUIStyle { normal = { background = bg } };
-        sT = S(font, 11, new Color(0.88f, 0.92f, 0.96f)); sT.wordWrap = false; sT.clipping = TextClipping.Clip; sTd = new GUIStyle(sT) { normal = { textColor = new Color(0.5f, 0.56f, 0.62f) } };
-    }
-
-    void OnGUI()
-    {
-        Styles(); float s = UIScale; GUI.matrix = Matrix4x4.Scale(new Vector3(s, s, 1));
-        float W = Screen.width / s, Hh = Screen.height / s;
-        top = new Rect(10, 10, W - 20, 40); panel = new Rect(W - 370, 246, 360, Hh - 256); info = new Rect(10, Hh - 132, 520, 122);
-        // 머리
-        GUI.Box(top, GUIContent.none, sBox);
-        int nsp = w.species.Values.Count(x => x.total > 0);
-        GUI.Label(new Rect(22, 18, W - 420, 26), $"<b>진화 수조</b>   {w.Time(w.tick)}   ·   종 {nsp}   ·   개체 {w.totalCount:0.0e0}   ·   몸 설계 <b>{w.looksSeen.Count}</b>가지", sL);
-        for (int i = 0; i < 4; i++) if (GUI.Button(new Rect(W - 372 + i * 90, 15, 86, 30), SPN[i], speed == i ? sOn : sBtn)) speed = i;
-        // 아래 왼쪽: 축척·층·모드
-        GUI.Box(info, GUIContent.none, sBox);
-        ScaleBar(new Rect(22, Hh - 124, 300, 30));
-        GUI.Label(new Rect(22, Hh - 92, 500, 22), $"시야 {Len(B)}  ·  수심 {py:0.00} m  ·  {(conc >= 1 ? $"실제보다 {Num(conc)}배 농축" : $"실제의 1/{Num(1 / conc)}만 표시")}", sS);
-        if (GUI.Button(new Rect(22, Hh - 64, 150, 26), sel != null ? "고른 개체에 맞추기" : "가장 큰 생물에 맞추기", sBtn)) Fit();
-        if (GUI.Button(new Rect(176, Hh - 64, 110, 26), "확대 카드 (M)", showCard ? sOn : sBtn)) showCard = !showCard;
-        if (GUI.Button(new Rect(290, Hh - 64, 110, 26), "표본 쟁반 (P)", showTray ? sOn : sBtn)) showTray = !showTray;
-        GUI.Label(new Rect(22, Hh - 34, 500, 22), "끌기: 둘러보기 · WASD: 헤엄 · E/Q: 위/아래 · Shift: 빠르게 · 휠: 내 크기 · 클릭: 고르기 · F: 맞추기 · T: 타임라인 · M: 확대 카드 · P: 표본 쟁반 · Space: 멈춤", sS);
-        // 오른쪽 판
-        GUI.Box(panel, GUIContent.none, sBox);
-        for (int i = 0; i < TABS.Length; i++) if (GUI.Button(new Rect(panel.x + 8 + i * 86, panel.y + 8, 82, 28), TABS[i], tab == i ? sOn : sBtn)) { tab = i; scroll = Vector2.zero; }
-        GUILayout.BeginArea(new Rect(panel.x + 10, panel.y + 44, panel.width - 20, panel.height - 52));
-        scroll = GUILayout.BeginScrollView(scroll);
-        if (tab == 0) EnvTab(); else if (tab == 1) OrgTab(); else if (tab == 2) SpeciesTab(); else EventTab();
-        GUILayout.EndScrollView(); GUILayout.EndArea();
-        LineStrip(Hh); DepthGauge(Hh); MapBox(new Rect(W - 370, 58, 360, 180));
-        if (showTray) Tray(W, Hh); else { Card(Hh); Cards(W); }   // 쟁반을 펴면 그 위에 다른 카드를 띄우지 않는다
-    }
-
-    static readonly (string name, float[] env)[] PRESETS = {
-        ("원시 바다", new[] { 25f, 35, 60, 30, 2, 50 }), ("어류의 바다(추천)", new[] { 18f, 35, 70, 20, 21, 40 }), ("민물 연못", new[] { 20f, 0.5f, 70, 30, 21, 40 }),
-        ("고염 석호", new[] { 28f, 150, 80, 50, 21, 40 }), ("차가운 바다", new[] { 6f, 35, 50, 20, 21, 50 }), ("빛 없는 심해", new[] { 4f, 35, 0, 0, 10, 30 }),
-    };
-    // ---------- 자연 탭: 지구 상태 · 자연현상 일으키기 · 자동 사건 · 고급(숫자) ----------
-    int qSel, qSize = 2; float qAmp = 2, qRad = 2, qDays = 100; bool placing, advanced;
-    static readonly string[] QBTN = { "화산", "융기·침강", "온난화·냉각", "빙하기", "운석" };
-    static bool Located(int k) => k == (int)Qk.Volcano || k == (int)Qk.Impact || k == (int)Qk.Uplift;
-    void FireQ(int cell)
-    {
-        var k = (Qk)qSel; float amp = k == Qk.IceAge ? World.IceAmp(qSize) : qAmp;
-        var q = w.Fire(k, qSize, cell, amp, qRad, k == Qk.Volcano ? 60 : qDays); placing = false;
-        toast = "<b>" + q.text + "</b>"; toastT = 6;
-    }
-    void EnvTab()
-    {
-        float yrs = w.tick * w.P.DT / 24f * World.GEO_X;
-        GUILayout.Label($"<b>지구</b>  적도 바다 {w.env[Ev.Temp] + 3:0.0} °C · CO₂ {w.co2:0} ppm · 대기 산소 {w.env[Ev.O2]:0.0}%\n" +
-            $"빙상 {w.ice * 100:0}% · 해수면 {w.geo.sea:+0;-0;0} m · 화산재 냉각 {w.aer:0.0} °C · 먼지 어둠 {w.dark * 100:0}%\n" +
-            $"<size=11>지질 시계: 생태 1일 = 지질 1000년 (지금까지 지질 {(yrs >= 1e6 ? $"{yrs / 1e6:0.0}백만" : $"{yrs / 1e4:0.#}만")} 년). 먹고 먹히기·진화는 실제 시간, 탄소·빙상·융기는 압축.</size>", sS);
-        GUILayout.Space(6); GUILayout.Label("<b>자연현상 일으키기</b>", sL);
-        for (int r0 = 0; r0 < QBTN.Length; r0 += 3)
-        {
-            GUILayout.BeginHorizontal();
-            for (int k = r0; k < Mathf.Min(r0 + 3, QBTN.Length); k++) if (GUILayout.Button(QBTN[k], qSel == k ? sOn : sBtn)) { qSel = k; placing = false; }
-            GUILayout.EndHorizontal();
-        }
-        var kind = (Qk)qSel;
-        if (kind == Qk.Volcano || kind == Qk.Impact || kind == Qk.IceAge)
-        {
-            string note = kind == Qk.Volcano ? World.VolNote[qSize] : kind == Qk.Impact ? World.ImpNote[qSize] : $"−{World.IceAmp(qSize):0} °C";
-            GUILayout.Label($"규모 <b>{World.SizeName[qSize]}</b> — {note}", sS);
-            qSize = Mathf.RoundToInt(GUILayout.HorizontalSlider(qSize, 0, 4));
-        }
-        if (kind == Qk.Uplift)
-        {
-            GUILayout.Label($"{(qAmp >= 0 ? "융기" : "침강")} {Mathf.Abs(qAmp):0.0} m/일 (실제 {Mathf.Abs(qAmp):0.0} mm/년) · 반경 {qRad * 200:0} km", sS);
-            qAmp = Mathf.Round(GUILayout.HorizontalSlider(qAmp, -5, 5) * 2) / 2; qRad = Mathf.Round(GUILayout.HorizontalSlider(qRad, 1, 6));
-        }
-        if (kind == Qk.Warm) { GUILayout.Label($"{(qAmp >= 0 ? "온난화 +" : "냉각 −")}{Mathf.Abs(qAmp):0.0} °C", sS); qAmp = Mathf.Round(GUILayout.HorizontalSlider(qAmp, -8, 8) * 2) / 2; }
-        if (kind == Qk.Uplift || kind == Qk.Warm || kind == Qk.IceAge)
-        {
-            GUILayout.Label($"기간 {qDays:0}일 (지질 {qDays * World.GEO_X / 1e4:0.#}만 년)", sS);
-            qDays = Mathf.Round(GUILayout.HorizontalSlider(qDays, 10, 600) / 10) * 10;
-        }
-        if (Located(qSel)) { if (GUILayout.Button(placing ? "지도에서 위치를 누르세요 (다시 누르면 취소)" : "위치 고르기 → 지도를 누르면 일어남", placing ? sOn : sBtn)) placing = !placing; }
-        else if (GUILayout.Button("일으키기", sBtn)) FireQ(-1);
-        GUILayout.Space(6);
-        GUILayout.BeginHorizontal();
-        if (GUILayout.Button(w.autoQ ? "자동 사건: 켜짐" : "자동 사건: 꺼짐", w.autoQ ? sOn : sBtn, GUILayout.Width(130))) w.autoQ = !w.autoQ;
-        GUILayout.Label($"<size=11>{(w.activity < 0.34f ? "조용한 행성" : w.activity < 0.67f ? "보통 행성" : "격동하는 행성")} · 작은 화산 약 {1 / (0.1 * Math.Pow(10, 2 * w.activity - 1.5)):0}일에 한 번</size>", sS);
-        GUILayout.EndHorizontal();
-        w.activity = GUILayout.HorizontalSlider(w.activity, 0, 1);
-        double day = w.tick * w.P.DT / 24.0;
-        foreach (var q in w.quakes) { double left = q.Day0 + q.days - day; if ((q.kind != Qk.Volcano || q.size == 4) && q.kind != Qk.Impact && left > 0 && day >= q.Day0) GUILayout.Label($"<color=#ffb070>진행 중</color> {q.text} — {left:0}일 남음", sS); }
-        GUILayout.Space(8);
-        if (GUILayout.Button(advanced ? "▼ 고급: 숫자로 조정" : "▶ 고급: 숫자로 조정", sBtn)) advanced = !advanced;
-        if (advanced) Advanced();
-        GUILayout.Space(6);
-        GUILayout.Label($"<b>이 자리의 물질 순환</b>\n남세균 {Num(Mix(w.cya))}/mL · 세균 {Num(Mix(w.bac))}/mL · 영양염 {Mix(w.nut):0.00} μM\n유기물 입자(바다눈) {Mix(w.pom):0.00} μM N · 녹은 유기물 {Mix(w.dom):0.00} μM N · 산소 {Mix(w.dox):0.0}% atm\n퇴적물에 묻힌 유기물 누계 {Num(w.buried)}", sS);
-        GUILayout.Label($"해역 {w.NR}곳 · 칸 {Enumerable.Range(0, World.V).Count(v => w.vol[v] > 0)}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
-    }
-
-    void Advanced()
-    {
-        GUILayout.Label("슬라이더는 목표값이고 바다는 정한 속도로 따라간다. '수온'은 사건 없는 기후의 바탕(CO₂·빙상·사건 몫은 지구가 더한다).", sS);
-        for (int e = 0; e < Ev.N; e++)
-        {
-            var d = Ev.Def[e];
-            if (e == Ev.O2)
-            {
-                GUILayout.BeginHorizontal(); GUILayout.Label($"{d.name}  <b>{w.env[e]:0.#}{d.unit}</b>", sL);
-                if (GUILayout.Button(w.o2Bio ? "생물이 정함" : "숫자로 고정", w.o2Bio ? sOn : sBtn, GUILayout.Width(100))) { w.o2Bio = !w.o2Bio; w.target[e] = w.env[e]; }
-                GUILayout.EndHorizontal();
-                if (w.o2Bio) { GUILayout.Label("<size=11>묻힌 유기물(광합성의 남은 몫)만큼 천천히 오르내린다</size>", sS); continue; }
-            }
-            else GUILayout.Label($"{d.name}  <b>{(e == Ev.Temp ? w.tBase : w.env[e]):0.#}{d.unit}</b>  → 목표 {w.target[e]:0.#}{d.unit}", sL);
-            float t = GUILayout.HorizontalSlider(w.target[e], d.lo, d.hi); if (t != w.target[e]) w.SetTarget(e, t);
-        }
-        GUILayout.Label($"CO₂  <b>{w.co2:0} ppm</b> (기준 1000, 2배마다 +3 °C)", sL);
-        float lc = GUILayout.HorizontalSlider(Mathf.Log10((float)w.co2), 2, 4); if (Mathf.Abs(lc - Mathf.Log10((float)w.co2)) > 1e-3f) w.co2 = Math.Pow(10, lc);
-        GUILayout.Space(4); GUILayout.Label("변화 속도", sL);
-        GUILayout.BeginHorizontal();
-        foreach (var (n, r) in new[] { ("느리게", 0.0001f), ("보통", 0.0005f), ("빠르게", 0.003f), ("즉시", 1f) })
-            if (GUILayout.Button(n, rateSel == r ? sOn : sBtn)) { rateSel = r; w.rate = r; }
-        GUILayout.EndHorizontal();
-        GUILayout.Space(4); GUILayout.Label($"돌연변이 속도 ×{mutX:0.00}  (높을수록 새 계통이 자주 생긴다)", sL);
-        float mx = Mathf.Pow(2, GUILayout.HorizontalSlider(Mathf.Log(mutX, 2), -2, 2));
-        if (Mathf.Abs(mx - mutX) > 1e-3f) { mutX = mx; var d0 = new Params(); w.P.MUT_NEW = d0.MUT_NEW * mx; w.P.MUT_U = d0.MUT_U * mx; w.P.MUT_FLOOR = d0.MUT_FLOOR * mx; }
-        GUILayout.Space(4); GUILayout.Label($"<b>이 해역만</b> ({w.geo.Name(reg)})  수온 {w.rdT[reg]:+0.0;-0.0;0} °C · 영양염 ×{w.rnM[reg]:0.0}", sL);
-        float rT = Mathf.Round(GUILayout.HorizontalSlider(w.rdT[reg], -10, 10) * 2) / 2, rN = Mathf.Round(GUILayout.HorizontalSlider(w.rnM[reg], 0, 5) * 10) / 10;
-        if (rT != w.rdT[reg] || rN != w.rnM[reg]) w.SetRegionTweak(reg, rT, rN);
-        GUILayout.Space(4); GUILayout.Label("미리 정한 바다", sL);
-        for (int i = 0; i < PRESETS.Length; i += 2)
-        {
-            GUILayout.BeginHorizontal();
-            for (int j = i; j < Mathf.Min(i + 2, PRESETS.Length); j++) if (GUILayout.Button(PRESETS[j].name, sBtn)) for (int e = 0; e < Ev.N; e++) w.SetTarget(e, PRESETS[j].env[e]);
-            GUILayout.EndHorizontal();
-        }
-        GUILayout.Space(6);
-        if (GUILayout.Button("이 환경에서 새로 시작(새 지도, 공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; fit = true; reg = -1; obsCell = -1; }
-    }
-
-    void OrgTab()
-    {
-        var st = sel != null ? w.strains[sel.slot] : null;   // OnGUI 안에서는 상태를 바꾸지 않는다(Layout·Repaint 칸 수가 어긋남)
-        if (st == null || st.id != sel.id) { GUILayout.Label("상자 안의 개체를 누르면 그 개체의 에너지 수지·형질이 나온다.", sL); return; }
-        int v = V, q = World.Ix(sel.slot, v, sel.k); var m = w.M(sel.slot, v, sel.k); var sp = w.species.TryGetValue(st.sp, out var x) ? x : null;
-        GUILayout.Label($"<b>{sp?.name}</b>", sB); GUILayout.Label(sp?.ko ?? "", sS);
-        if (follow >= 0) GUILayout.Label("<color=#7fe0ff>혈통 따라가는 중</color> — 이 개체는 그 계통의 대표 표본이다(시뮬레이션은 개체가 아니라 무리를 계산한다). 계통이 사라지면 가장 많은 후손으로 넘어간다. T: 타임라인", sS);
-        string stage = !st.dev ? "" : sel.k == 0 ? " · 알·유생" : sel.k == st.K - 1 ? " · 성체" : $" · 어린 개체 {sel.k}/{st.K - 1}";
-        GUILayout.Label($"{Taxa.Name(st)}{stage}\n몸길이 {Len(m.L * 1e-6f)} · 세포 {Num(m.C)}개 · 헤엄 {Len(m.speed * 1e-6f)}/s\n임계 산소 {m.pcrit:0.0}% atm · 이 칸 {Num(w.cnt[q] / w.vol[v])}마리/mL · 세대 {st.gen:0}", sL);
-        w.Budget(st, v, ref m, w.gP[q], w.gB[q], bud);
-        GUILayout.Space(6); GUILayout.Label("<b>에너지 수지</b> (시간당, 들어옴 / 나감)", sL);
-        string[] nm = { "녹은 유기물", "광합성", "세균 먹기", "포식", "기초 대사", "형질 유지", "몸 구조", "삼투 조절", "삼투 손상", "자외선", "산소", "온도" };
-        double big = 1e-12; for (int i = 0; i < 12; i++) big = Math.Max(big, Math.Abs(bud[i]));
-        for (int i = 0; i < 12; i++)
-        {
-            if (Math.Abs(bud[i]) < big * 0.01) continue;
-            var r = GUILayoutUtility.GetRect(300, 18); GUI.Label(new Rect(r.x, r.y, 110, 18), nm[i], sS);
-            var bar = new Rect(r.x + 112, r.y + 4, (float)(bud[i] / big) * (r.width - 120), 10);
-            var c = GUI.color; GUI.color = i < 4 ? new Color(0.4f, 0.9f, 0.5f) : new Color(1f, 0.45f, 0.4f); GUI.DrawTexture(bar, Texture2D.whiteTexture); GUI.color = c;
-        }
-        GUILayout.Label($"순수지 {(bud[13] >= 0 ? "+" : "")}{bud[13] / Math.Max(1e-12, m.C * (m.esd * m.esd * m.esd * 1e-3 + w.P.FIXB)) * 2400:0.0}%/일", sL);
-        GUILayout.Space(6); GUILayout.Label("<b>두드러진 형질</b>", sL);
-        GUILayout.Label(string.Join(" · ", Names.Describe(st.g).Take(6).Select(d => d.ko)), sS);
-        GUILayout.Label("<b>유전자</b>", sL);
-        var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < Gn.N; i++) { var d = Gn.Def[i]; if (Mathf.Abs(st.g[i] - d.init) > 0.05f * (d.hi - d.lo)) sb.Append($"{d.name} {st.g[i]:0.##}  "); }
-        GUILayout.Label(sb.ToString(), sS);
-    }
-
-    void SpeciesTab()
-    {
-        GUILayout.Label("살아 있는 종(많은 순). 누르면 그 종의 혈통을 따라가며 가장 많은 곳으로 간다.", sS);
-        foreach (var sp in w.species.Values.Where(x => x.total > 0).OrderByDescending(x => x.total).Take(30))
-        {
-            var c = Color.HSVToRGB(Mathf.Repeat(sp.hue / 360, 1), 0.6f, 1);
-            if (GUILayout.Button($"<color=#{ColorUtility.ToHtmlStringRGB(c)}>●</color> <b>{sp.name}</b>  {Taxa.Name(sp.look)}\n<size=11>{sp.ko} · {sp.total:0.0e0}마리</size>", new GUIStyle(sBtn) { alignment = TextAnchor.MiddleLeft, richText = true }))
-                GoSpecies(sp);
-        }
-    }
-
-    void EventTab()
-    {
-        Tree();
-        GUILayout.Space(8); GUILayout.Label("<b>사건 기록</b>", sL);
-        for (int i = w.events.Count - 1; i >= Math.Max(0, w.events.Count - 60); i--)
-        {
-            var e = w.events[i]; bool big = e.type == "grade" || e.type == "scale";
-            GUILayout.Label($"<color=#8fa3b8>{w.Time(e.t)}</color>  {(e.type == "earth" ? "<color=#ffb070>" + e.text + "</color>" : big ? "<b>" + e.text + "</b>" : e.text)}", sL);
-        }
+        var m = new Mesh { vertices = new[] { new Vector3(-H, -H, -H), new Vector3(H, -H, -H), new Vector3(H, -H, H), new Vector3(-H, -H, H) }, triangles = new[] { 0, 2, 1, 0, 3, 2 } };
+        m.RecalculateNormals(); return m;
     }
 
     // 축척 막대: 1-2-5 단계에서 화면 60–160 px가 되는 길이

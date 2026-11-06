@@ -37,7 +37,8 @@ namespace Evo
         public readonly float[] iceR = new float[RMAX], rdT = new float[RMAX], rnM = new float[RMAX];   // 해역 바다얼음 0–1, 해역 보정(수온 °C, 영양염 배율)
         public readonly float[] cellDT = new float[Geo.G * Geo.G], cellNM = new float[Geo.G * Geo.G];  // 칸별 보정(고급 패널). 지형이 바뀌어도 칸에 남는다
         public int regridN, land0;
-        bool geoDirty; double burPrev, areaTot, relaxAcc; Rng qr;
+        bool geoDirty; double burPrev, areaTot, relaxAcc, crustAcc, crustDef; Rng qr;
+        readonly int[] arc = { -1, -1, -1 }; readonly float[] arcLeft = new float[3]; int landPct;   // 원시 바다의 조산대(호상열도·대륙 가장자리) 세 곳
         readonly float[] h0 = new float[Geo.G * Geo.G];   // 처음 지형: 섬·융기는 침식·지각 냉각으로 천천히 이리로 돌아간다
 
         void EarthReset()
@@ -45,7 +46,9 @@ namespace Evo
             co2 = CO2_0; tBase = env[Ev.Temp]; aer = dark = warmF = upl = 0; wMul = 1; ice0 = -1; ice = 0; darkTau = 30;
             burRate = 0; burPrev = 0; quakes.Clear(); geo.sea = 0; geoDirty = false; qr = new Rng((ulong)seed * 31 + 7);
             Array.Fill(cellNM, 1f); Array.Clear(cellDT, 0, cellDT.Length);
-            land0 = geo.LandCells(); Array.Copy(geo.h, h0, h0.Length); relaxAcc = 0;
+            land0 = 0; foreach (float x in geo.hM) if (x >= 0) land0++;   // 풍화 기준 = 다 자란 대륙
+            Array.Copy(geo.h, h0, h0.Length); relaxAcc = 0; crustAcc = 0; Array.Fill(arc, -1); landPct = geo.LandCells() * 100 / (Geo.G * Geo.G);
+            crustDef = 0; for (int i = 0; i < h0.Length; i++) crustDef += Def(i);
         }
 
         // 틱마다: 사건 진행·자동 사건 → 탄소·산소·얼음 → 기온·해수면. 지형이 바뀌었으면 하루 한 번 해역을 다시 나눈다
@@ -70,7 +73,7 @@ namespace Evo
             double V0 = CO2_0 / P.TAU_C, dT = env[Ev.Temp] - tBase;
             if (tick % 12 == 0) { double b = buried - burPrev; burPrev = buried; areaTot = 0; for (int c = 0; c < geo.NO; c++) areaTot += geo.rArea[c]; double r = b / Math.Max(1, areaTot * 1e-6); burRate = burRate == 0 ? r : burRate + (r - burRate) / 30; }
             double bN = Math.Min(3, burRate / P.BUR21);
-            wMul = (float)(Math.Sqrt(co2 / CO2_0) * Math.Exp(0.07 * dT) * geo.LandCells() / Math.Max(1.0, land0) * (1 + upl));
+            wMul = (float)(Math.Sqrt(co2 / CO2_0) * Math.Exp(0.07 * dT) * Math.Max(geo.LandCells(), 0.3 * land0) / Math.Max(1.0, land0) * (1 + upl));   // 땅이 적어도 바다 밑 현무암 풍화가 바닥을 받친다(Krissansen-Totton 2018)
             co2 = Math.Max(20, co2 + (V0 + outg - 0.8 * V0 * wMul - 0.2 * V0 * bN) * dd);
             upl *= MathF.Exp(-dd / 100);
             if (o2Bio) env[Ev.O2] = (float)Math.Clamp(env[Ev.O2] + (21 * bN - env[Ev.O2]) * dd / P.TAU_O2, 0, 30);
@@ -84,10 +87,50 @@ namespace Evo
             env[Ev.Temp] = Math.Clamp(tBase + 3 * (float)Math.Log(co2 / CO2_0, 2) - aer - 18 * dark + warmF - P.ICE_ALB * (ice - ice0), Ev.Def[Ev.Temp].lo, Ev.Def[Ev.Temp].hi);
             if (tick % 12 == 0)   // 하루: 침식·침강으로 지형이 처음 모습 쪽으로(화산 섬이 깎이고 가라앉아 환초·평정해산이 된다, 지질 수백만 년)
             {
+                if (P.PRIMO > 0) Crust();
                 float mx = 0; for (int i = 0; i < h0.Length; i++) { float d = (h0[i] - geo.h[i]) / P.TAU_GEO; geo.h[i] += d; mx = Math.Max(mx, Math.Abs(d)); }
                 relaxAcc += mx; if (relaxAcc > 2) { relaxAcc = 0; geoDirty = true; }
                 if (geoDirty) Regrid();
             }
+        }
+
+        float Def(int i) => geo.hM[i] > -250 ? Math.Max(0, geo.hM[i] - h0[i]) : 0;   // 아직 덜 자란 대륙 지각(대륙붕보다 깊은 대양 바닥은 그대로)
+
+        // 하루: 조산대마다 둘레 땅을 올린다(다 자란 고도까지). 조산대는 100–300일 뒤, 또는 둘레가 다 자라면 옮긴다.
+        // 새 자리는 덜 자란 만큼, 그리고 이미 드러난 땅 옆일수록 잘 고른다(대륙은 가장자리에 호상열도가 붙으며 자란다, Condie 2007)
+        void Crust()
+        {
+            const float SIG = 1.5f;
+            double peak = crustDef / Math.Max(1, P.CRUST_T) * (0.4 + 1.2 * activity) / (3 * 2 * Math.PI * SIG * SIG);   // 조산대 한 곳 가운데 융기(m/일 = mm/년)
+            float mx = 0;
+            for (int k = 0; k < 3; k++)
+            {
+                arcLeft[k] -= 1;
+                if (arc[k] < 0 || arcLeft[k] <= 0 || Def(arc[k]) < 20)
+                {
+                    double tot = 0; var wt = new double[h0.Length];
+                    for (int i = 0; i < h0.Length; i++)
+                    {
+                        float d = Def(i); if (d < 20) continue;
+                        int x = i % Geo.G, z = i / Geo.G; bool near = false;
+                        for (int dz = -1; dz <= 1 && !near; dz++) for (int dx = -1; dx <= 1; dx++) { int xx = x + dx, zz = z + dz; if (xx >= 0 && zz >= 0 && xx < Geo.G && zz < Geo.G && geo.h[zz * Geo.G + xx] >= geo.sea) { near = true; break; } }
+                        tot += wt[i] = d * (near ? 5 : 1);
+                    }
+                    if (tot <= 0) { arc[k] = -1; continue; }
+                    double u = qr.U() * tot; int c = 0; while (c < wt.Length - 1 && (u -= wt[c]) > 0) c++;
+                    arc[k] = c; arcLeft[k] = 100 + 200 * (float)qr.U();
+                    Log("earth", $"조산 운동: {Where(c)}에서 지각이 솟기 시작했습니다(가운데 약 {peak:0.#} mm/년).");
+                }
+                for (int i = 0; i < h0.Length; i++)
+                {
+                    float dd = CellDist(i, arc[k]); if (dd > 3 * SIG) continue;
+                    float dh = Math.Min((float)peak * MathF.Exp(-dd * dd / (2 * SIG * SIG)), Def(i)); if (dh <= 0) continue;
+                    h0[i] += dh; geo.h[i] += dh; mx = Math.Max(mx, dh);
+                }
+            }
+            crustAcc += mx; if (crustAcc > 20) { crustAcc = 0; geoDirty = true; }
+            int pct = geo.LandCells() * 100 / (Geo.G * Geo.G);
+            if (pct >= landPct + 5) { landPct = pct / 5 * 5; Log("earth", $"땅이 지표의 {pct}%로 늘었습니다."); }
         }
 
         // 사건 일으키기(화면·자동·시험). cell = 지도 칸(z*G+x), 위치 없는 사건은 −1
