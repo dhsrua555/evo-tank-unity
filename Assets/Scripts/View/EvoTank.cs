@@ -128,6 +128,9 @@ public partial class EvoTank : MonoBehaviour
         float bk = Bt; Bt = 1; yield return wait; yield return Snap("2b-wide"); Bt = bk; MoveBy(new Vector3(0, 1f, 0)); yield return wait;   // 제자리로
         double pk = py; float bk2 = Bt; MoveBy(new Vector3(0, (float)(py - 0.08), 0)); Bt = 0.4f; float pp = pitch; pitch = -30; yield return wait; yield return Snap("6-surface"); pitch = pp;   // 물속 느낌: 수면 가까이·깊은 곳
         MoveBy(new Vector3(0, -6f, 0)); yield return wait; yield return Snap("6b-deep"); MoveBy(new Vector3(0, (float)(py - pk), 0)); Bt = bk2; yield return wait;
+        int r0 = reg, rd = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] > w.geo.rDepth[rd]) rd = c;   // 해역 옮기기: 가장 깊은 바다 300 m
+        GoTo(rd, 300); yield return wait; Debug.Log($"[EvoTank] region {r0}->{reg} {Geo.DName(w.geo.rDepth[reg])} depth {py:0} floor {Floor:0} vNear y{vNear / World.LS} {(reg == rd && Math.Abs(py - 300) < 1e-3 ? "ok" : "FAIL")}"); yield return Snap("7-ocean");
+        GoTo(r0, 1.25); yield return wait;
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
         Application.Quit();
     }
@@ -188,7 +191,7 @@ public partial class EvoTank : MonoBehaviour
                 double c = Dens(s, k); if (c <= 0) continue;
                 var m = w.M(s, v, k); float L = m.L * 1e-6f;
                 if (L < B * 0.006f || L > B * 0.5f || m.sessile && yF < -H) continue;   // 붙어 사는 것은 바닥이 보일 때만
-                cand.Add(new Cand { s = s, k = k, L = L, e = c / World.VML * boxML, m = m }); sum += cand[^1].e; occ += cand[^1].e * Math.Pow(L / B, 3);
+                cand.Add(new Cand { s = s, k = k, L = L, e = c * boxML, m = m }); sum += cand[^1].e; occ += cand[^1].e * Math.Pow(L / B, 3);
                 if (L > bigL) { bigL = L; big = cand.Count - 1; }
             }
         }
@@ -318,7 +321,7 @@ public partial class EvoTank : MonoBehaviour
         // 너무 작아 몸을 못 그리는 것: 미생물 모드는 세균, 거시 모드는 미생물 안개
         double boxML = (double)B * B * B * 1e6, small = 0;
         if (ms) foreach (int s in w.live) { var st = w.strains[s]; for (int k = 0; k < st.K; k++) { double c = Dens(s, k); if (c > 0 && w.M(s, v, k).L * 1e-6f < B * 0.006f) small += c; } }
-        double nDots = ms ? Math.Log10(1 + small / World.VML * boxML) * 400 : Math.Log10(1 + Mix(w.bac) * boxML * conc) * 150;   // 세균도 로그로(농축 배율이 10⁵배쯤이라 그대로 곱하면 화면이 하얗게 찬다)
+        double nDots = ms ? Math.Log10(1 + small * boxML) * 400 : Math.Log10(1 + Mix(w.bac) * boxML * conc) * 150;   // 세균도 로그로(농축 배율이 10⁵배쯤이라 그대로 곱하면 화면이 하얗게 찬다)
         mDots.SetFloat("_Count", (float)Math.Min(1, nDots / 3000)); mDots.SetFloat("_Brown", ms ? 0 : 5e-7f * u); mDots.SetFloat("_Box", BOX);
         mDots.SetVector("_Off", new Vector4(dotOff.x - Mathf.Floor(dotOff.x), dotOff.y - Mathf.Floor(dotOff.y), dotOff.z - Mathf.Floor(dotOff.z), 0)); mDots.SetVector("_YLim", new Vector4(yF, yS));
         mDots.SetFloat("_Size", ms ? 0.025f : Mathf.Max(0.02f, 0.6e-6f * u));
@@ -336,7 +339,7 @@ public partial class EvoTank : MonoBehaviour
     void Controls(float dt)
     {
         var mp = Input.mousePosition; var gp = new Vector2(mp.x, Screen.height - mp.y) / UIScale;
-        overUI = panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || line.Contains(gp) || gauge.Contains(gp) || card.Contains(gp) || tray.Contains(gp);
+        overUI = panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || line.Contains(gp) || gauge.Contains(gp) || mapR.Contains(gp) || card.Contains(gp) || tray.Contains(gp);
         if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1)) { m0 = mp; dragging = !overUI; }
         if (dragging && (Input.GetMouseButton(0) || Input.GetMouseButton(1))) { var d = Input.mousePosition - m0; m0 = Input.mousePosition; if (d.sqrMagnitude > 0) lastDrag = Time.time; yaw += d.x * 0.25f; pitch = Mathf.Clamp(pitch - d.y * 0.25f, -80, 80); }
         if (Input.GetMouseButtonUp(0) && dragging && (Input.mousePosition - downAt).sqrMagnitude < 36) Pick(mp);
@@ -375,12 +378,8 @@ public partial class EvoTank : MonoBehaviour
     void Focus(int s, int k, bool fitZoom)
     {
         int bv = vNear; double bn = 0;
-        for (int v = 0; v < World.V; v++) { double c = w.cnt[World.Ix(s, v, k)]; if (c > bn) { bn = c; bv = v; } }
-        if (Dens(s, k) < 0.05 * bn)   // 여기에 거의 없으면 그 칸 가운데로 간다
-        {
-            int c = bv % World.LS; py = (bv / World.LS + 0.5) * World.DZ; px = (c % World.NX + 0.5) * World.DX; pz = (c / World.NX + 0.5) * World.DX;
-            avs.Clear(); Cells();
-        }
+        for (int v = 0; v < World.V; v++) if (w.vol[v] > 0) { double c = w.cnt[World.Ix(s, v, k)] / w.vol[v]; if (c > bn) { bn = c; bv = v; } }
+        if (Dens(s, k) < 0.05 * bn) GoTo(bv % World.LS, w.zc[bv]);   // 여기에 거의 없으면 가장 짙은 해역·층 가운데로 간다
         sel = null; want = (s, k); tRes = 0;
         float L = w.M(s, vNear, k).L * 1e-6f;
         if (fitZoom || L < B * 0.006f || L > B * 0.5f) Bt = Mathf.Clamp(L * SELZ, 2e-5f, 3);   // 혈통이 넘어갈 때는 안 보일 때만 축척을 바꾼다
@@ -438,7 +437,7 @@ public partial class EvoTank : MonoBehaviour
     {
         Styles(); float s = UIScale; GUI.matrix = Matrix4x4.Scale(new Vector3(s, s, 1));
         float W = Screen.width / s, Hh = Screen.height / s;
-        top = new Rect(10, 10, W - 20, 40); panel = new Rect(W - 370, 58, 360, Hh - 68); info = new Rect(10, Hh - 132, 520, 122);
+        top = new Rect(10, 10, W - 20, 40); panel = new Rect(W - 370, 246, 360, Hh - 256); info = new Rect(10, Hh - 132, 520, 122);
         // 머리
         GUI.Box(top, GUIContent.none, sBox);
         int nsp = w.species.Values.Count(x => x.total > 0), gmax = w.gradesSeen.Count > 0 ? w.gradesSeen.Max() : 0;
@@ -459,7 +458,7 @@ public partial class EvoTank : MonoBehaviour
         scroll = GUILayout.BeginScrollView(scroll);
         if (tab == 0) EnvTab(); else if (tab == 1) OrgTab(); else if (tab == 2) SpeciesTab(); else EventTab();
         GUILayout.EndScrollView(); GUILayout.EndArea();
-        LineStrip(Hh); DepthGauge(Hh);
+        LineStrip(Hh); DepthGauge(Hh); MapBox(new Rect(W - 370, 58, 360, 180));
         if (showTray) Tray(W, Hh); else { Card(Hh); Cards(W); }   // 쟁반을 펴면 그 위에 다른 카드를 띄우지 않는다
     }
 
@@ -495,7 +494,7 @@ public partial class EvoTank : MonoBehaviour
         if (GUILayout.Button("이 환경에서 새로 시작(공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; fit = true; }
         GUILayout.Space(6);
         GUILayout.Label($"<b>이 자리의 물질 순환</b>\n남세균 {Num(Mix(w.cya))}/mL · 세균 {Num(Mix(w.bac))}/mL · 영양염 {Mix(w.nut):0.00} μM\n유기물 입자(바다눈) {Mix(w.pom):0.00} μM N · 녹은 유기물 {Mix(w.dom):0.00} μM N · 산소 {Mix(w.dox):0.0}% atm\n퇴적물에 묻힌 유기물 누계 {Num(w.buried)}", sS);
-        GUILayout.Label($"물기둥 {World.NY * World.DZ:0} m · 칸 {World.V}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
+        GUILayout.Label($"해역 {w.NR}곳 · 칸 {Enumerable.Range(0, World.V).Count(v => w.vol[v] > 0)}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
     }
 
     void OrgTab()
@@ -506,7 +505,7 @@ public partial class EvoTank : MonoBehaviour
         GUILayout.Label($"<b>{sp?.name}</b>", sB); GUILayout.Label(sp?.ko ?? "", sS);
         if (follow >= 0) GUILayout.Label("<color=#7fe0ff>혈통 따라가는 중</color> — 이 개체는 그 계통의 대표 표본이다(시뮬레이션은 개체가 아니라 무리를 계산한다). 계통이 사라지면 가장 많은 후손으로 넘어간다. T: 타임라인", sS);
         string stage = !st.dev ? "" : sel.k == 0 ? " · 알·유생" : sel.k == st.K - 1 ? " · 성체" : $" · 어린 개체 {sel.k}/{st.K - 1}";
-        GUILayout.Label($"{World.GradeName[World.Grade(st)]}{stage}\n몸길이 {Len(m.L * 1e-6f)} · 세포 {Num(m.C)}개 · 헤엄 {Len(m.speed * 1e-6f)}/s\n임계 산소 {m.pcrit:0.0}% atm · 이 칸 {Num(w.cnt[q] / World.VML)}마리/mL · 세대 {st.gen:0}", sL);
+        GUILayout.Label($"{World.GradeName[World.Grade(st)]}{stage}\n몸길이 {Len(m.L * 1e-6f)} · 세포 {Num(m.C)}개 · 헤엄 {Len(m.speed * 1e-6f)}/s\n임계 산소 {m.pcrit:0.0}% atm · 이 칸 {Num(w.cnt[q] / w.vol[v])}마리/mL · 세대 {st.gen:0}", sL);
         w.Budget(st, v, ref m, w.gP[q], w.gB[q], bud);
         GUILayout.Space(6); GUILayout.Label("<b>에너지 수지</b> (시간당, 들어옴 / 나감)", sL);
         string[] nm = { "녹은 유기물", "광합성", "세균 먹기", "포식", "기초 대사", "형질 유지", "몸 구조", "삼투 조절", "삼투 손상", "자외선", "산소", "온도" };

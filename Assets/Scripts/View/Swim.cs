@@ -1,5 +1,5 @@
-// 자유 이동: 층·상자 대신 관찰자가 물속 위치(px, py 수심, pz; m)를 갖고 헤엄친다. 휠 = 내 크기(시야 폭 B).
-// 화면은 관찰자 둘레(시야 폭 B의 구)만 그리고, 그 위치의 밀도는 둘레 8칸(가로 2×2 기둥 × 위아래 층)을 섞어서 얻는다.
+// 자유 이동: 관찰자가 지도에서 고른 해역(reg) 물기둥 안의 수심 py(m)에 있고 헤엄친다. px·pz는 화면용(물빛·입자가 흘러가게)일 뿐 해역은 지도로 옮긴다. 휠 = 내 크기(시야 폭 B).
+// 화면은 관찰자 둘레(시야 폭 B의 구)만 그리고, 그 위치의 밀도는 위아래 두 층(층 가운데 사이 선형)을 섞어서 얻는다.
 // 물빛·떠다니는 입자는 실제 크기(m)로: 작아지면 물이 투명하고 입자가 커 보이며, 커지면 멀리가 푸르게 흐려진다.
 using System;
 using UnityEngine;
@@ -7,40 +7,41 @@ using Evo;
 
 public partial class EvoTank
 {
-    double px = 5, py = 1.25, pz = 5;   // 관찰자 위치(m): 가로 0–20(둘레가 이어짐), 수심 0(수면)–10(바닥)
+    double px = 5, py = 1.25, pz = 5;   // 관찰자 위치(m): py = 수심 0(수면)–해역 바닥
+    int reg = -1;                       // 관찰자가 있는 해역(처음·새 지도면 가장 얕은 곳)
     Vector3 dotOff;                     // 작은 생물 점 무늬 어긋남(시야 비율): 헤엄치면 흘러간다
-    readonly (int v, float w)[] cw = new (int, float)[8]; int vNear;
+    readonly (int v, float w)[] cw = new (int, float)[2]; int vNear;
     float yF = -1e9f, yS = 1e9f;        // 바닥·수면 높이(화면 단위, 관찰자 기준)
     Material mSnow; Mesh snow; MaterialPropertyBlock mpbS;
-    Rect gauge;
+    Rect gauge, mapR; Texture2D mapT; int mapKey = -1;
 
     static double Frac(double x) => x - Math.Floor(x);
+    double Floor => w.geo.rDepth[reg];
 
-    // 관찰자 둘레 8칸과 무게(삼중 선형), 가장 가까운 칸, 바닥·수면 높이
+    // 관찰자 수심 위아래 두 층과 무게, 가장 가까운 칸, 바닥·수면 높이
     void Cells()
     {
-        float fyf = Mathf.Clamp((float)(py / World.DZ) - 0.5f, 0, World.NY - 1);
-        int y0 = Mathf.FloorToInt(fyf), y1 = Mathf.Min(y0 + 1, World.NY - 1); float ty = fyf - y0;
-        double fx = px / World.DX - 0.5, fz = pz / World.DX - 0.5;
-        int x0 = (int)Math.Floor(fx), z0 = (int)Math.Floor(fz); float tx = (float)(fx - x0), tz = (float)(fz - z0);
-        int n = 0; float best = -1;
-        for (int a = 0; a < 2; a++) for (int b = 0; b < 2; b++) for (int c = 0; c < 2; c++)
-        {
-            int ix = ((x0 + a) % World.NX + World.NX) % World.NX, iz = ((z0 + c) % World.NZ + World.NZ) % World.NZ, v = (b == 0 ? y0 : y1) * World.LS + ix + World.NX * iz;
-            float wg = (a == 0 ? 1 - tx : tx) * (b == 0 ? 1 - ty : ty) * (c == 0 ? 1 - tz : tz);
-            cw[n++] = (v, wg); if (wg > best) { best = wg; vNear = v; }
-        }
-        float u = BOX / B; yF = -(float)(World.DEPTH - py) * u; yS = (float)py * u;
+        if (reg < 0 || reg >= w.NR) { reg = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] < w.geo.rDepth[reg]) reg = c; }
+        py = Math.Min(py, Floor);
+        int n = w.nyR[reg], y0 = 0;
+        while (y0 < n - 2 && w.zc[(y0 + 1) * World.LS + reg] <= py) y0++;
+        int y1 = Math.Min(y0 + 1, n - 1), v0 = y0 * World.LS + reg, v1 = y1 * World.LS + reg;
+        float t = y1 == y0 ? 0 : Mathf.Clamp01((float)((py - w.zc[v0]) / (w.zc[v1] - w.zc[v0])));
+        cw[0] = (v0, 1 - t); cw[1] = (v1, t); vNear = t < 0.5f ? v0 : v1;
+        float u = BOX / B; yF = -(float)(Floor - py) * u; yS = (float)py * u;
     }
-    double Dens(int s, int k) { double d = 0; foreach (var (v, wg) in cw) d += wg * w.cnt[World.Ix(s, v, k)]; return d; }
+    double Dens(int s, int k) { double d = 0; foreach (var (v, wg) in cw) d += wg * w.cnt[World.Ix(s, v, k)] / w.vol[v]; return d; }   // 마리/mL
     double Mix(double[] a) { double d = 0; foreach (var (v, wg) in cw) d += wg * a[v]; return d; }
     float Mix(float[] a) { float d = 0; foreach (var (v, wg) in cw) d += wg * a[v]; return d; }
+
+    // 다른 해역으로(지도·혈통 찾기): 시야의 개체는 새로 뽑는다
+    void GoTo(int r, double depth) { reg = r; py = depth; avs.Clear(); sel = null; tRes = 0; Cells(); }
 
     // 관찰자를 dm(m, 화면 축: y = 위)만큼 옮긴다. 시야보다 멀리 가면 개체를 새로 뽑는다
     void MoveBy(Vector3 dm)
     {
-        double ny = Math.Clamp(py - dm.y, 0, World.DEPTH); dm.y = (float)(py - ny); py = ny;
-        px = Frac((px + dm.x) / World.WIDTH) * World.WIDTH; pz = Frac((pz + dm.z) / World.WIDTH) * World.WIDTH;
+        double ny = Math.Clamp(py - dm.y, 0, Floor); dm.y = (float)(py - ny); py = ny;
+        px += dm.x; pz += dm.z;
         Cells();
         var d = dm * (BOX / B);
         if (d.sqrMagnitude > BOX * BOX) { avs.Clear(); sel = null; tRes = 0; return; }
@@ -104,30 +105,57 @@ public partial class EvoTank
         }
     }
 
-    // 왼쪽 수심계: 빛(밝을수록 위), 지금 수심, 따라가는 혈통이 사는 깊이. 누르면 그 깊이로 간다
+    // 왼쪽 수심계: 이 해역의 층마다 같은 높이 칸(층 두께는 6 m–수 km로 달라서), 빛(밝을수록 위), 지금 수심, 따라가는 혈통의 밀도. 누르면 그 깊이로 간다
     void DepthGauge(float Hh)
     {
         gauge = new Rect(10, 58, 46, Mathf.Max(120, Hh - 58 - 150)); GUI.Box(gauge, GUIContent.none, sBox);
         var bar = new Rect(gauge.x + 8, gauge.y + 22, 12, gauge.height - 34);
-        int c = vNear % World.LS; var fs = FollowSt; double fmax = 0;
-        if (fs != null) for (int y = 0; y < World.NY; y++) for (int k = 0; k < fs.K; k++) fmax = Math.Max(fmax, w.cnt[World.Ix(fs.slot, y * World.LS + c, k)]);
-        for (int y = 0; y < World.NY; y++)
+        int n = w.nyR[reg]; float hh = bar.height / n; var fs = FollowSt; double fmax = 0;
+        double FD(int y) { int v = y * World.LS + reg; double d = 0; for (int k = 0; k < fs.K; k++) d += w.cnt[World.Ix(fs.slot, v, k)]; return d / w.vol[v]; }
+        if (fs != null) for (int y = 0; y < n; y++) fmax = Math.Max(fmax, FD(y));
+        for (int y = 0; y < n; y++)
         {
-            float l = Mathf.Clamp01(w.I[y * World.LS + c] * 1.6f), y0 = bar.y + bar.height * y / World.NY, hh = bar.height / World.NY + 0.5f;
-            Fill(new Rect(bar.x, y0, bar.width, hh), Color.Lerp(new Color(0.02f, 0.05f, 0.1f), new Color(0.35f, 0.7f, 0.85f), l));
-            if (fs != null && fmax > 0)
-            {
-                double d = 0; for (int k = 0; k < fs.K; k++) d += w.cnt[World.Ix(fs.slot, y * World.LS + c, k)];
-                if (d > 0) Fill(new Rect(bar.xMax + 2, y0, 2 + 16 * (float)Math.Sqrt(d / fmax / fs.K), hh - 1), Color.HSVToRGB(Mathf.Repeat(fs.hue / 360, 1), 0.6f, 1));
-            }
+            float l = Mathf.Clamp01(w.I[y * World.LS + reg] * 1.6f), y0 = bar.y + hh * y;
+            Fill(new Rect(bar.x, y0, bar.width, hh - 1), Color.Lerp(new Color(0.02f, 0.05f, 0.1f), new Color(0.35f, 0.7f, 0.85f), l));
+            if (fs != null && fmax > 0) { double d = FD(y); if (d > 0) Fill(new Rect(bar.xMax + 2, y0, 2 + 16 * (float)Math.Sqrt(d / fmax), hh - 1), Color.HSVToRGB(Mathf.Repeat(fs.hue / 360, 1), 0.6f, 1)); }
         }
-        float my = bar.y + bar.height * (float)(py / World.DEPTH); Fill(new Rect(bar.x - 4, my - 1, bar.width + 8, 3), Color.white);
+        int vc = w.Vox(reg, py), yc = vc / World.LS; float top = World.ZE[yc];
+        float my = bar.y + hh * (yc + Mathf.Clamp01((float)(py - top) / w.dz[vc])); Fill(new Rect(bar.x - 4, my - 1, bar.width + 8, 3), Color.white);
         GUI.Label(new Rect(gauge.x, gauge.y + 3, gauge.width, 18), "수심", new GUIStyle(sTd) { alignment = TextAnchor.UpperCenter });
-        GUI.Label(new Rect(gauge.x, gauge.yMax - 14, gauge.width, 14), $"{World.DEPTH:0} m", new GUIStyle(sTd) { alignment = TextAnchor.UpperCenter, fontSize = 10 });
+        GUI.Label(new Rect(gauge.x, gauge.yMax - 14, gauge.width, 14), $"{Floor:0} m", new GUIStyle(sTd) { alignment = TextAnchor.UpperCenter, fontSize = 10 });
         if (GUI.Button(bar, GUIContent.none, GUIStyle.none))
         {
-            float t = Mathf.Clamp01((Event.current.mousePosition.y - bar.y) / bar.height);
-            MoveBy(new Vector3(0, (float)(py - t * World.DEPTH), 0));
+            float t = Mathf.Clamp01((Event.current.mousePosition.y - bar.y) / bar.height) * n; int y = Mathf.Min((int)t, n - 1);
+            MoveBy(new Vector3(0, (float)(py - (World.ZE[y] + (t - y) * w.dz[y * World.LS + reg])), 0));
+        }
+    }
+
+    // 해역 지도(오른쪽 위): 고도·수심 색, 지금 해역은 노랗게. 누르면 그 해역으로 간다
+    void MapBox(Rect r)
+    {
+        mapR = r; GUI.Box(r, GUIContent.none, sBox); var g = w.geo; int G = Geo.G;
+        if (!mapT) mapT = new Texture2D(G, G) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+        if (mapKey != w.seed * 64 + reg)
+        {
+            mapKey = w.seed * 64 + reg;
+            for (int i = 0; i < G * G; i++)
+            {
+                float d = g.Depth(i);
+                var c = d <= 0 ? Color.Lerp(new Color(0.4f, 0.34f, 0.2f), new Color(0.78f, 0.7f, 0.52f), -d / 1500)
+                               : Color.Lerp(new Color(0.5f, 0.86f, 0.84f), new Color(0.03f, 0.08f, 0.26f), Mathf.Log(1 + d / 20) / Mathf.Log(251));
+                if (g.reg[i] == reg) c = Color.Lerp(c, new Color(1, 0.9f, 0.2f), 0.8f);   // 지금 해역: 깊이와 상관없이 밝은 노랑(땅 갈색과 헷갈리지 않게)
+                mapT.SetPixel(i % G, i / G, c);   // 아래 줄 = 남쪽(위도 2°), 위 = 북쪽(60°)
+            }
+            mapT.Apply();
+        }
+        var img = new Rect(r.x + 8, r.y + 8, r.height - 16, r.height - 16); GUI.DrawTexture(img, mapT);
+        GUI.Label(new Rect(img.xMax + 10, r.y + 6, r.xMax - img.xMax - 16, r.height - 12),
+            $"<b>{Geo.LName(g.rLat[reg])} {Geo.DName(g.rDepth[reg])}</b>\n북위 {g.rLat[reg]:0}° · 수심 {g.rDepth[reg]:0} m\n넓이 {g.rCells[reg] * 4}만 km²\n표층 {w.sst[reg]:0.0}°C · 혼합층 {w.mld[reg]:0} m\n\n해역 {w.NR}곳 · 지도를 누르면 그 바다로", sS);
+        if (GUI.Button(img, GUIContent.none, GUIStyle.none))
+        {
+            var p = Event.current.mousePosition;
+            int x = Mathf.Clamp((int)((p.x - img.x) / img.width * G), 0, G - 1), z = Mathf.Clamp(G - 1 - (int)((p.y - img.y) / img.height * G), 0, G - 1);
+            int to = g.reg[z * G + x]; if (to >= 0 && to != reg) GoTo(to, py);
         }
     }
 }

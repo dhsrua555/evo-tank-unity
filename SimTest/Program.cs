@@ -28,6 +28,7 @@ static class Program
 
     static int Main(string[] a)
     {
+        if (Environment.GetEnvironmentVariable("GEO") is string gs) { GeoDump(int.Parse(gs)); return 0; }
         string sc = a.Length > 0 ? a[0] : "control"; int days = a.Length > 1 ? int.Parse(a[1]) : 30, seed = a.Length > 2 ? int.Parse(a[2]) : 1;
         int every = a.Length > 3 ? int.Parse(a[3]) : Math.Max(1, days / 10);
         var w = new World(seed);
@@ -47,10 +48,25 @@ static class Program
         var pp = Environment.GetEnvironmentVariable("PATHP"); if (pp != null) PathProbe(w, int.Parse(pp));
         if (Environment.GetEnvironmentVariable("RECS") != null) RecCheck(w);
         var pe = Environment.GetEnvironmentVariable("PROBE"); if (pe != null) Probe(w, int.Parse(pe), Environment.GetEnvironmentVariable("PROBE_SP"));
-        Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}");
+        Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}  mutants {w.mutKeep}/{w.mutTry}");
         foreach (var e in w.events.Where(e => e.type == "grade")) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
         Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} max grade {w.gradesSeen.Max()}");
         return 0;
+    }
+
+    static void GeoDump(int seed)
+    {
+        var g = new Geo(); g.Generate(seed); g.Regions(World.RMAX);
+        const string ch = "0123456789abcdefghijklmnopqrstuvwxyz";
+        for (int z = Geo.G - 1; z >= 0; z--)
+        {
+            var sb = new System.Text.StringBuilder($"{Geo.Lat(z),4:0}° ");
+            for (int x = 0; x < Geo.G; x++) { int i = z * Geo.G + x; sb.Append(g.reg[i] < 0 ? '#' : ch[g.reg[i] % ch.Length]); }
+            Console.WriteLine(sb);
+        }
+        int land = 0; foreach (int r in g.reg) if (r < 0) land++;
+        Console.WriteLine($"regions {g.NR} land {land} cells, links {g.links.Count}");
+        for (int a = 0; a < g.NR; a++) Console.WriteLine($"  {ch[a % ch.Length]} {Geo.DName(g.rDepth[a])} {Geo.LName(g.rLat[a])} cells {g.rCells[a]} depth {g.rDepth[a]:0} m lat {g.rLat[a]:0} coast {g.rCoast[a]:0.00}");
     }
 
     // 계통 기록 점검: 살아 있는 계통마다 기록이 있고 조상 사슬이 공통 조상(부모 0)까지 끊기지 않는지
@@ -129,14 +145,14 @@ static class Program
         void Dbg(string name, Strain st)
         {
             var B = new double[14];
-            Console.WriteLine($"     {name} Topt {st.g[Gn.Topt]:F1} Tb {st.g[Gn.Tbreadth]:F1} rho {st.rho:F0} T0 {w.T[0]:F1} T19 {w.T[19]:F1} perf0 {World.ThermalPerf(st.g, w.T[0]):F2} perf19 {World.ThermalPerf(st.g, w.T[19]):F2}");
-            for (int k = 0; k < st.K; k++) { var m0 = w.MorphAt(st, 4, k, 0); Console.WriteLine($"       k{k} sink {m0.sink:G3} m/h speed {m0.speed * 3600e-6:G3} m/h gapeB {m0.gapeB:G3} Fc {m0.Fc:G3} pcrit {m0.pcrit:G3}"); }
+            Console.WriteLine($"     {name} Topt {st.g[Gn.Topt]:F1} Tb {st.g[Gn.Tbreadth]:F1} rho {st.rho:F0} Tsurf {w.T[0]:F1} Tbot {w.T[w.Bot(0)]:F1} perfS {World.ThermalPerf(st.g, w.T[0]):F2} perfB {World.ThermalPerf(st.g, w.T[w.Bot(0)]):F2}");
+            for (int k = 0; k < st.K; k++) { var m0 = w.MorphAt(st, 0, k, 0); Console.WriteLine($"       k{k} sink {m0.sink:G3} m/h speed {m0.speed * 3600e-6:G3} m/h gapeB {m0.gapeB:G3} Fc {m0.Fc:G3} pcrit {m0.pcrit:G3}"); }
             for (int k = 0; k < st.K; k++)
             {
                 int bv = 0; double bc = 0; for (int v = 0; v < World.V; v++) { double c = w.cnt[World.Ix(st.slot, v, k)]; if (c > bc) { bc = c; bv = v; } }
                 var m = w.M(st.slot, bv, k); int q = World.Ix(st.slot, bv, k);
                 w.Budget(st, bv, ref m, w.gP[q], w.gB[q], B);
-                Console.WriteLine($"     {name} k{k} C {st.C[k]:G3} L {m.L:G3}um n_tot {Enumerable.Range(0, World.V).Sum(v => w.cnt[World.Ix(st.slot, v, k)]):G3} @y{bv / World.LS} mu {w.mu[q]:G3}/h kill {w.kR[q]:G3}/h | gain osm {B[0]:G3} ph {B[1]:G3} bac {B[2]:G3} pred {B[3]:G3} | basal {B[4]:G3} traits {B[5]:G3} body {B[6]:G3} osmo {B[7] + B[8]:G3} uv {B[9]:G3} o2 {B[10]:G3} temp {B[11]:G3} net {B[13]:G3}");
+                Console.WriteLine($"     {name} k{k} C {st.C[k]:G3} L {m.L:G3}um n_tot {Enumerable.Range(0, World.V).Sum(v => w.cnt[World.Ix(st.slot, v, k)]):G3} @r{bv % World.LS}y{bv / World.LS} mu {w.mu[q]:G3}/h kill {w.kR[q]:G3}/h | gain osm {B[0]:G3} ph {B[1]:G3} bac {B[2]:G3} pred {B[3]:G3} | basal {B[4]:G3} traits {B[5]:G3} body {B[6]:G3} osmo {B[7] + B[8]:G3} uv {B[9]:G3} o2 {B[10]:G3} temp {B[11]:G3} net {B[13]:G3}");
             }
         }
         double Bio(Strain st) { double b = 0; for (int v = 0; v < World.V; v++) for (int k = 0; k < st.K; k++) b += w.cnt[World.Ix(st.slot, v, k)] * st.C[k]; return b; }
@@ -155,7 +171,7 @@ static class Program
         }
         foreach (var (name, st) in list)
         {
-            var m = w.MorphAt(st, w.Vox(10, 1, 10), st.K - 1, 0);
+            var m = w.MorphT(st, 15, st.K - 1, 0);
             bool alive = w.strains[st.slot] == st; var (ld, lb) = alive ? (days, Bio(st)) : last[st.id];
             string stg = alive ? string.Join(",", Enumerable.Range(0, st.K).Select(k => st.stage[k] < 1 ? "0" : Math.Log10(st.stage[k]).ToString("F0"))) : "";
             Console.WriteLine($"  {name,-9} {World.GradeName[World.Grade(st)],-6} K{st.K} adult L {m.L:G3}um pcrit {m.pcrit:F1}% speed {m.speed:G3}um/s  bio growth {Math.Log(Math.Max(1e-30, lb) / b0[st.id]) / Math.Max(1, ld) * 100:+0.0;-0.0}%/일  {(alive ? "alive " + stg : $"멸종 {ld + 1}일째")}");
@@ -169,31 +185,26 @@ static class Program
         int maxG = w.live.Count == 0 ? 0 : w.live.Max(s => World.Grade(w.strains[s]));
         double maxL = 0, maxC = 0; Strain big = null;
         foreach (int s in w.live) { var st = w.strains[s]; if (st.total < 10) continue; double L = w.AdultL(st); if (L > maxL) { maxL = L; big = st; } maxC = Math.Max(maxC, st.C[st.K - 1]); }
-        double ds = 0, db = 0, ns = 0, nb = 0, bs = 0;
-        for (int c = 0; c < World.LS; c++) { ds += w.dox[c]; db += w.dox[(World.NY - 1) * World.LS + c]; ns += w.nut[c]; nb += w.nut[(World.NY - 1) * World.LS + c]; bs += w.bac[c]; }
-        ds /= World.LS; db /= World.LS; ns /= World.LS; nb /= World.LS; bs /= World.LS;
-        double cy = 0, pm = 0, dm = 0; for (int c = 0; c < World.LS; c++) { cy += w.cya[c]; pm += w.pom[c]; dm += w.dom[c]; }
-        Console.WriteLine($"d{d,5} ms {ms,5:F2} strains {w.live.Count,3} sp {alive,3} N/mL {w.totalCount / (World.V * World.VML),8:G3} bio {w.totalBio / (World.V * World.VML),8:G3} " +
-            $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy / World.LS:G2} pom {pm / World.LS:F2} dom {dm / World.LS:F2} grade {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
+        double ds = 0, db = 0, ns = 0, nb = 0, bs = 0, cy = 0, pm = 0, dm = 0, a = 0;   // 표층·바닥 평균(해역 넓이 가중)
+        for (int c = 0; c < w.NR; c++) { double ar = w.geo.rArea[c]; a += ar; ds += ar * w.dox[c]; db += ar * w.dox[w.Bot(c)]; ns += ar * w.nut[c]; nb += ar * w.nut[w.Bot(c)]; bs += ar * w.bac[c]; cy += ar * w.cya[c]; pm += ar * w.pom[c]; dm += ar * w.dom[c]; }
+        ds /= a; db /= a; ns /= a; nb /= a; bs /= a; cy /= a; pm /= a; dm /= a;
+        Console.WriteLine($"d{d,5} ms {ms,5:F2} strains {w.live.Count,3} sp {alive,3} N/mL {w.totalCount / w.volTot,8:G3} bio {w.totalBio / w.volTot,8:G3} " +
+            $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy:G2} pom {pm:F2} dom {dm:F2} grade {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
         if (Environment.GetEnvironmentVariable("BUD") != null && big != null || Environment.GetEnvironmentVariable("BUD") != null && w.live.Count > 0)
         {
             var top = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First(); int bv = 0; double bc = 0;
             for (int v = 0; v < World.V; v++) { double c = w.cnt[World.Ix(top.slot, v, 0)]; if (c > bc) { bc = c; bv = v; } }
             var mo = w.M(top.slot, bv, 0); int q = World.Ix(top.slot, bv, 0); var B = new double[14]; w.Budget(top, bv, ref mo, w.gP[q], w.gB[q], B);
-            Console.WriteLine($"      top id{top.id} @y{bv / World.LS} n {top.total:G3} mu {w.mu[q]:G3}/h kill {w.kR[q]:G3}/h | osm {B[0]:G3} ph {B[1]:G3} bac {B[2]:G3} pred {B[3]:G3} | basal {B[4]:G3} traits {B[5]:G3} body {B[6]:G3} osmo {B[7] + B[8]:G3} uv {B[9]:G3} o2 {B[10]:G3} temp {B[11]:G3} net {B[13]:G3}");
+            Console.WriteLine($"      top id{top.id} @r{bv % World.LS}y{bv / World.LS} n {top.total:G3} mu {w.mu[q]:G3}/h kill {w.kR[q]:G3}/h | osm {B[0]:G3} ph {B[1]:G3} bac {B[2]:G3} pred {B[3]:G3} | basal {B[4]:G3} traits {B[5]:G3} body {B[6]:G3} osmo {B[7] + B[8]:G3} uv {B[9]:G3} o2 {B[10]:G3} temp {B[11]:G3} net {B[13]:G3}");
         }
         Console.WriteLine($"      size {m[Gn.Size]:F2} cells {m[Gn.Cells]:F2} photo {m[Gn.Photo]:F2} phago {m[Gn.Phago]:F2} aer {m[Gn.Aerobic]:F2} osmo {m[Gn.Osmo]:F0} topt {m[Gn.Topt]:F1} pig {m[Gn.Pigment]:F2} vac {m[Gn.Vacuole]:F2} wall {m[Gn.Wall]:F2} gut {m[Gn.Gut]:F2} neuro {m[Gn.Neuro]:F2} diff {m[Gn.Diff]:F2}");
-        if (Environment.GetEnvironmentVariable("DOPROF") != null)
-        {
-            var sb = new System.Text.StringBuilder("      y: DO/bio/mix/T ");
-            for (int y = 0; y < World.NY; y += 2)
+        if (Environment.GetEnvironmentVariable("REG") != null)   // 해역마다: 표층 수온·혼합층·영양염·엽록소·생물량, 바닥 산소, 표층에 가장 많은 계통
+            for (int c = 0; c < w.NR; c++)
             {
-                double bio = 0; int v = y * World.LS;
-                foreach (int s in w.live) { var st = w.strains[s]; for (int k = 0; k < st.K; k++) bio += w.cnt[World.Ix(s, v, k)] * st.C[k] * Math.Pow(st.esd0 / 10, 3); }
-                sb.Append($"| {y} {w.dox[v]:F1}/{bio / World.VML:G2}/{w.mixV[y]:G2}/{w.T[y]:F0} ");
+                double bio = 0, best = 0; Strain top = null;
+                foreach (int s in w.live) { var st = w.strains[s]; double n = 0; for (int k = 0; k < st.K; k++) { n += w.cnt[World.Ix(s, c, k)]; bio += w.cnt[World.Ix(s, c, k)] * st.C[k] * Math.Pow(st.esd0 / 10, 3); } if (n > best) { best = n; top = st; } }
+                Console.WriteLine($"      r{c,-2} {Geo.DName(w.geo.rDepth[c]),-4} {Geo.LName(w.geo.rLat[c])} {w.geo.rDepth[c],5:0}m lat {w.geo.rLat[c],2:0} SST {w.sst[c],4:F1} MLD {w.mld[c],3:0} nut {w.nut[c],5:F2} chl {w.chl[c],7:G2} bio {bio / w.vol[c],7:G2} DObot {w.dox[w.Bot(c)],4:F1} I {w.I[c]:F2} top id{top?.id} {(top != null ? World.GradeName[World.Grade(top)] : "")} size {top?.g[Gn.Size]:F1} photo {top?.g[Gn.Photo]:F2} topt {top?.g[Gn.Topt]:F0}");
             }
-            Console.WriteLine(sb);
-        }
         if (Environment.GetEnvironmentVariable("TOP") != null)
             foreach (var st in w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).Take(5))
             {
