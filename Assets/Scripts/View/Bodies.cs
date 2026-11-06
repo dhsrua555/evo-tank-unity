@@ -512,7 +512,7 @@ public static class Bodies
     static void Seaweed(MB b, Strain st, in Morph m, System.Random r)
     {
         var g = st.g;
-        if (g[Gn.Dry] >= 0.8f)   // 이끼(육상): 키 작은 줄기 여럿이 쿠션처럼 빽빽이 모여 물을 머금는다. 잎은 줄기에 붙은 작은 비늘
+        if (g[Gn.Dry] >= 0.4f)   // 이끼(육상): 키 작은 줄기 여럿이 쿠션처럼 빽빽이 모여 물을 머금는다. 잎은 줄기에 붙은 작은 비늘
         {
             for (int i = 0; i < 34; i++)
             {

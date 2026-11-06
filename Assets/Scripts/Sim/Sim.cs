@@ -911,7 +911,7 @@ namespace Evo
                 double pump = Math.Min(influx, P.PUMP * g[Gn.Vacuole] * A10);
                 osm += pump * P.PUMP_COST; od = influx - pump;
             }
-            if (ex[v] > 0) { double wet = (1 - g[Gn.Dry]) * (1 - 0.3 * g[Gn.Exo]); od += P.DESIC * ex[v] * wet * wet * A10; }   // 물 밖: 겉에서 물이 날아간다. 외골격(큐티클)이 조금 막아 준다
+            if (ex[v] > 0) { double wet = (1 - 0.3 * g[Gn.Exo]) / (1 + 9 * g[Gn.Dry]); od += P.DESIC * ex[v] * wet * wet * A10; }   // 물 밖: 겉에서 물이 날아간다. 점액·껍질·큐티클 층이 물길에 저항을 직렬로 더한다(1/(1+9·마름 견디기): 얇은 층도 꽤 막아 조간대 → 육지로 한 걸음씩 갈 수 있다). 외골격도 조금
             B[7] = osm * kt * C * m.expo; B[8] = od * C * m.expo;                // 다세포는 겉 세포만 바깥물과 맞닿는다
             double prot = 1 - 0.9 * g[Gn.Pigment];
             B[9] = P.UV_DMG * U[v] * prot * (1 - 0.5 * g[Gn.Lorica]) * A10 * m.expo * C;
@@ -1370,7 +1370,7 @@ namespace Evo
             // 상륙: 마름을 견디는 계통이 육지 물막에 mL당 10(10 μm 세포 몫) 넘게 자리 잡으면(바다에서 날려 온 것만으로는 이만큼 못 쌓인다)
             for (int c = geo.NO; c < NR && !landA; c++) if (geo.rKind[c] == 2) foreach (int s in live)
             {
-                var st = strains[s]; if (st.g[Gn.Dry] < 0.5f) continue;
+                var st = strains[s]; if (st.g[Gn.Dry] < 0.25f) continue;   // 마름 견디기 0.25면 물 잃는 속도가 1/10(점액·껍질 층)
                 double b = 0; for (int k = 0; k < st.K; k++) b += cnt[Ix(s, c, k)] * st.C[k];
                 if (b / vol[c] < 10) continue;
                 if (!landed) { landed = true; Log("grade", $"처음으로 생물이 땅에 올라왔습니다: {Taxa.Name(st)} ({geo.Name(c)})"); }

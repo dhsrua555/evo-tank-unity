@@ -70,7 +70,7 @@ namespace Evo
         // 이름표: "절지동물 닮음", 단세포는 "섬모충 닮음", 닮은 무리가 없으면 몸 설계만
         public static string Name(Strain s)
         {
-            if (s.g[Gn.Dry] < 0.8f) return WaterName(s);
+            if (s.g[Gn.Dry] < 0.25f) return WaterName(s);   // 상륙 사건과 같은 문턱
             var lk = Of(s);   // 마름을 잘 견디면 땅에서 산다: 닮은 육상 무리가 있으면 그 이름, 없으면 '육상'을 붙인다
             return lk == Look.Seaweed ? "이끼 닮음" : lk == Look.Annelid ? "지렁이 닮음" : lk == Look.Snail ? "달팽이 닮음" : lk == Look.Arthropod || lk == Look.Copepod ? "노래기 닮음" : "육상 " + WaterName(s);
         }
