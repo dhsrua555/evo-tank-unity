@@ -14,14 +14,14 @@ Shader "Evo/Dots"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
-            float _Count, _Size, _Box; float4 _Color, _Off, _YLim, _DoF;   // _Off 헤엄친 만큼 어긋남(상자 비율), _YLim 바닥·수면 높이
+            float _Count, _Size, _Box, _Brown; float4 _Color, _Off, _YLim, _DoF;   // _Off 헤엄친 만큼 어긋남(상자 비율), _YLim 바닥·수면 높이
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float fade : TEXCOORD1; };   // fade에 초점 밖 퍼짐(넓이 보존)도 곱한다
             v2f vert (appdata v)
             {
                 v2f o; float t = _Time.y, k = v.uv2.x * 97.0;
                 float3 c = frac(v.vertex.xyz + float3(sin(t * 0.21 + k) * 0.01, -t * 0.004, cos(t * 0.17 + k * 1.3) * 0.01) - _Off.xyz);
-                float3 w = (c - 0.5) * _Box;
+                float3 w = (c - 0.5) * _Box + _Brown * 0.5 * float3(sin(t * 7.3 + k) + sin(t * 12.9 + k * 2.3), sin(t * 8.1 + k * 1.7) + sin(t * 13.7 + k * 0.7), sin(t * 6.9 + k * 2.9) + sin(t * 11.3 + k * 1.1));   // 브라운 운동(세균 크기면 1초에 약 1 μm)
                 float4 vp = mul(UNITY_MATRIX_V, float4(w, 1)); float z = max(0.01, -vp.z), coc = min(_DoF.z, abs(z - _DoF.x) / z * _DoF.y);
                 float r = max(_Size, coc * 0.5 * z * _DoF.w); vp.xy += v.uv * r;
                 o.pos = v.uv2.x > _Count ? float4(0, 0, -10, 1) : mul(UNITY_MATRIX_P, vp);

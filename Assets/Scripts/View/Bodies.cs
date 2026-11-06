@@ -137,48 +137,131 @@ public static class Bodies
     static Vector3 RandIn(System.Random r) { Vector3 p; do p = new Vector3((float)r.NextDouble() * 2 - 1, (float)r.NextDouble() * 2 - 1, (float)r.NextDouble() * 2 - 1); while (p.sqrMagnitude > 1); return p; }
 
     // ---------- 세포 하나 ----------
+    // 단세포 몸 설계: 유전자 조합으로 정한다. 실제 원생생물 무리의 몸 구조를 따른다(그 밖은 기본 세포)
+    public enum Plan { Plain, Ciliate, Diatom, Dino, Radiolarian, Euglena, Choano, Amoeba }
+    public static readonly string[] PlanName = { "", "섬모충형", "돌말형", "와편모충형", "방산충형", "유글레나형", "깃편모충형", "아메바형" };
+    public static Plan PlanOf(Strain st)
+    {
+        var g = st.g; bool fl = g[Gn.Flagella] > 0.25f;
+        if (g[Gn.Cilia] > 0.35f) return Plan.Ciliate;                                              // 짚신벌레·종벌레·유종섬모충
+        if (!fl && g[Gn.Wall] > 0.5f && g[Gn.Photo] > 0.3f) return Plan.Diatom;                    // 규산 껍질 + 광합성, 편모 없음
+        if (fl && g[Gn.Wall] > 0.25f) return Plan.Dino;                                            // 갑옷 + 편모 둘(가로·세로)
+        if (!fl && g[Gn.Wall] > 0.35f && g[Gn.Phago] > 0.4f) return Plan.Radiolarian;             // 골격 + 포식, 축족으로 먹이를 잡는다
+        if (fl && g[Gn.Wall] < 0.3f && st.aspect > 1.8f) return Plan.Euglena;                     // 길쭉 + 유연한 겉막 + 편모 하나
+        if (fl && g[Gn.Phago] > 0.6f && g[Gn.Photo] < 0.15f && g[Gn.Size] < 4.2f) return Plan.Choano;   // 작은 포식 편모충: 깃으로 세균을 거른다
+        if (!fl && g[Gn.Phago] > 0.55f && g[Gn.Wall] < 0.2f && g[Gn.Lorica] < 0.3f) return Plan.Amoeba;
+        return Plan.Plain;
+    }
+
     // len = 세포 길이(메시 단위), detail 2 전부 · 1 막+엽록체+편모 · 0 막만
+    const float WOB = 6, STREAM = 7;   // 막 출렁임, 세포질 흐름(셰이더 EvoAnim)
     static void Cell(MB b, Strain st, in Morph m, Vector3 ctr, float len, Quaternion q, int detail, float swell, float chl, System.Random r, bool appendages = true)
     {
-        var g = st.g; float a = st.aspect;
+        var g = st.g; float a = st.aspect; var plan = PlanOf(st);
         Vector3 rad = a >= 1 ? new Vector3(0.5f / a, 0.5f / a, 0.5f) * len : new Vector3(0.5f, 0.5f * a, 0.5f) * len;
         if (swell > 0) rad = Vector3.Lerp(rad, Vector3.one * (rad.x + rad.y + rad.z) / 3, 0.5f) * 1.12f;   // 민물에서 물이 들어와 부푼다
-        float amoe = g[Gn.Phago] > 0.55f && g[Gn.Wall] < 0.2f && g[Gn.Lorica] < 0.3f ? (g[Gn.Phago] - 0.55f) * 0.9f : 0;   // 위족(아메바)
+        float amoe = plan == Plan.Amoeba ? 0.15f + (g[Gn.Phago] - 0.55f) * 0.9f : 0;   // 위족(아메바)
         int s1 = r.Next(1000);
+        bool solo = ctr == Vector3.zero && detail == 2, stiff = g[Gn.Wall] > 0.3f || plan == Plan.Diatom;
+        var wob = solo && !stiff ? new Vector4(0, WOB, s1 * 0.01f, len * (plan == Plan.Amoeba ? 0.04f : plan == Plan.Euglena ? 0.025f : 0.012f)) : default;
+        // 세포질 흐름: 알갱이가 긴 축(납작하면 위아래 축) 둘레를 저마다 다른 빠르기로 돈다
+        Vector4 Flow() => solo && plan != Plan.Diatom ? new Vector4(0, STREAM, (float)r.NextDouble() * 6.3f, (a >= 1 ? 1 : -1) * (0.15f + 0.35f * (float)r.NextDouble())) : default;
         Func<Vector3, float> bump = null;
-        if (amoe > 0 || swell < 0)
-            bump = u => 1 + amoe * Mathf.Max(0, Mathf.Sin(u.x * 3.1f + s1) * Mathf.Sin(u.y * 2.7f + s1 * 0.3f) * Mathf.Sin(u.z * 2.3f)) * 1.6f
-                          + (swell < 0 ? 0.07f * Mathf.Sin(u.x * 17 + u.y * 13) * Mathf.Sin(u.z * 15) : 0);   // 고염에서 물이 빠져 쭈글쭈글
+        if (amoe > 0 || swell < 0 || plan == Plan.Dino || plan == Plan.Ciliate)
+            bump = u => (1 + amoe * Mathf.Max(0, Mathf.Sin(u.x * 3.1f + s1) * Mathf.Sin(u.y * 2.7f + s1 * 0.3f) * Mathf.Sin(u.z * 2.3f)) * 1.6f
+                          + (swell < 0 ? 0.07f * Mathf.Sin(u.x * 17 + u.y * 13) * Mathf.Sin(u.z * 15) : 0))   // 고염에서 물이 빠져 쭈글쭈글
+                      * (plan == Plan.Dino ? 1 - 0.18f * Mathf.Exp(-u.z * u.z / 0.008f) - 0.1f * Mathf.Exp(-u.x * u.x / 0.02f) * Mathf.Clamp01(-u.y * 3) * Mathf.Clamp01(0.3f - u.z * 3) : 1)   // 띠 홈 + 배 쪽 세로 홈
+                      * (plan == Plan.Ciliate ? 1 - 0.28f * Mathf.Exp(-(u.y - 0.25f * u.z) * (u.y - 0.25f * u.z) / 0.03f) * Mathf.Clamp01(-u.x * 3) * Mathf.Clamp01(u.z * 2.5f + 0.4f) : 1);   // 구강 홈(비스듬히)
         var cyto = Cyto(g, st.hue);
-        Ellipsoid(b, ctr, rad, q, cyto, detail == 0 ? 4 : 8, bump);
-        b.Mark(g[Gn.Wall] > 0.15f && detail > 0 ? "세포벽" : "세포막", ctr + q * new Vector3(rad.x, 0, 0));
-        if (g[Gn.Wall] > 0.15f && detail > 0) Ellipsoid(b, ctr, rad * 1.07f, q, Col(0.85f, 1, 0.85f, 0.12f + 0.25f * g[Gn.Wall]), 8);
         float rmin = Mathf.Min(rad.x, Mathf.Min(rad.y, rad.z));
-        // 엽록체: 어두운 곳일수록 많이(광순응, Geider 1997)
-        if (g[Gn.Photo] > 0.05f)
+        Func<float, float> eug = null;   // 유글레나 단면 반지름(z): 앞은 둥글고 뒤는 뾰족한 방추형
+        if (plan == Plan.Diatom) Frustule(b, ctr, rad, q, a, detail);
+        else if (plan == Plan.Euglena && detail > 0)
         {
-            int nc = detail == 0 ? 0 : Mathf.Clamp(Mathf.RoundToInt(g[Gn.Photo] * (2 + m.esd / 4) * (0.6f + chl)), 1, detail == 1 ? 2 : 24);
-            var green = Color.Lerp(Col(0.3f, 0.95f, 0.35f, 0.85f), Col(0.75f, 0.6f, 0.2f, 0.85f), g[Gn.Pigment] * 0.6f);
-            for (int i = 0; i < nc; i++)
+            eug = z => rad.x * 1.2f * Mathf.Sin(Mathf.PI * Mathf.Pow(Mathf.Clamp01((z + rad.z) / (2 * rad.z)), 1.5f));
+            int i0 = b.v.Count; Lathe(b, ctr, q, -rad.z, rad.z, eug, _ => cyto, 18, 12);
+            Radial(b, i0, ctr, q, wob); b.Mark("펠리클", ctr + q * new Vector3(eug(0), 0, 0));
+            // 펠리클 줄무늬: 몸을 비스듬히 감는 띠(겉막 단백질 띠가 미끄러져 몸을 바꾼다)
+            for (int j = 0, nj = detail == 2 ? 10 : 5; j < nj; j++)
             {
-                var p = Vector3.Scale(RandIn(r) * 0.55f, rad);
-                Ellipsoid(b, ctr + q * p, new Vector3(0.2f, 0.08f, 0.15f) * rmin * (nc == 1 ? 2.2f : 1.3f), q * Quaternion.Euler(r.Next(180), r.Next(180), 0), green, 4); b.Mark("엽록체", ctr + q * p);
+                var pts = new Vector3[16];
+                for (int i = 0; i < 16; i++) { float t = i / 15f, z = Mathf.Lerp(-rad.z, rad.z, t), an = j * 2 * Mathf.PI / nj + t * 4.2f, rr = eug(z) * 1.01f; pts[i] = ctr + q * new Vector3(Mathf.Cos(an) * rr, Mathf.Sin(an) * rr, z); }
+                int k0 = b.v.Count; Tube(b, pts, _ => len * 0.004f, Col(0.85f, 1, 0.85f, 0.3f), 3, 0, 0, 0, Vector3.zero); Radial(b, k0, ctr, q, wob);
+                if (j == 0) b.Mark("펠리클 줄무늬", pts[5]);
+            }
+        }
+        else
+        {
+            Ellipsoid(b, ctr, rad, q, cyto, detail == 0 ? 4 : plan == Plan.Plain ? 8 : 10, bump, wob);
+            b.Mark(g[Gn.Wall] > 0.15f && detail > 0 && plan != Plan.Radiolarian ? (plan == Plan.Dino ? "갑옷판" : "세포벽") : "세포막", ctr + q * new Vector3(rad.x, 0, 0));
+            if (g[Gn.Wall] > 0.15f && detail > 0 && plan != Plan.Radiolarian) Ellipsoid(b, ctr, rad * 1.07f, q, Col(0.85f, 1, 0.85f, 0.12f + 0.25f * g[Gn.Wall]), 8, plan == Plan.Dino ? bump : null);
+        }
+        // 엽록체: 어두운 곳일수록 많이(광순응, Geider 1997). 돌말·와편모충은 황갈색(푸코잔틴·페리디닌)
+        bool brown = plan == Plan.Diatom || plan == Plan.Dino;
+        if (g[Gn.Photo] > 0.05f && detail > 0)
+        {
+            var green = brown ? Col(0.8f, 0.6f, 0.22f, 0.85f) : Color.Lerp(Col(0.3f, 0.95f, 0.35f, 0.85f), Col(0.75f, 0.6f, 0.2f, 0.85f), g[Gn.Pigment] * 0.6f);
+            if (plan == Plan.Diatom && a >= 1.5f)   // 깃형 돌말: 띠 쪽 벽에 붙은 판 모양 둘
+                for (int s = -1; s <= 1; s += 2) { var p = new Vector3(0, s * rad.x * 0.62f, 0); Ellipsoid(b, ctr + q * p, new Vector3(0.55f * rad.x, 0.09f * rad.x, 0.7f * rad.z), q, green, 6); b.Mark("엽록체", ctr + q * p); }
+            else if (plan == Plan.Diatom)   // 원형 돌말: 가장자리에 작은 원반 여럿
+            {
+                var qa = a >= 1 ? q : q * Quaternion.Euler(-90, 0, 0); float R = rad.x, hz = a >= 1 ? rad.z : rad.y; int nc = detail == 1 ? 6 : 12;
+                for (int i = 0; i < nc; i++) { float an = i * 2.39996f; var p = new Vector3(Mathf.Cos(an) * R * 0.75f, Mathf.Sin(an) * R * 0.75f, ((float)r.NextDouble() * 2 - 1) * hz * 0.6f); Ellipsoid(b, ctr + qa * p, new Vector3(0.04f, 0.11f, 0.11f) * R, qa * Quaternion.Euler(0, 0, an * Mathf.Rad2Deg), green, 4); if (i == 0) b.Mark("엽록체", ctr + qa * p); }
+            }
+            else
+            {
+                int nc = Mathf.Clamp(Mathf.RoundToInt(g[Gn.Photo] * (2 + m.esd / 4) * (0.6f + chl)), 1, detail == 1 ? 2 : 24);
+                for (int i = 0; i < nc; i++)
+                {
+                    var p = Vector3.Scale(RandIn(r) * 0.55f, rad);
+                    Ellipsoid(b, ctr + q * p, new Vector3(0.2f, 0.08f, 0.15f) * rmin * (nc == 1 ? 2.2f : 1.3f), q * Quaternion.Euler(r.Next(180), r.Next(180), 0), green, 5, null, brown ? default : Flow()); b.Mark("엽록체", ctr + q * p);
+                }
             }
         }
         if (detail == 2)
         {
-            Ellipsoid(b, ctr + q * new Vector3(0, 0, -0.1f * rad.z), Vector3.one * rmin * 0.32f, q, Col(0.65f, 0.7f, 1, 0.5f), 6); b.Mark("핵", ctr + q * new Vector3(0, 0, -0.1f * rad.z));   // 핵
-            if (g[Gn.Vacuole] > 0.1f)   // 수축포: 맥동
+            if (plan == Plan.Ciliate)   // 큰 핵(유전자 일꾼) + 작은 핵(생식용)
             {
-                b.Mark("수축포", ctr + q * new Vector3(0.3f * rad.x, 0, -0.55f * rad.z));
-                Ellipsoid(b, ctr + q * new Vector3(0.3f * rad.x, 0, -0.55f * rad.z), Vector3.one * rmin * (0.15f + 0.25f * g[Gn.Vacuole]), q, Col(0.8f, 0.9f, 1, 0.3f), 6, null, new Vector4(0, PULSE, 0, rmin * 0.08f));
+                var pn = new Vector3(0.1f * rad.x, 0.1f * rad.y, -0.05f * rad.z);
+                Ellipsoid(b, ctr + q * pn, new Vector3(0.38f * rad.x, 0.32f * rad.y, 0.42f * rad.z), q, Col(0.6f, 0.65f, 1, 0.5f), 8); b.Mark("대핵", ctr + q * pn);
+                var pm = pn + new Vector3(0.42f * rad.x, 0, 0.15f * rad.z); Ellipsoid(b, ctr + q * pm, Vector3.one * rmin * 0.09f, q, Col(0.55f, 0.6f, 1, 0.7f), 4); b.Mark("소핵", ctr + q * pm);
             }
-            if (g[Gn.Phago] > 0.4f)   // 먹이 주머니
-                for (int i = 0, nf = 1 + (int)(g[Gn.Phago] * 3); i < nf; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.5f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.16f, q, Col(0.85f, 0.65f, 0.4f, 0.55f), 4); b.Mark("먹이 주머니", pp); }
+            else if (plan == Plan.Radiolarian)   // 중심낭: 핵과 속 세포질을 감싼 주머니
+            {
+                Ellipsoid(b, ctr, rad * 0.5f, q, Col(0.95f, 0.72f, 0.38f, 0.55f), 8); b.Mark("중심낭", ctr + q * new Vector3(0, rad.y * 0.5f, 0));
+                Ellipsoid(b, ctr, Vector3.one * rmin * 0.18f, q, Col(0.65f, 0.7f, 1, 0.6f), 6); b.Mark("핵", ctr);
+            }
+            else { var pn = new Vector3(0, 0, -0.1f * rad.z); Ellipsoid(b, ctr + q * pn, Vector3.one * rmin * 0.32f, q, Col(0.65f, 0.7f, 1, 0.5f), 6); b.Mark("핵", ctr + q * pn); }
+            if (g[Gn.Vacuole] > 0.1f && plan != Plan.Diatom)   // 수축포: 맥동. 섬모충은 앞뒤 둘, 별 모양 수로가 물을 모은다
+                for (int v = 0, nv = plan == Plan.Ciliate ? 2 : 1; v < nv; v++)
+                {
+                    var pv = new Vector3(0.3f * rad.x, plan == Plan.Ciliate ? 0.4f * rad.y : 0, (v == 0 ? -0.55f : 0.5f) * rad.z); float vr = rmin * (0.15f + 0.25f * g[Gn.Vacuole]);
+                    b.Mark("수축포", ctr + q * pv);
+                    Ellipsoid(b, ctr + q * pv, Vector3.one * vr, q, Col(0.8f, 0.9f, 1, 0.3f), 6, null, new Vector4(0, PULSE, v * 3.1f, rmin * 0.08f));
+                    if (plan == Plan.Ciliate)
+                        for (int c = 0; c < 7; c++) { float an = c * 0.8976f; var d = q * new Vector3(Mathf.Cos(an), Mathf.Sin(an) * 0.6f, Mathf.Sin(an) * 0.8f); Tube(b, new[] { ctr + q * pv + d * vr, ctr + q * pv + d * vr * 3.2f }, u => rmin * 0.035f * (1 - 0.6f * u), Col(0.8f, 0.9f, 1, 0.3f), 3, PULSE, -rmin * 0.03f, v * 3.1f + 3.1f, d); }
+                }
+            if (g[Gn.Phago] > 0.4f && plan != Plan.Diatom)   // 먹이 주머니
+                for (int i = 0, nf = 1 + (int)(g[Gn.Phago] * 3); i < nf; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.5f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.16f, q, Col(0.85f, 0.65f, 0.4f, 0.55f), 4, null, Flow()); b.Mark("먹이 주머니", pp); }
             if (g[Gn.Buoy] > 0.2f)   // 기포(가스 소포)·기름방울
-                for (int i = 0, nb = (int)(g[Gn.Buoy] * 14); i < nb; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.7f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.07f, q, Col(1, 1, 0.9f, 0.9f), 3); b.Mark("기포", pp); }
+                for (int i = 0, nb = (int)(g[Gn.Buoy] * 14); i < nb; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.7f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.07f, q, Col(1, 1, 0.9f, 0.9f), 3, null, Flow()); b.Mark("기포", pp); }
             if (g[Gn.Pigment] > 0.3f)   // 붉은 색소 방울(카로티노이드)
-                for (int i = 0, np = (int)(g[Gn.Pigment] * 6); i < np; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.6f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.08f, q, Col(1, 0.35f, 0.15f, 0.8f), 3); b.Mark("색소 방울", pp); }
+                for (int i = 0, np = (int)(g[Gn.Pigment] * 6); i < np; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.6f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.08f, q, Col(1, 0.35f, 0.15f, 0.8f), 3, null, Flow()); b.Mark("색소 방울", pp); }
+            if (plan == Plan.Euglena)   // 파라밀론(저장 녹말) 막대
+                for (int i = 0; i < 5; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.45f, rad); Ellipsoid(b, pp, new Vector3(0.12f, 0.12f, 0.3f) * rmin, q * Quaternion.Euler(r.Next(60), r.Next(360), 0), Col(1, 1, 0.95f, 0.6f), 3, null, Flow()); if (i == 0) b.Mark("파라밀론", pp); }
+            if (plan == Plan.Amoeba)   // 과립 세포질: 위족 쪽으로 흘러간다
+                for (int i = 0; i < 36; i++) { var pp = ctr + q * Vector3.Scale(RandIn(r) * 0.7f, rad); Ellipsoid(b, pp, Vector3.one * rmin * 0.035f, q, Col(0.95f, 0.9f, 0.75f, 0.6f), 2, null, Flow()); if (i == 0) b.Mark("과립", pp); }
+        }
+        if (plan == Plan.Amoeba && detail > 0)   // 가장 길게 뻗은 위족에 이름표
+        {
+            Vector3 best = Vector3.forward; float bf = 0;
+            for (int i = 0; i < 64; i++) { var u = Fib(i, 64); float f = bump(u); if (f > bf) { bf = f; best = u; } }
+            b.Mark("위족", ctr + q * Vector3.Scale(best, rad) * bf);
+        }
+        if (plan == Plan.Ciliate && detail > 0)   // 구강 홈 끝에서 세포 안으로 들어가는 목구멍(세포인두)
+        {
+            var u = new Vector3(-0.92f, 0, 0.1f).normalized; var p0 = ctr + q * Vector3.Scale(u, rad) * bump(u); b.Mark("구강 홈", p0);
+            Tube(b, new[] { p0, ctr + q * new Vector3(-0.45f * rad.x, 0.05f * rad.y, -0.1f * rad.z), ctr + q * new Vector3(-0.15f * rad.x, 0.1f * rad.y, -0.3f * rad.z) }, uu => rmin * (0.12f - 0.07f * uu), Col(0.75f, 0.8f, 0.95f, 0.45f), 5, 0, 0, 0, Vector3.zero);
         }
         // 눈: 안점(빨강) → 컵눈(검은 컵) → 렌즈 눈
         if (g[Gn.Eye] > 0.08f && detail > 0)
@@ -198,8 +281,27 @@ public static class Bodies
                 z => { float u = Mathf.InverseLerp(zl0, zl1, z); var c2 = amber; if (Mathf.Repeat(u * 7, 1) < 0.18f) c2 *= 1.4f; c2.a = amber.a; return c2; }, 10, 10);
         }
         if (!appendages) return;
-        // 가시: 방사형 원뿔 (포식 신호가 있으면 더 길게 — 유도 방어)
-        if (m.spines > 0.05f)
+        // 방산충: 격자 껍질(그물처럼 이어진 규산 골격) + 사방으로 뻗은 가는 축족
+        if (plan == Plan.Radiolarian && detail > 0)
+        {
+            int nl = detail == 2 ? 42 : 20; var nodes = new Vector3[nl]; var done = new HashSet<long>();
+            for (int i = 0; i < nl; i++) nodes[i] = Vector3.Scale(Fib(i, nl), rad) * 1.15f;
+            for (int i = 0; i < nl; i++)
+            {
+                var near = new List<int>(); for (int j = 0; j < nl; j++) if (j != i) near.Add(j);
+                near.Sort((x, y) => (nodes[x] - nodes[i]).sqrMagnitude.CompareTo((nodes[y] - nodes[i]).sqrMagnitude));
+                for (int k = 0; k < 4; k++) { int j = near[k]; if (!done.Add(Math.Min(i, j) * 1000L + Math.Max(i, j))) continue; Tube(b, new[] { ctr + q * nodes[i], ctr + q * nodes[j] }, _ => len * 0.007f, Col(0.92f, 0.96f, 1, 0.55f), 3, 0, 0, 0, Vector3.zero); }
+            }
+            b.Mark("격자 껍질", ctr + q * nodes[nl / 3]);
+            for (int i = 0, na = detail == 2 ? 48 : 16; i < na; i++)
+            {
+                var u = Fib(i, na); var p0 = ctr + q * Vector3.Scale(u, rad) * 0.5f; var p1 = ctr + q * Vector3.Scale(u, rad) * 2.1f;
+                Tube(b, new[] { p0, Vector3.Lerp(p0, p1, 0.5f), p1 }, uu => len * 0.004f * (1 - 0.7f * uu), Col(0.9f, 0.95f, 1, 0.3f), 3, SWAY, len * 0.03f, i, q * Vector3.Cross(u, Vector3.up).normalized);
+                if (i == 0) b.Mark("축족", p1);
+            }
+        }
+        // 가시: 방사형 원뿔 (포식 신호가 있으면 더 길게 — 유도 방어). 와편모충은 대신 뿔 셋(케라티움처럼)
+        if (m.spines > 0.05f && plan != Plan.Dino)
         {
             int ns = Mathf.Clamp(Mathf.RoundToInt(4 + m.spines * 12), 4, 16); float sl = (0.4f + 0.8f * m.spines) * len;
             for (int i = 0; i < ns; i++)
@@ -208,13 +310,49 @@ public static class Bodies
                 Tube(b, new[] { p0, p1 }, uu => rmin * 0.09f * (1 - uu), Col(0.9f, 0.95f, 1, 0.6f), 4, 0, 0, 0, Vector3.zero);
             }
         }
-        // 편모: 앞에서 나와 물결친다(길이 ~ 세포 1.5배)
-        if (g[Gn.Flagella] > 0.05f && detail > 0)
+        if (plan == Plan.Dino && detail > 0)
         {
-            int nfl = g[Gn.Flagella] > 0.55f ? 2 : 1;
+            if (m.spines > 0.05f)
+            {
+                float hl = (0.4f + 0.9f * m.spines) * len;
+                var horns = new[] { (new Vector3(0, 0, 0.9f), new Vector3(0, 0, 1), 1f), (new Vector3(0.35f, 0, -0.8f), new Vector3(0.25f, 0, -1), 0.75f), (new Vector3(-0.3f, 0, -0.85f), new Vector3(-0.1f, 0, -1), 0.5f) };
+                foreach (var (o, d, f) in horns)
+                {
+                    var p0 = ctr + q * Vector3.Scale(o, rad); var pts = new Vector3[6];
+                    for (int i = 0; i < 6; i++) pts[i] = p0 + q * d.normalized * hl * f * i / 5f;
+                    Tube(b, pts, u => rmin * 0.17f * (1 - 0.9f * u), Col(0.9f, 0.92f, 0.8f, 0.5f), 6, 0, 0, 0, Vector3.zero); b.Mark("뿔", pts[4]);
+                }
+            }
+            // 가로 편모: 띠 홈을 따라 감겨 물결친다(물결이 둘레를 돌아 몸을 굴린다)
+            int i0 = b.v.Count, nr = 33; var ring = new Vector3[nr];
+            for (int i = 0; i < nr; i++) { float an = 2 * Mathf.PI * i / (nr - 1); ring[i] = ctr + q * new Vector3(Mathf.Cos(an) * rad.x * 0.86f, Mathf.Sin(an) * rad.y * 0.86f, 0); }
+            Tube(b, ring, _ => len * 0.016f, Col(0.95f, 0.97f, 1, 0.8f), 3, CIL, 0, 0, q * Vector3.forward);
+            for (int i = i0; i < b.v.Count; i++) b.a[i] = new Vector4(b.a[i].x, CIL, b.a[i].x * 8 * Mathf.PI, len * 0.03f);
+            b.Mark("가로 편모", ring[5]);
+            // 세로 편모: 배 쪽 세로 홈에서 뒤로 뻗는다
+            float fl = (0.8f + 0.5f * g[Gn.Flagella]) * len; var pf = new Vector3[12]; var b0 = ctr + q * new Vector3(0, -rad.y * 0.85f, -0.1f * rad.z); var df = q * new Vector3(0, -0.25f, -1).normalized;
+            for (int i = 0; i < 12; i++) pf[i] = b0 + df * fl * i / 11f;
+            Tube(b, pf, u => len * 0.018f * (1 - 0.5f * u), Col(0.85f, 0.9f, 1, 0.55f), 3, FLAG, fl * 0.12f, 0, q * Vector3.right); b.Mark("세로 편모", pf[7]);
+        }
+        // 깃편모충: 편모 둘레를 미세융모 깃이 깔때기처럼 둘러싼다(물살 속 세균을 걸러 먹는다)
+        if (plan == Plan.Choano && detail > 0)
+        {
+            int nv = detail == 2 ? 20 : 10;
+            for (int i = 0; i < nv; i++)
+            {
+                float an = i * 2 * Mathf.PI / nv; var c = new Vector3(Mathf.Cos(an), Mathf.Sin(an), 0);
+                var p0 = ctr + q * (c * rad.x * 0.45f + Vector3.forward * rad.z * 0.85f); var p1 = ctr + q * (c * rad.x * 0.9f + Vector3.forward * (rad.z + len * 0.6f));
+                Tube(b, new[] { p0, p1 }, _ => len * 0.006f, Col(0.85f, 0.92f, 1, 0.45f), 3, 0, 0, 0, Vector3.zero);
+                if (i == 0) b.Mark("깃(미세융모)", Vector3.Lerp(p0, p1, 0.7f));
+            }
+        }
+        // 편모: 앞에서 나와 물결친다(길이 ~ 세포 1.5배). 유글레나·깃편모충은 하나
+        if (g[Gn.Flagella] > 0.05f && detail > 0 && plan != Plan.Dino && plan != Plan.Diatom && plan != Plan.Radiolarian)
+        {
+            int nfl = plan == Plan.Euglena || plan == Plan.Choano ? 1 : g[Gn.Flagella] > 0.55f ? 2 : 1;
             for (int f = 0; f < nfl; f++)
             {
-                float fl = (1.1f + g[Gn.Flagella]) * len; var pts = new Vector3[12];
+                float fl = (plan == Plan.Euglena ? 1 : 1.1f + g[Gn.Flagella]) * len; var pts = new Vector3[12];   // 유글레나 편모 ≈ 몸길이
                 var dirF = q * (f == 0 ? Vector3.forward : new Vector3(0.6f, 0, -0.8f));
                 var base0 = ctr + q * new Vector3(0, 0, f == 0 ? rad.z : 0.2f * rad.z) + q * (f == 0 ? Vector3.zero : Vector3.right * rad.x);
                 for (int i = 0; i < 12; i++) pts[i] = base0 + dirF * fl * i / 11f;
@@ -223,7 +361,7 @@ public static class Bodies
             }
         }
         // 섬모: 몸 전체에 짧은 털, 물결처럼 차례로 친다(metachronal)
-        if (g[Gn.Cilia] > 0.1f && detail == 2)
+        if (g[Gn.Cilia] > 0.1f && detail == 2 && plan != Plan.Diatom)
         {
             int nh = (int)(30 + 150 * g[Gn.Cilia]);
             for (int i = 0; i < nh; i++)
@@ -243,6 +381,48 @@ public static class Bodies
             for (int i = 0; i < 8; i++) pts[i] = ctr + q * new Vector3(Mathf.Sin(i * 0.9f) * len * 0.05f, 0, -rad.z - sl * i / 7f);
             Tube(b, pts, u => len * 0.03f, Col(0.8f, 0.85f, 0.75f, 0.55f), 4, SWAY, len * 0.1f, 0, q * Vector3.right); b.Mark("자루", pts[3]); b.Mark("부착 원반", pts[7]);
             Ellipsoid(b, pts[7], new Vector3(0.18f, 0.18f, 0.04f) * len, q, Col(0.7f, 0.7f, 0.55f, 0.6f), 5);
+        }
+    }
+
+    // 꼭짓점 i0부터: 움직임 an을 주고, 흔들 방향을 몸 축에서 바깥쪽(단면 방사)으로
+    static void Radial(MB b, int i0, Vector3 ctr, Quaternion q, Vector4 an)
+    {
+        var iq = Quaternion.Inverse(q);
+        for (int i = i0; i < b.v.Count; i++) { var l = iq * (b.v[i] - ctr); b.a[i] = an; b.d[i] = q * new Vector3(l.x, l.y, 0).normalized; }
+    }
+
+    // 돌말 규산 껍질(피각): 원형(알약 상자, 방사 줄무늬) · 깃형(배 모양, 가로 줄무늬 + 가운데 봉선)
+    static void Frustule(MB b, Vector3 ctr, Vector3 rad, Quaternion q, float a, int detail)
+    {
+        var glass = Col(0.92f, 0.88f, 0.65f, 0.3f); var stria = Col(0.5f, 0.45f, 0.3f, 0.75f);
+        if (a < 1.5f)
+        {
+            var qa = a >= 1 ? q : q * Quaternion.Euler(-90, 0, 0); float R = rad.x, hz = a >= 1 ? rad.z : rad.y;
+            Lathe(b, ctr, qa, -hz, hz, z => R * Mathf.Pow(Mathf.Max(1e-4f, 1 - Mathf.Pow(Mathf.Abs(z) / hz, 6)), 1 / 6f),
+                z => Mathf.Abs(z) < hz * 0.8f && Mathf.Repeat(z / hz * 3, 1) < 0.12f ? stria : glass, 20, detail == 2 ? 24 : 12);
+            b.Mark("규산 껍질", ctr + qa * new Vector3(R, 0, hz * 0.5f)); b.Mark("띠(거들)", ctr + qa * new Vector3(-R, 0, 0));
+            if (detail < 2) return;
+            for (int s = -1; s <= 1; s += 2) for (int i = 0; i < 28; i++)   // 껍질 면의 방사 줄무늬(구멍 줄)
+            {
+                float an = i * 2 * Mathf.PI / 28, z = s * hz * 1.005f; var d = new Vector3(Mathf.Cos(an), Mathf.Sin(an), 0);
+                Tube(b, new[] { ctr + qa * (d * R * 0.12f + Vector3.forward * z), ctr + qa * (d * R * 0.9f + Vector3.forward * z) }, _ => R * 0.012f, stria, 3, 0, 0, 0, Vector3.zero);
+                if (s == 1 && i == 0) b.Mark("방사 줄무늬", ctr + qa * (d * R * 0.6f + Vector3.forward * z));
+            }
+        }
+        else
+        {
+            float W = rad.x * 1.3f, Hh = rad.x * 0.75f, Z = rad.z; q *= Quaternion.Euler(0, 0, 90);   // 껍질 면이 옆(x)을 본다
+            Lathe(b, ctr, q, -Z, Z, z => Hh * Mathf.Sqrt(Mathf.Max(1e-4f, 1 - z * z / (Z * Z))), z => Mathf.Repeat(z / Z * 12, 1) < 0.3f ? stria : glass, 32, 12, 1, 0, 0,
+                z => W * Mathf.Pow(Mathf.Max(1e-4f, 1 - z * z / (Z * Z)), 0.75f));
+            b.Mark("규산 껍질", ctr + q * new Vector3(W, 0, 0.3f * Z)); b.Mark("가로 줄무늬", ctr + q * new Vector3(-W * 0.8f, 0, -0.5f * Z));
+            if (detail < 2) return;
+            for (int s = -1; s <= 1; s += 2)   // 봉선: 껍질 가운데를 앞뒤로 가르는 틈(가운데 결절에서 끊긴다)
+            {
+                var pts = new Vector3[8];
+                for (int i = 0; i < 8; i++) { float z = s * Mathf.Lerp(0.07f, 0.9f, i / 7f) * Z; pts[i] = ctr + q * new Vector3(0, Hh * Mathf.Sqrt(Mathf.Max(0, 1 - z * z / (Z * Z))) * 1.02f, z); }
+                Tube(b, pts, _ => Hh * 0.05f, Col(0.45f, 0.4f, 0.3f, 0.7f), 3, 0, 0, 0, Vector3.zero);
+            }
+            b.Mark("봉선", ctr + q * new Vector3(0, Hh, 0.5f * Z));
         }
     }
 
@@ -371,7 +551,8 @@ public static class Bodies
         }
         else
         {
-            Lathe(b, Vector3.zero, Quaternion.identity, 0.05f, 0.5f, z => 0.32f * Mathf.Sqrt(Mathf.Max(0, 1 - Mathf.Pow((z - 0.05f) / 0.45f, 2))), z => col, 10, 16, 1, PULSE, 0.03f); b.Mark("갓", new Vector3(0.24f, 0, 0.32f));
+            int ib = b.v.Count; Lathe(b, Vector3.zero, Quaternion.identity, 0.05f, 0.5f, z => 0.32f * Mathf.Sqrt(Mathf.Max(0, 1 - Mathf.Pow((z - 0.05f) / 0.45f, 2))), z => col, 10, 16, 1, PULSE, 0.06f);
+            for (int i = ib; i < b.v.Count; i++) { var p = b.v[i]; b.d[i] = -new Vector3(p.x, p.y, 0).normalized * b.a[i].x; }   // 갓 가장자리가 안쪽으로 오므라든다(이때 물을 밀어낸다) b.Mark("갓", new Vector3(0.24f, 0, 0.32f));
             for (int i = 0; i < nt; i++)
             {
                 float a = i * 2 * Mathf.PI / nt; var d = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0); var pts = new Vector3[10];
@@ -409,7 +590,7 @@ public static class Bodies
         {
             float u = (z + 0.5f);   // 0 꼬리 → 1 머리
             float body = fish ? Mathf.Pow(Mathf.Sin(Mathf.PI * Mathf.Pow(u, 0.75f)), 0.9f) : Mathf.Sin(Mathf.PI * u);
-            float ped = fish ? Mathf.Lerp(0.25f, 1, Mathf.SmoothStep(0, 0.3f, u)) : 1;
+            float ped = fish ? Mathf.Lerp(0.25f, 1, Mathf.SmoothStep(0, 1, u / 0.3f)) : 1;   // 꼬리자루(Unity SmoothStep은 from·to 보간이라 0–1로 넣는다)
             return Mathf.Max(0.004f, body * ped);
         };
         Lathe(b, Vector3.zero, Quaternion.identity, -0.5f, 0.5f, z => depth * prof(z), z =>
@@ -433,7 +614,7 @@ public static class Bodies
         {
             b.Mark("등지느러미", new Vector3(0, depth * (0.85f + 0.6f * fin), 0)); b.Mark("뒷지느러미", new Vector3(0, -depth * (0.7f + 0.4f * fin), -0.19f));
             b.Mark("가슴지느러미", new Vector3(width * (0.9f + 1.4f * fin), -depth * 0.6f, 0.13f)); b.Mark("배지느러미", new Vector3(width * (0.6f + 0.7f * fin), -depth * 1.05f, -0.04f));
-            Fan(b, new[] { new Vector3(0, depth * 0.85f, 0.12f), new Vector3(0, depth * (0.85f + 0.9f * fin), 0.0f), new Vector3(0, depth * 0.8f, -0.14f) }, finC, UND, 0.06f, Vector3.right, U);   // 등지느러미
+            Fan(b, new[] { new Vector3(0, depth * prof(0.14f) * 0.88f, 0.14f), new Vector3(0, depth * (0.85f + 0.9f * fin), 0.0f), new Vector3(0, depth * prof(-0.16f) * 0.88f, -0.16f) }, finC, UND, 0.06f, Vector3.right, U);   // 등지느러미
             Fan(b, new[] { new Vector3(0, -depth * 0.7f, -0.12f), new Vector3(0, -depth * (0.7f + 0.6f * fin), -0.2f), new Vector3(0, -depth * 0.55f, -0.26f) }, finC, UND, 0.06f, Vector3.right, U);   // 뒷지느러미
             for (int s = -1; s <= 1; s += 2)
             {

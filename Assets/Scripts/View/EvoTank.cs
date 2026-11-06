@@ -34,7 +34,7 @@ public partial class EvoTank : MonoBehaviour
     float yaw = 35, pitch = 18, dist = 9, camDist = 9; Vector3 m0; bool dragging, overUI;
     (int slot, int k) want = (-1, 0);                  // 종 목록에서 고른 것: 다음 표본에서 하나 고른다
 
-    sealed class Av { public int id, slot, k; public Vector3 p, dir; public float L, spd, sink, t0, rate, grow = 1; public bool sessile; public Quaternion rot; }
+    sealed class Av { public int id, slot, k, grade; public Vector3 p, dir, vs = Vector3.one; public float L, spd, sink, t0, rate, grow = 1, pinch = -1, ph; public bool sessile; public Quaternion rot; }   // vs 개체마다 조금 다른 몸 비율, pinch 분열 진행(0–1)
     readonly List<Av> avs = new(); Av sel; float tRes, tScan;
     struct Cand { public int s, k; public float L; public double e; public Morph m; }
     readonly List<Cand> cand = new();
@@ -60,7 +60,11 @@ public partial class EvoTank : MonoBehaviour
     // 점검용: EvoTank.x86_64 -shots <폴더> [-gallery] → 화면 사진 몇 장 찍고 끝낸다. -gallery = 여러 체제를 미리 넣어 몸 그리기 확인
     static readonly (int g, float v)[][] GAL = {
         new[] { (Gn.Cells, 4f) }, new[] { (Gn.Wall, 0.8f), (Gn.Photo, 0.9f), (Gn.Elong, 2.5f), (Gn.Flagella, 0f) }, new[] { (Gn.Cilia, 0.9f), (Gn.Size, 5.5f), (Gn.Flagella, 0f) },
-        new[] { (Gn.Lorica, 0.8f), (Gn.Spines, 0.7f), (Gn.Size, 4.5f) }, new[] { (Gn.Cells, 10f), (Gn.Diff, 0.7f), (Gn.Form, 1f) },
+        new[] { (Gn.Lorica, 0.8f), (Gn.Spines, 0.7f), (Gn.Size, 4.5f) },
+        // 단세포 몸 설계: 원형 돌말 · 와편모충(뿔) · 방산충 · 유글레나 · 아메바 · 깃편모충
+        new[] { (Gn.Wall, 0.8f), (Gn.Photo, 0.9f), (Gn.Elong, -1f), (Gn.Flagella, 0f), (Gn.Size, 5f) }, new[] { (Gn.Wall, 0.5f), (Gn.Flagella, 0.7f), (Gn.Photo, 0.6f), (Gn.Spines, 0.6f), (Gn.Size, 5f) },
+        new[] { (Gn.Wall, 0.6f), (Gn.Phago, 0.8f), (Gn.Flagella, 0f), (Gn.Size, 6f), (Gn.Spines, 0.3f) }, new[] { (Gn.Flagella, 0.5f), (Gn.Photo, 0.7f), (Gn.Elong, 2f), (Gn.Eye, 0.3f), (Gn.Size, 5f) },
+        new[] { (Gn.Phago, 0.9f), (Gn.Flagella, 0f), (Gn.Size, 5.5f) }, new[] { (Gn.Phago, 0.7f), (Gn.Flagella, 0.6f), (Gn.Size, 3f) }, new[] { (Gn.Cells, 10f), (Gn.Diff, 0.7f), (Gn.Form, 1f) },
         new[] { (Gn.Cells, 14f), (Gn.Diff, 0.8f), (Gn.Form, 1f), (Gn.Gut, 0.6f), (Gn.Neuro, 0.4f) },
         new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Elong, 2f) },
         new[] { (Gn.Cells, 20f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.8f), (Gn.Neuro, 0.7f), (Gn.Bilat, 0.8f), (Gn.Skel, 0.5f), (Gn.Circ, 0.4f), (Gn.Eye, 0.3f), (Gn.Elong, 2f) },
@@ -68,14 +72,14 @@ public partial class EvoTank : MonoBehaviour
     };
     System.Collections.IEnumerator Shots(string dir, bool gallery)
     {
-        System.IO.Directory.CreateDirectory(dir);
+        System.IO.Directory.CreateDirectory(dir); var galS = new List<Strain>();
         if (gallery)
         {
             var par = w.strains[w.live[0]];
             foreach (var set in GAL)
             {
                 var g = (float[])par.g.Clone(); foreach (var (j, x) in set) g[j] = x;
-                var ns = w.Inject(par.slot, g, 1e-6); if (ns == null) continue;
+                var ns = w.Inject(par.slot, g, 1e-6); if (ns == null) continue; galS.Add(ns);
                 for (int v = 0; v < World.V; v++) { double c = 0; for (int k = 0; k < ns.K; k++) c += w.cnt[World.Ix(ns.slot, v, k)]; for (int k = 0; k < ns.K; k++) w.cnt[World.Ix(ns.slot, v, k)] = Math.Round(c / ns.K); }
             }
         }
@@ -86,12 +90,31 @@ public partial class EvoTank : MonoBehaviour
         }
         var wait = new WaitForSecondsRealtime(3);
         yield return wait; yield return Snap("1-start"); noDots = true; yield return null; yield return Snap("1b-nodots"); noDots = false;
+        if (gallery)   // 단세포 몸 설계마다 확대 카드 그림을 따로 저장(card-<설계>.png)
+        {
+            Unfollow(); var tex = new Texture2D(512, 512, TextureFormat.RGB24, false);
+            foreach (var st in galS.Concat(w.live.Select(x => w.strains[x])).Where(x => w.strains[x.slot] == x && World.Grade(x) == 0).GroupBy(x => (Bodies.PlanOf(x), x.aspect < 1.5f)).Select(gp => gp.First()).ToList())
+            {
+                sel = new Av { id = st.id, slot = st.slot, dir = Vector3.forward, rot = Quaternion.identity, L = w.M(st.slot, V, 0).L * 1e-6f, rate = 1 };
+                cYaw = 60; cPitch = 14; cDragT = Time.time; yield return null; yield return null;
+                RenderTexture.active = cardRT; tex.ReadPixels(new Rect(0, 0, 512, 512), 0, 0); RenderTexture.active = null;
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, $"card-{(int)Bodies.PlanOf(st)}{Bodies.PlanOf(st)}{(st.aspect < 1.5f ? "" : "-long")}.png"), tex.EncodeToPNG());
+                Debug.Log($"[EvoTank] plan {Bodies.PlanOf(st)} {StageName(st, 0)} verts {cardMesh?.vertexCount} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
+            }
+            sel = null;
+        }
         int n0 = avs.Count; float b0 = Bt *= 2; yield return wait;   // 축소한 축척이 그대로 있는지, 개체가 늘어나는지
         Debug.Log($"[EvoTank] zoomhold {(Bt == b0 && Mathf.Abs(B / b0 - 1) < 0.05f ? "ok" : "FAIL")} Bt {Bt:G3} B {B:G3} avs {n0}->{avs.Count}");
         var big = avs.OrderByDescending(a => a.L).FirstOrDefault();
         if (big != null) { sel = big; Bt = big.L * SELZ; tab = 1; Follow(big.id); }
         yield return wait; yield return Snap("3-select");
-        if (sel != null) Debug.Log($"[EvoTank] card {(cardMesh != null ? "ok" : "FAIL")} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
+        if (sel != null && cardMesh != null)   // 몸통 단면(가운데, 불투명 꼭짓점) 높이·너비
+        {
+            var vv = cardMesh.vertices; var cc = cardMesh.colors; float my = 0, mxx = 0;
+            for (int i = 0; i < vv.Length; i++) if (Mathf.Abs(vv[i].z) < 0.03f && cc[i].a > 0.99f) { my = Mathf.Max(my, Mathf.Abs(vv[i].y)); mxx = Mathf.Max(mxx, Mathf.Abs(vv[i].x)); }
+            Debug.Log($"[EvoTank] body mid half-height {my:0.000} half-width {mxx:0.000} Form {w.strains[sel.slot].g[Gn.Form]:0.00}");
+        }
+        if (sel != null) Debug.Log($"[EvoTank] card {(cardMesh != null ? "ok" : "FAIL")} grade {World.Grade(w.strains[sel.slot])} k {sel.k} bounds {cardMesh?.bounds.size} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
         // 혈통 점검: 후손 있는 계통을 없애면 그 후손으로, 후손 없는 계통을 없애면 '끊김' 카드(또는 그새 생긴 후손)로
         void Kill(int id) { int s = idSlot[id]; for (int v = 0; v < World.V; v++) for (int k = 0; k < World.KM; k++) w.cnt[World.Ix(s, v, k)] = 0; }
         Index(); int f0 = w.live.Select(x => w.strains[x].id).FirstOrDefault(id => BestDesc(id) >= 0);
@@ -202,7 +225,8 @@ public partial class EvoTank : MonoBehaviour
     Av Spawn(in Cand c)
     {
         var st = w.strains[c.s];
-        var a = new Av { id = st.id, slot = c.s, k = c.k, L = c.L, spd = c.m.speed * 1e-6f, sink = c.m.sink / 3600f, sessile = c.m.sessile, t0 = UnityEngine.Random.value * 100, rate = 1 };
+        var a = new Av { id = st.id, slot = c.s, k = c.k, L = c.L, spd = c.m.speed * 1e-6f, sink = c.m.sink / 3600f, sessile = c.m.sessile, t0 = UnityEngine.Random.value * 100, grade = World.Grade(st),
+            rate = UnityEngine.Random.Range(0.8f, 1.25f), vs = new Vector3(UnityEngine.Random.Range(0.9f, 1.1f), UnityEngine.Random.Range(0.9f, 1.1f), UnityEngine.Random.Range(0.9f, 1.1f)) };   // 같은 계통도 개체마다 박동 빠르기·몸 비율이 조금씩 다르다
         a.p = UnityEngine.Random.insideUnitSphere * H; a.p.y = Mathf.Clamp(a.p.y, yF, yS);
         a.dir = UnityEngine.Random.onUnitSphere; a.rot = UnityEngine.Random.rotation;
         if (a.sessile) { a.p.y = yF; a.rot = Quaternion.LookRotation(Vector3.up, Vector3.forward) * Quaternion.Euler(0, 0, UnityEngine.Random.value * 360); }
@@ -211,15 +235,27 @@ public partial class EvoTank : MonoBehaviour
 
     void Move(float dt)
     {
-        float u = BOX / B;   // 화면 단위 / m
+        float u = BOX / B, T = Time.timeSinceLevelLoad;   // 화면 단위 / m, 셰이더 시간(_Time.y)
+        School(dt, u);
         foreach (var a in avs)
         {
             a.grow = Mathf.Min(1, a.grow + dt * 0.8f);
+            if (a.pinch >= 0) { a.pinch += dt / 1.5f; if (a != sel && a.pinch > 1) a.pinch = -1; }   // 분열 중: 가운데가 잘록해진다(고른 개체는 Divide가 둘로 나눈다)
             if (a.sessile) continue;
-            if (a.spd > 0)
+            if (a.L < 20e-6f) a.p += UnityEngine.Random.insideUnitSphere * Mathf.Sqrt(10 * 2.2e-19f / (a.L * 0.5f) * dt) * u;   // 브라운 운동: D = kT/(6πηr), 물 20 °C
+            if (a.spd > 0 && a.L < 2e-3f)
             {
-                a.dir = (a.dir + UnityEngine.Random.insideUnitSphere * dt * 1.5f).normalized;
-                a.p += a.dir * Mathf.Min(a.spd * u, BOX * 0.3f) * dt;
+                // 작은 헤엄이(낮은 레이놀즈 수): 관성이 없어 곧바로 돌고, 몸이 축 둘레를 돌며 나선을 그린다(Jennings 1901)
+                a.dir = (a.dir + UnityEngine.Random.insideUnitSphere * dt * 0.8f).normalized;
+                a.ph += dt * a.rate * 5;
+                a.rot = Quaternion.LookRotation(a.dir) * Quaternion.Euler(0, 0, a.ph * Mathf.Rad2Deg) * Quaternion.Euler(20, 0, 0);
+                a.p += a.rot * Vector3.forward * Mathf.Min(a.spd * u, BOX * 0.3f) * dt;
+            }
+            else if (a.spd > 0)
+            {
+                a.dir = (a.dir + UnityEngine.Random.insideUnitSphere * dt * (a.grade >= 6 ? 0.5f : 1.5f)).normalized;
+                float th = a.grade == 4 ? 0.3f + 2.2f * Mathf.Max(0, Mathf.Cos(3 * (T * a.rate + a.t0))) : 1;   // 해파리: 갓이 오므라들 때 나아간다(셰이더 맥동과 같은 위상)
+                a.p += a.dir * Mathf.Min(a.spd * u, BOX * 0.3f) * th * dt;
                 a.rot = Quaternion.Slerp(a.rot, Quaternion.LookRotation(a.dir), 1 - Mathf.Exp(-dt * 5));
             }
             else a.rot *= Quaternion.Euler(dt * 9, dt * 6, 0);   // 헤엄 못 하는 것은 물살에 천천히 구른다
@@ -227,6 +263,23 @@ public partial class EvoTank : MonoBehaviour
             a.p = Wrap(a.p);
         }
         if (sel != null && !sel.sessile) MoveBy(sel.p / u);   // 고른 개체와 함께 헤엄친다(떠다니는 원점)
+    }
+
+    // 물고기 떼: 같은 계통끼리 방향 맞추기·모이기·부딪히지 않기(boids, Reynolds 1987)
+    void School(float dt, float u)
+    {
+        foreach (var a in avs)
+        {
+            if (a.grade < 6 || a.spd <= 0 || a.sessile) continue;
+            Vector3 al = Vector3.zero, co = Vector3.zero, se = Vector3.zero; int n = 0; float R = a.L * u * 6, Rs = a.L * u * 1.2f;
+            foreach (var o in avs)
+            {
+                if (o == a || o.slot != a.slot || o.sessile) continue;
+                var d = o.p - a.p; float dd = d.magnitude; if (dd > R) continue;
+                al += o.dir; co += d; n++; if (dd < Rs) se -= d / Mathf.Max(dd * dd, 1e-6f) * Rs;
+            }
+            if (n > 0) a.dir = (a.dir + dt * (1.2f * al / n + 0.6f * co / (n * R) + 1.5f * se)).normalized;
+        }
     }
 
     // ---------- 그리기 ----------
@@ -242,7 +295,7 @@ public partial class EvoTank : MonoBehaviour
         var target = sel != null ? sel.p : Vector3.zero;
         if (sel != null && !dragging && Time.time - lastDrag > 3)   // 따라가기 카메라: 손을 떼고 있으면 옆모습이 보이게 천천히 돈다
         {
-            var f = sel.rot * Vector3.forward;
+            var f = sel.dir;   // 몸 방향 대신 헤엄 축(나선으로 돌아도 카메라는 흔들리지 않게)
             if (Mathf.Abs(f.y) < 0.9f)
             {
                 float h = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg, a1 = h + 90, a2 = h - 90, k = 1 - Mathf.Exp(-Time.deltaTime * 0.6f);
@@ -258,15 +311,15 @@ public partial class EvoTank : MonoBehaviour
             var m = w.M(a.slot, v, a.k); var mesh = Body(st, a.k, m);
             // 관찰자 둘레 구 가장자리에서 물빛으로 녹는다. 하나를 고르면 나머지는 흐리게
             mpb.SetFloat("_Fade", a == sel ? 1 : Mathf.Clamp01((H - (a.p - target).magnitude) / 1.2f) * (sel != null ? 0.45f : 1));
-            mpb.SetFloat("_Sel", a == sel ? 1 : 0); mpb.SetFloat("_T0", a.t0); mpb.SetFloat("_Rate", a.rate);
-            var mx = Matrix4x4.TRS(a.p, a.rot, Vector3.one * Mathf.Max(a.L, m.L * 1e-6f) * u * Mathf.SmoothStep(0.3f, 1, a.grow));
+            mpb.SetFloat("_Sel", a == sel ? 1 : 0); mpb.SetFloat("_T0", a.t0); mpb.SetFloat("_Rate", a.rate); mpb.SetFloat("_Pinch", Mathf.Clamp01(a.pinch));
+            var mx = Matrix4x4.TRS(a.p, a.rot, a.vs * (Mathf.Max(a.L, m.L * 1e-6f) * u * Mathf.SmoothStep(0.3f, 1, a.grow)));
             Graphics.DrawMesh(mesh, mx, ms ? mMacro : mMicro, 0, null, 0, mpb); LookBody(mesh, mx, mpb);
         }
         // 너무 작아 몸을 못 그리는 것: 미생물 모드는 세균, 거시 모드는 미생물 안개
         double boxML = (double)B * B * B * 1e6, small = 0;
         if (ms) foreach (int s in w.live) { var st = w.strains[s]; for (int k = 0; k < st.K; k++) { double c = Dens(s, k); if (c > 0 && w.M(s, v, k).L * 1e-6f < B * 0.006f) small += c; } }
         double nDots = ms ? Math.Log10(1 + small / World.VML * boxML) * 400 : Math.Log10(1 + Mix(w.bac) * boxML * conc) * 150;   // 세균도 로그로(농축 배율이 10⁵배쯤이라 그대로 곱하면 화면이 하얗게 찬다)
-        mDots.SetFloat("_Count", (float)Math.Min(1, nDots / 3000)); mDots.SetFloat("_Box", BOX);
+        mDots.SetFloat("_Count", (float)Math.Min(1, nDots / 3000)); mDots.SetFloat("_Brown", ms ? 0 : 5e-7f * u); mDots.SetFloat("_Box", BOX);
         mDots.SetVector("_Off", new Vector4(dotOff.x - Mathf.Floor(dotOff.x), dotOff.y - Mathf.Floor(dotOff.y), dotOff.z - Mathf.Floor(dotOff.z), 0)); mDots.SetVector("_YLim", new Vector4(yF, yS));
         mDots.SetFloat("_Size", ms ? 0.025f : Mathf.Max(0.02f, 0.6e-6f * u));
         mDots.SetColor("_Color", ms ? new Color(0.7f, 0.9f, 0.7f, 0.35f) : new Color(0.75f, 0.8f, 1f, 0.5f));

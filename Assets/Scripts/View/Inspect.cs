@@ -51,7 +51,7 @@ public partial class EvoTank
             if (n++ >= 10) break;
             var c = cardVP * new Vector4(p.x, p.y, p.z, 1); if (c.w <= 0) continue;
             var q = new Vector2(R.x + (c.x / c.w * 0.5f + 0.5f) * R.width, R.y + (0.5f - c.y / c.w * 0.5f) * R.height);
-            bool back = (p - cardEye).magnitude > dc + 0.02f;   // 몸 가운데보다 멀다 = 뒤쪽
+            bool back = c.w > dc + 0.01f;   // 몸 가운데보다 멀다 = 뒤쪽(c.w = 카메라에서 깊이)
             var dir = q - R.center; dir = dir.sqrMagnitude < 1 ? Vector2.right : dir.normalized;
             // 이름은 카드 가장자리 둘레(가운데에서 그 부위 쪽)로 빼서 몸을 가리지 않게
             var t = R.center + dir * R.width * 0.4f - new Vector2(dir.x < 0 ? 74 : 0, 8); t.x = Mathf.Clamp(t.x, R.x + 4, R.xMax - 78); t.y = Mathf.Clamp(t.y, R.y + 4, R.yMax - 18);
@@ -70,7 +70,7 @@ public partial class EvoTank
         Fill(new Rect(a.x, a.y - 0.5f, d.magnitude, 1), c); GUI.matrix = mx;
     }
 
-    string StageName(Strain st, int k) => st.K <= 1 ? "단세포" : k == 0 ? "어린 단계" : k == st.K - 1 ? "어른" : $"자라는 중({k + 1}/{st.K})";
+    string StageName(Strain st, int k) => st.K <= 1 ? "단세포" + (World.Grade(st) <= 1 && Bodies.PlanOf(st) is var p && p != Bodies.Plan.Plain ? " · " + Bodies.PlanName[(int)p] : "") : k == 0 ? "어린 단계" : k == st.K - 1 ? "어른" : $"자라는 중({k + 1}/{st.K})";
 
     // 표본 쟁반: 살아 있는 종마다 가장 많은 계통의 어른 모습. '같은 크기'(칸을 채움) ↔ '실제 비율'(가장 큰 것 기준)
     void Tray(float W, float Hh)

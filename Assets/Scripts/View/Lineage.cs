@@ -96,19 +96,25 @@ public partial class EvoTank
         toast = "살아 있는 친척이 없습니다."; toastT = 4;
     }
 
-    // 고른 대표가 분열하는 모습(단세포): 실제 성장률로 분열 횟수를 쌓고, 5초에 한 번까지만 보여 준다
+    // 고른 대표가 분열하는 모습(단세포): 실제 성장률로 분열 횟수를 쌓고, 5초에 한 번까지만 보여 준다.
+    // 몸이 길어지며 가운데가 1.5초 동안 잘록해진 뒤(셰이더 _Pinch) 긴 축을 따라 둘로 나뉜다(가로 이분열)
     void Divide(float dt)
     {
         if (sel == null || follow < 0 || speed == 0) return;
         var st = w.strains[sel.slot]; if (st == null || st.dev) return;
+        if (sel.pinch >= 1)
+        {
+            var side = sel.rot * Vector3.forward * sel.L * (BOX / B) * 0.36f;
+            var sib = new Av { id = sel.id, slot = sel.slot, k = sel.k, grade = sel.grade, L = sel.L, spd = sel.spd, sink = sel.sink, sessile = sel.sessile, t0 = sel.t0 + 1.7f, rate = UnityEngine.Random.Range(0.8f, 1.25f), vs = sel.vs, ph = sel.ph + 3, p = sel.p - side, dir = sel.dir, rot = sel.rot, grow = 0.55f };   // 크기 0.3+0.7·smooth(0.55) ≈ 0.7: 잘록해진 반쪽과 비슷
+            sel.p += side; sel.grow = 0.55f; sel.pinch = -1; avs.Add(sib);
+            if (!divTold) { divTold = true; toast = "<b>분열</b> — 앞쪽 딸세포를 계속 따라갑니다"; toastT = 4; }
+            return;
+        }
+        if (sel.pinch >= 0) return;
         float mu = w.mu[World.Ix(sel.slot, V, sel.k)]; if (mu <= 0) return;
         divAcc = Mathf.Min(1, divAcc + dt * TPS[speed] * w.P.DT * mu / 0.693f);
         if (divAcc < 1 || Time.time - divLast < 5) return;
-        divAcc = 0; divLast = Time.time;
-        var side = sel.rot * Vector3.right * sel.L * (BOX / B) * 0.35f;
-        var sib = new Av { id = sel.id, slot = sel.slot, k = sel.k, L = sel.L, spd = sel.spd, sink = sel.sink, sessile = sel.sessile, t0 = sel.t0 + 1.7f, rate = 1, p = sel.p + side, dir = -sel.dir, rot = sel.rot, grow = 0.4f };
-        sel.p -= side; sel.grow = 0.4f; avs.Add(sib);
-        if (!divTold) { divTold = true; toast = "<b>분열</b> — 딸세포 하나를 계속 따라갑니다"; toastT = 4; }
+        divAcc = 0; divLast = Time.time; sel.pinch = 0;
     }
 
     // ---------- 계통수(옛 웹판처럼: 가로 = 시간, 막대 = 종, 세로선 = 조상에서 갈라짐) ----------
@@ -259,8 +265,10 @@ public partial class EvoTank
         cb.Clear(); cb.SetRenderTarget(rt); cb.ClearRenderTarget(true, true, mac ? new Color(0.08f, 0.2f, 0.27f) : new Color(0.01f, 0.012f, 0.02f));
         cb.SetViewProjectionMatrices(view, proj);
         cb.SetGlobalVector("_WorldSpaceCameraPos", eye);
-        cb.DrawMesh(mesh, Matrix4x4.identity, mac ? mMacro : mMicro, 0, 0, mpbP);
+        var bb = mesh.bounds; float s = 0.56f / Mathf.Max(1e-4f, Mathf.Max(bb.extents.x, Mathf.Max(bb.extents.y, bb.extents.z)));
+        var model = Matrix4x4.Scale(Vector3.one * s) * Matrix4x4.Translate(-bb.center);   // 편모·가시·축족까지 칸에 꽉 차게
+        cb.DrawMesh(mesh, model, mac ? mMacro : mMicro, 0, 0, mpbP);
         Graphics.ExecuteCommandBuffer(cb);
-        return proj * view;
+        return proj * view * model;
     }
 }
