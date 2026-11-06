@@ -179,7 +179,7 @@ public class EvoTank : MonoBehaviour
             if ((c.s, c.k) == want) { sel = avs.LastOrDefault(a => a.slot == c.s && a.k == c.k); want = (-1, 0); }
         }
     }
-    static long Key(int s, int k) => ((long)s << 4) | (uint)k;
+    static long Key(int s, int k) => ((long)s << 8) | (uint)k;
 
     Av Spawn(in Cand c)
     {

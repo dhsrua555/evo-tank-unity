@@ -81,7 +81,7 @@ static class Program
     // 어류로 가는 길의 단계별 가상 유전형을 넣고 생물량 성장률을 잰다(그 생태계에서 살 수 있나)
     static void PathProbe(World w, int days)
     {
-        w.P.MUT_NEW = 0; w.PruneTo(12);
+        w.P.MUT_NEW = 0; w.P.MUT_FLOOR = 0; w.PruneTo(12);
         var par = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First();
         var steps = new (string name, (int g, float v)[] set)[] {
             ("colony4", new[] { (Gn.Cells, 2f) }),

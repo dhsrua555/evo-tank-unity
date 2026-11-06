@@ -167,7 +167,7 @@ namespace Evo
 
     public sealed class World
     {
-        public const int NX = 2, NZ = 2, NY = 20, LS = NX * NZ, V = LS * NY, KM = 8;   // 가로 2×2, 깊이 20층, 크기 단계 최대 8
+        public const int NX = 2, NZ = 2, NY = 20, LS = NX * NZ, V = LS * NY, KM = 8;   // 가로 2×2, 깊이 20층, 크기 단계 최대 8(16·2배 간격도 시험: 동물 탐침 결과 같음, 계산만 늘어 8로)
         public const float DX = 10f, DZ = 0.5f, DEPTH = NY * DZ, WIDTH = NX * DX;     // m
         public const double VML = DX * DX * DZ * 1e6;                                 // 칸 부피(mL) = 50 m³
         public const int SMAX = 256, NI = 1000;
@@ -541,7 +541,7 @@ namespace Evo
                     if (!st.dev) bth = r.Poisson(c * mm * DT * (1 - load));         // 분열
                     else if (k < st.K - 1)
                     {
-                        double gamma = mm / (st.C[k + 1] / st.C[k] - 1);              // 다음 단계로 넘어가는 속도. 단계 안 개체는 C_k로 세므로 번 만큼만 자라야 질량이 보존된다(ln 비로 하면 질량이 저절로 생겨 20년 뒤 폭주). 단계를 5배 간격으로 잘게 나눠 늦어짐을 줄인다
+                        double gamma = mm / (st.C[k + 1] / st.C[k] - 1);              // 다음 단계로 넘어가는 속도. 단계 안 개체는 C_k로 세므로 번 만큼만 자라야 질량이 보존된다(ln 비로 하면 질량이 저절로 생겨 20년 뒤 폭주). 단계 5배 간격: 실제보다 (r−1)/ln r ≈ 2.5배 늦게 자란다
                         up = r.Binom(c - d, 1 - Math.Exp(-gamma * DT));
                     }
                     else bth = r.Poisson(c * E * 0.9 / (st.C[0] * cellB) * DT * (1 - load));   // 성체: 알·번식체
