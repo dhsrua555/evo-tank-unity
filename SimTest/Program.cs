@@ -35,10 +35,17 @@ static class Program
         foreach (var f in typeof(Params).GetFields()) if (Environment.GetEnvironmentVariable("P_" + f.Name) is string pv) { f.SetValue(w.P, float.Parse(pv)); Console.WriteLine($"# P.{f.Name} = {pv}"); }   // 시험: P_이름=값으로 매개변수 바꾸기
         // 처음엔 원시 바다에서 시작해 목표 환경으로 천천히 바꾼다(진화적 구조)
         var tg = Sc[sc]; for (int e = 0; e < Ev.N; e++) w.SetTarget(e, tg[e]);
+        if (Environment.GetEnvironmentVariable("O2BIO") != null) w.o2Bio = true;
+        if (Environment.GetEnvironmentVariable("AUTOQ") is string aq) { w.autoQ = true; w.activity = float.Parse(aq); }
+        // 시험 사건: QUAKE="종류:규모:날짜[:x,z[:세기:반경:기간]];…" 종류 = vol|upl|warm|ice|imp
+        var qs = (Environment.GetEnvironmentVariable("QUAKE") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Split(':')).Select(f => (kind: f[0] switch { "vol" => Qk.Volcano, "upl" => Qk.Uplift, "warm" => Qk.Warm, "ice" => Qk.IceAge, _ => Qk.Impact }, size: int.Parse(f[1]), day: int.Parse(f[2]),
+                cell: f.Length > 3 ? int.Parse(f[3].Split(',')[1]) * Geo.G + int.Parse(f[3].Split(',')[0]) : -1, amp: f.Length > 4 ? float.Parse(f[4]) : 0f, rad: f.Length > 5 ? float.Parse(f[5]) : 2f, len: f.Length > 6 ? float.Parse(f[6]) : 100f)).ToList();
         var sw = Stopwatch.StartNew(); double ms = 0;
         Console.WriteLine($"# {sc} seed {seed} days {days}");
         for (int d = 1; d <= days; d++)
         {
+            foreach (var q in qs.Where(q => q.day == d)) { var qq = w.Fire(q.kind, q.size, q.cell, q.kind == Qk.IceAge && q.amp == 0 ? World.IceAmp(q.size) : q.amp, q.rad, q.len); Console.WriteLine($"# 사건 d{d}: {qq.text}"); }
             var s1 = Stopwatch.StartNew();
             int tpd = (int)(24 / w.P.DT); for (int h = 0; h < tpd; h++) w.Step();   // 하루 = 24 h / DT 틱
             ms = s1.Elapsed.TotalMilliseconds / tpd;
@@ -190,6 +197,7 @@ static class Program
         ds /= a; db /= a; ns /= a; nb /= a; bs /= a; cy /= a; pm /= a; dm /= a;
         Console.WriteLine($"d{d,5} ms {ms,5:F2} strains {w.live.Count,3} sp {alive,3} N/mL {w.totalCount / w.volTot,8:G3} bio {w.totalBio / w.volTot,8:G3} " +
             $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy:G2} pom {pm:F2} dom {dm:F2} grade {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
+        Console.WriteLine($"      earth T {w.env[Ev.Temp]:F1} (base {w.tBase:F1}) CO2 {w.co2:F0} O2 {w.env[Ev.O2]:F1} bur {w.burRate:G3} wMul {w.wMul:F2} ice {w.ice:F2} sea {w.geo.sea:+0;-0} aer {w.aer:F2} dark {w.dark:F2} regions {w.NR} land {w.geo.LandCells()} regrid {w.regridN} iceR {w.iceR.Take(w.NR).Count(x => x > 0.5f)}");
         if (Environment.GetEnvironmentVariable("BUD") != null && big != null || Environment.GetEnvironmentVariable("BUD") != null && w.live.Count > 0)
         {
             var top = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First(); int bv = 0; double bc = 0;

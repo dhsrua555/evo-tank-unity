@@ -45,7 +45,7 @@ public partial class EvoTank : MonoBehaviour
     void Start()
     {
         Application.targetFrameRate = 60;
-        w = new World(Environment.TickCount & 0xffff);
+        w = new World(Environment.TickCount & 0xffff) { o2Bio = true, autoQ = true, activity = 0.4f };   // 앱: 산소는 생물이, 사건은 자연이
         cam = new GameObject("Camera").AddComponent<Camera>();
         cam.fieldOfView = 50; cam.nearClipPlane = 0.05f; cam.farClipPlane = 300; cam.clearFlags = CameraClearFlags.SolidColor;
         mMicro = new Material(Shader.Find("Evo/Micro")); mMacro = new Material(Shader.Find("Evo/Macro"));
@@ -131,6 +131,13 @@ public partial class EvoTank : MonoBehaviour
         int r0 = reg, rd = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] > w.geo.rDepth[rd]) rd = c;   // 해역 옮기기: 가장 깊은 바다 300 m
         GoTo(rd, 300); yield return wait; Debug.Log($"[EvoTank] region {r0}->{reg} {Geo.DName(w.geo.rDepth[reg])} depth {py:0} floor {Floor:0} vNear y{vNear / World.LS} {(reg == rd && Math.Abs(py - 300) < 1e-3 ? "ok" : "FAIL")}"); yield return Snap("7-ocean");
         GoTo(r0, 1.25); yield return wait;
+        // 자연현상 점검: 지금 해역에 거대 화산, 빙하기 → 빙상·해수면·해역 다시 나누기, 계통수 사건 줄, 고급 패널
+        tab = 0; qSel = 0; qSize = 3; float t0 = w.env[Ev.Temp]; FireQ(obsCell); yield return wait;
+        Debug.Log($"[EvoTank] quake volcano {(w.quakes.Count > 0 && w.aer > 1 ? "ok" : "FAIL")} aer {w.aer:0.00} T {t0:0.0}->{w.env[Ev.Temp]:0.0} text {w.quakes[^1].text}"); yield return Snap("8-volcano");
+        int rg0 = w.regridN; w.Fire(Qk.IceAge, 3, -1, World.IceAmp(3), 0, 40); speed = 3; yield return new WaitForSecondsRealtime(12);
+        Debug.Log($"[EvoTank] quake ice ice {w.ice:0.00} sea {w.geo.sea:0} regrid {rg0}->{w.regridN} reg {reg}/{w.NR} obs {obsCell}->{w.geo.reg[obsCell]} {(w.regridN > rg0 && reg < w.NR && w.geo.reg[obsCell] == reg ? "ok" : "FAIL")} T {w.env[Ev.Temp]:0.0}"); yield return Snap("8b-ice");
+        speed = 0; tab = 3; yield return null; yield return Snap("8c-tree");
+        tab = 0; advanced = true; yield return null; yield return Snap("8d-advanced"); advanced = false;
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
         Application.Quit();
     }
@@ -413,7 +420,7 @@ public partial class EvoTank : MonoBehaviour
     // ---------- 화면(IMGUI) ----------
     Font font, fontB; GUIStyle sL, sB, sS, sBtn, sOn, sBox, sT, sTd; Texture2D bg;
     Rect panel, top, info; int tab; Vector2 scroll;
-    static readonly string[] TABS = { "환경", "생물", "종", "진화" };
+    static readonly string[] TABS = { "자연", "생물", "종", "진화" };
     float UIScale => Mathf.Max(0.75f, Mathf.Min(Screen.height / 900f, Screen.width / 1600f));
 
     void Fonts()
@@ -466,35 +473,103 @@ public partial class EvoTank : MonoBehaviour
         ("원시 바다", new[] { 25f, 35, 60, 30, 2, 50 }), ("어류의 바다(추천)", new[] { 18f, 35, 70, 20, 21, 40 }), ("민물 연못", new[] { 20f, 0.5f, 70, 30, 21, 40 }),
         ("고염 석호", new[] { 28f, 150, 80, 50, 21, 40 }), ("차가운 바다", new[] { 6f, 35, 50, 20, 21, 50 }), ("빛 없는 심해", new[] { 4f, 35, 0, 0, 10, 30 }),
     };
+    // ---------- 자연 탭: 지구 상태 · 자연현상 일으키기 · 자동 사건 · 고급(숫자) ----------
+    int qSel, qSize = 2; float qAmp = 2, qRad = 2, qDays = 100; bool placing, advanced;
+    static readonly string[] QBTN = { "화산", "융기·침강", "온난화·냉각", "빙하기", "운석" };
+    static bool Located(int k) => k == (int)Qk.Volcano || k == (int)Qk.Impact || k == (int)Qk.Uplift;
+    void FireQ(int cell)
+    {
+        var k = (Qk)qSel; float amp = k == Qk.IceAge ? World.IceAmp(qSize) : qAmp;
+        var q = w.Fire(k, qSize, cell, amp, qRad, k == Qk.Volcano ? 60 : qDays); placing = false;
+        toast = "<b>" + q.text + "</b>"; toastT = 6;
+    }
     void EnvTab()
     {
-        GUILayout.Label("슬라이더는 목표값이다. 바다는 정한 속도로 천천히 따라간다.", sS);
+        float yrs = w.tick * w.P.DT / 24f * World.GEO_X;
+        GUILayout.Label($"<b>지구</b>  적도 바다 {w.env[Ev.Temp] + 3:0.0} °C · CO₂ {w.co2:0} ppm · 대기 산소 {w.env[Ev.O2]:0.0}%\n" +
+            $"빙상 {w.ice * 100:0}% · 해수면 {w.geo.sea:+0;-0;0} m · 화산재 냉각 {w.aer:0.0} °C · 먼지 어둠 {w.dark * 100:0}%\n" +
+            $"<size=11>지질 시계: 생태 1일 = 지질 1000년 (지금까지 지질 {(yrs >= 1e6 ? $"{yrs / 1e6:0.0}백만" : $"{yrs / 1e4:0.#}만")} 년). 먹고 먹히기·진화는 실제 시간, 탄소·빙상·융기는 압축.</size>", sS);
+        GUILayout.Space(6); GUILayout.Label("<b>자연현상 일으키기</b>", sL);
+        for (int r0 = 0; r0 < QBTN.Length; r0 += 3)
+        {
+            GUILayout.BeginHorizontal();
+            for (int k = r0; k < Mathf.Min(r0 + 3, QBTN.Length); k++) if (GUILayout.Button(QBTN[k], qSel == k ? sOn : sBtn)) { qSel = k; placing = false; }
+            GUILayout.EndHorizontal();
+        }
+        var kind = (Qk)qSel;
+        if (kind == Qk.Volcano || kind == Qk.Impact || kind == Qk.IceAge)
+        {
+            string note = kind == Qk.Volcano ? World.VolNote[qSize] : kind == Qk.Impact ? World.ImpNote[qSize] : $"−{World.IceAmp(qSize):0} °C";
+            GUILayout.Label($"규모 <b>{World.SizeName[qSize]}</b> — {note}", sS);
+            qSize = Mathf.RoundToInt(GUILayout.HorizontalSlider(qSize, 0, 4));
+        }
+        if (kind == Qk.Uplift)
+        {
+            GUILayout.Label($"{(qAmp >= 0 ? "융기" : "침강")} {Mathf.Abs(qAmp):0.0} m/일 (실제 {Mathf.Abs(qAmp):0.0} mm/년) · 반경 {qRad * 200:0} km", sS);
+            qAmp = Mathf.Round(GUILayout.HorizontalSlider(qAmp, -5, 5) * 2) / 2; qRad = Mathf.Round(GUILayout.HorizontalSlider(qRad, 1, 6));
+        }
+        if (kind == Qk.Warm) { GUILayout.Label($"{(qAmp >= 0 ? "온난화 +" : "냉각 −")}{Mathf.Abs(qAmp):0.0} °C", sS); qAmp = Mathf.Round(GUILayout.HorizontalSlider(qAmp, -8, 8) * 2) / 2; }
+        if (kind == Qk.Uplift || kind == Qk.Warm || kind == Qk.IceAge)
+        {
+            GUILayout.Label($"기간 {qDays:0}일 (지질 {qDays * World.GEO_X / 1e4:0.#}만 년)", sS);
+            qDays = Mathf.Round(GUILayout.HorizontalSlider(qDays, 10, 600) / 10) * 10;
+        }
+        if (Located(qSel)) { if (GUILayout.Button(placing ? "지도에서 위치를 누르세요 (다시 누르면 취소)" : "위치 고르기 → 지도를 누르면 일어남", placing ? sOn : sBtn)) placing = !placing; }
+        else if (GUILayout.Button("일으키기", sBtn)) FireQ(-1);
+        GUILayout.Space(6);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(w.autoQ ? "자동 사건: 켜짐" : "자동 사건: 꺼짐", w.autoQ ? sOn : sBtn, GUILayout.Width(130))) w.autoQ = !w.autoQ;
+        GUILayout.Label($"<size=11>{(w.activity < 0.34f ? "조용한 행성" : w.activity < 0.67f ? "보통 행성" : "격동하는 행성")} · 작은 화산 약 {1 / (0.1 * Math.Pow(10, 2 * w.activity - 1.5)):0}일에 한 번</size>", sS);
+        GUILayout.EndHorizontal();
+        w.activity = GUILayout.HorizontalSlider(w.activity, 0, 1);
+        double day = w.tick * w.P.DT / 24.0;
+        foreach (var q in w.quakes) { double left = q.Day0 + q.days - day; if ((q.kind != Qk.Volcano || q.size == 4) && q.kind != Qk.Impact && left > 0 && day >= q.Day0) GUILayout.Label($"<color=#ffb070>진행 중</color> {q.text} — {left:0}일 남음", sS); }
+        GUILayout.Space(8);
+        if (GUILayout.Button(advanced ? "▼ 고급: 숫자로 조정" : "▶ 고급: 숫자로 조정", sBtn)) advanced = !advanced;
+        if (advanced) Advanced();
+        GUILayout.Space(6);
+        GUILayout.Label($"<b>이 자리의 물질 순환</b>\n남세균 {Num(Mix(w.cya))}/mL · 세균 {Num(Mix(w.bac))}/mL · 영양염 {Mix(w.nut):0.00} μM\n유기물 입자(바다눈) {Mix(w.pom):0.00} μM N · 녹은 유기물 {Mix(w.dom):0.00} μM N · 산소 {Mix(w.dox):0.0}% atm\n퇴적물에 묻힌 유기물 누계 {Num(w.buried)}", sS);
+        GUILayout.Label($"해역 {w.NR}곳 · 칸 {Enumerable.Range(0, World.V).Count(v => w.vol[v] > 0)}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
+    }
+
+    void Advanced()
+    {
+        GUILayout.Label("슬라이더는 목표값이고 바다는 정한 속도로 따라간다. '수온'은 사건 없는 기후의 바탕(CO₂·빙상·사건 몫은 지구가 더한다).", sS);
         for (int e = 0; e < Ev.N; e++)
         {
             var d = Ev.Def[e];
-            GUILayout.Label($"{d.name}  <b>{w.env[e]:0.#}{d.unit}</b>  → 목표 {w.target[e]:0.#}{d.unit}", sL);
+            if (e == Ev.O2)
+            {
+                GUILayout.BeginHorizontal(); GUILayout.Label($"{d.name}  <b>{w.env[e]:0.#}{d.unit}</b>", sL);
+                if (GUILayout.Button(w.o2Bio ? "생물이 정함" : "숫자로 고정", w.o2Bio ? sOn : sBtn, GUILayout.Width(100))) { w.o2Bio = !w.o2Bio; w.target[e] = w.env[e]; }
+                GUILayout.EndHorizontal();
+                if (w.o2Bio) { GUILayout.Label("<size=11>묻힌 유기물(광합성의 남은 몫)만큼 천천히 오르내린다</size>", sS); continue; }
+            }
+            else GUILayout.Label($"{d.name}  <b>{(e == Ev.Temp ? w.tBase : w.env[e]):0.#}{d.unit}</b>  → 목표 {w.target[e]:0.#}{d.unit}", sL);
             float t = GUILayout.HorizontalSlider(w.target[e], d.lo, d.hi); if (t != w.target[e]) w.SetTarget(e, t);
         }
-        GUILayout.Space(6); GUILayout.Label("변화 속도", sL);
+        GUILayout.Label($"CO₂  <b>{w.co2:0} ppm</b> (기준 1000, 2배마다 +3 °C)", sL);
+        float lc = GUILayout.HorizontalSlider(Mathf.Log10((float)w.co2), 2, 4); if (Mathf.Abs(lc - Mathf.Log10((float)w.co2)) > 1e-3f) w.co2 = Math.Pow(10, lc);
+        GUILayout.Space(4); GUILayout.Label("변화 속도", sL);
         GUILayout.BeginHorizontal();
         foreach (var (n, r) in new[] { ("느리게", 0.0001f), ("보통", 0.0005f), ("빠르게", 0.003f), ("즉시", 1f) })
             if (GUILayout.Button(n, rateSel == r ? sOn : sBtn)) { rateSel = r; w.rate = r; }
         GUILayout.EndHorizontal();
-        GUILayout.Space(6); GUILayout.Label($"돌연변이 속도 ×{mutX:0.00}  (높을수록 새 계통이 자주 생긴다)", sL);
+        GUILayout.Space(4); GUILayout.Label($"돌연변이 속도 ×{mutX:0.00}  (높을수록 새 계통이 자주 생긴다)", sL);
         float mx = Mathf.Pow(2, GUILayout.HorizontalSlider(Mathf.Log(mutX, 2), -2, 2));
         if (Mathf.Abs(mx - mutX) > 1e-3f) { mutX = mx; var d0 = new Params(); w.P.MUT_NEW = d0.MUT_NEW * mx; w.P.MUT_U = d0.MUT_U * mx; w.P.MUT_FLOOR = d0.MUT_FLOOR * mx; }
-        GUILayout.Space(6); GUILayout.Label("미리 정한 바다", sL);
+        GUILayout.Space(4); GUILayout.Label($"<b>이 해역만</b> ({Geo.LName(w.geo.rLat[reg])} {Geo.DName(w.geo.rDepth[reg])})  수온 {w.rdT[reg]:+0.0;-0.0;0} °C · 영양염 ×{w.rnM[reg]:0.0}", sL);
+        float rT = Mathf.Round(GUILayout.HorizontalSlider(w.rdT[reg], -10, 10) * 2) / 2, rN = Mathf.Round(GUILayout.HorizontalSlider(w.rnM[reg], 0, 5) * 10) / 10;
+        if (rT != w.rdT[reg] || rN != w.rnM[reg]) w.SetRegionTweak(reg, rT, rN);
+        GUILayout.Space(4); GUILayout.Label("미리 정한 바다", sL);
         for (int i = 0; i < PRESETS.Length; i += 2)
         {
             GUILayout.BeginHorizontal();
             for (int j = i; j < Mathf.Min(i + 2, PRESETS.Length); j++) if (GUILayout.Button(PRESETS[j].name, sBtn)) for (int e = 0; e < Ev.N; e++) w.SetTarget(e, PRESETS[j].env[e]);
             GUILayout.EndHorizontal();
         }
-        GUILayout.Space(10);
-        if (GUILayout.Button("이 환경에서 새로 시작(공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; fit = true; }
         GUILayout.Space(6);
-        GUILayout.Label($"<b>이 자리의 물질 순환</b>\n남세균 {Num(Mix(w.cya))}/mL · 세균 {Num(Mix(w.bac))}/mL · 영양염 {Mix(w.nut):0.00} μM\n유기물 입자(바다눈) {Mix(w.pom):0.00} μM N · 녹은 유기물 {Mix(w.dom):0.00} μM N · 산소 {Mix(w.dox):0.0}% atm\n퇴적물에 묻힌 유기물 누계 {Num(w.buried)}", sS);
-        GUILayout.Label($"해역 {w.NR}곳 · 칸 {Enumerable.Range(0, World.V).Count(v => w.vol[v] > 0)}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
+        if (GUILayout.Button("이 환경에서 새로 시작(새 지도, 공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; fit = true; reg = -1; obsCell = -1; }
     }
 
     void OrgTab()
@@ -544,7 +619,7 @@ public partial class EvoTank : MonoBehaviour
         for (int i = w.events.Count - 1; i >= Math.Max(0, w.events.Count - 60); i--)
         {
             var e = w.events[i]; bool big = e.type == "grade" || e.type == "scale";
-            GUILayout.Label($"<color=#8fa3b8>{w.Time(e.t)}</color>  {(big ? "<b>" + e.text + "</b>" : e.text)}", sL);
+            GUILayout.Label($"<color=#8fa3b8>{w.Time(e.t)}</color>  {(e.type == "earth" ? "<color=#ffb070>" + e.text + "</color>" : big ? "<b>" + e.text + "</b>" : e.text)}", sL);
         }
     }
 

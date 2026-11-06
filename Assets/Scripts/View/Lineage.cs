@@ -139,11 +139,21 @@ public partial class EvoTank
         if (GUILayout.Button(treeAll ? "멸종 가지 숨기기" : "멸종 가지 보기", sBtn, GUILayout.Width(112))) treeAll = !treeAll;
         GUILayout.EndHorizontal();
         const float row = 16;
-        var R = GUILayoutUtility.GetRect(300, order.Count * row + 24);
+        var R = GUILayoutUtility.GetRect(300, order.Count * row + 38);   // 위 14 px = 사건 이름 줄
         float now = Mathf.Max(1, w.tick), lw = Mathf.Min(140, R.width * 0.45f), iw = R.width - lw - 14;
         float X(long t) => R.x + 4 + t / now * iw;
-        var Y = new Dictionary<int, float>(); for (int i = 0; i < order.Count; i++) Y[order[i].id] = R.y + 8 + i * row;
+        var Y = new Dictionary<int, float>(); for (int i = 0; i < order.Count; i++) Y[order[i].id] = R.y + 22 + i * row;
         var lineC = new Color(0.45f, 0.55f, 0.65f, 0.6f);
+        var qs = new GUIStyle(sTd) { fontSize = 10 }; float lastX = -99;
+        foreach (var q in w.quakes)   // 지구 사건: 세로 줄 — 그 뒤에 어떤 갈래가 생기고 사라졌는지
+        {
+            if (q.kind == Qk.Volcano && q.size < 2 || q.kind == Qk.Impact && q.size < 1) continue;   // 작은 것은 생략
+            float x = X(q.tick); var col = q.kind == Qk.Volcano ? new Color(1, 0.3f, 0.15f, 0.55f) : q.kind == Qk.Impact ? new Color(0.8f, 0.45f, 1, 0.6f) : q.kind == Qk.IceAge ? new Color(0.7f, 0.9f, 1, 0.5f) : new Color(1, 0.65f, 0.25f, 0.45f);
+            if (q.kind == Qk.IceAge || q.kind == Qk.Warm || q.kind == Qk.Uplift) Fill(new Rect(x, R.y, Mathf.Max(1, X(q.tick + (long)(q.days * 12)) - x), R.height), col * new Color(1, 1, 1, 0.25f));
+            Fill(new Rect(x, R.y, 1, R.height), col);
+            if (x - lastX < 30) continue; lastX = x;   // 몰려 있으면 글은 첫 것만
+            GUI.Label(new Rect(x + 2, R.y, 40, 14), q.kind switch { Qk.Volcano => "화산", Qk.Impact => "운석", Qk.IceAge => "빙기", Qk.Warm => q.amp >= 0 ? "온난" : "냉각", _ => q.amp >= 0 ? "융기" : "침강" }, qs);
+        }
         foreach (var s in order)
         {
             float y = Y[s.id]; bool alive = s.total > 0, on = path.Contains(s.id); long end = alive ? w.tick : s.ext;

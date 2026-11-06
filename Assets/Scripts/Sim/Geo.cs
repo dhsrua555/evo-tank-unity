@@ -15,10 +15,12 @@ namespace Evo
         public int NR;
         public float[] rDepth, rLat, rArea, rCoast;       // 해역 평균 수심(m)·위도·넓이(m²)·해안 칸 비율
         public int[] rCells;
-        public readonly List<(int a, int b, int e, float dist)> links = new();   // 이웃 해역: 맞닿은 칸 변 수, 중심 거리(m)
+        public readonly List<(int a, int b, int e, float dist)> links = new();
+        public readonly List<int> spots = new();           // 열점(해산·화산 섬 자리): 화산이 주로 여기서 되풀이된다   // 이웃 해역: 맞닿은 칸 변 수, 중심 거리(m)
 
         public static float Lat(int z) => 2 + 58 * (z + 0.5f) / G;
         public float Depth(int i) => sea - h[i];
+        public int LandCells() { int n = 0; for (int i = 0; i < G * G; i++) if (h[i] >= sea) n++; return n; }
         public static string DName(float d) => d < 60 ? "연안" : d < 250 ? "대륙붕" : d < 2500 ? "대륙사면" : "대양";
         public static string LName(float lat) => lat < 23 ? "열대" : lat < 45 ? "온대" : "한대";
 
@@ -53,9 +55,10 @@ namespace Evo
                      : q < 0.67f ? -250 - 2250 * (q - 0.53f) / 0.14f
                      : -2500 - 2500 * MathF.Sqrt((q - 0.67f) / 0.33f);
             }
+            spots.Clear();
             for (int k = 0; k < 3; k++)   // 해산·화산 섬
             {
-                int cx = 14 + (int)(r.U() * 16), cz = 2 + (int)(r.U() * 28); float top = k == 0 ? 300 : -100 - 800 * (float)r.U();
+                int cx = 14 + (int)(r.U() * 16), cz = 2 + (int)(r.U() * 28); spots.Add(cz * G + cx); float top = k == 0 ? 300 : -100 - 800 * (float)r.U();
                 for (int z = 0; z < G; z++) for (int x = 0; x < G; x++)
                 {
                     float d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz), b = MathF.Exp(-d2 / 2.2f);

@@ -135,6 +135,14 @@ namespace Evo
         public float CYA_G = 0.05f, CYA_M = 0.006f, CYA_IK = 0.05f;   // 남세균(1 μm 광합성 세균): 최대 성장(시간당, 하루 ~1회 분열), 바이러스 사망, 광포화
         public float JUMP = 1e-8f;        // 단세포의 먼 거리 이동(시간당, 표층에서 아무 해역으로)
         public float SZM = -0.25f;        // 바깥 사망률 ∝ 질량^−¼ (Peterson & Wroblewski 1984, McGurk 1986)
+        // 지구 시스템(Earth.cs). 지질 과정은 압축: 생태 1일 = 지질 1000년
+        public float TAU_C = 300;         // CO₂가 풍화로 평형을 찾는 시간(일 = 지질 30만 년; 규산염 풍화 온도조절기, Walker 1981)
+        public float TAU_O2 = 500;        // 대기 산소가 매몰 평형을 찾는 시간(일)
+        public float TAU_ICE = 10;        // 빙상이 자라고 녹는 시간(일 = 지질 1만 년)
+        public float TAU_AER = 300;       // 화산 황산 에어로졸이 걷히는 시간(생태 일, 실제 1–2년)
+        public float TAU_GEO = 3000;      // 솟은 섬·땅이 깎이고 가라앉는 시간(일 = 지질 300만 년). 없으면 화산 섬이 쌓이기만 해 바다가 메워진다
+        public float ICE_ALB = 4;         // 얼음 반사 되먹임(얼음 비율 1당 °C)
+        public float BUR21 = 1e14f;          // 대기 산소 21%와 평형인 유기물 매몰 속도(에너지/일/km²)
     }
 
     public sealed class Strain
@@ -192,7 +200,7 @@ namespace Evo
         }
     }
 
-    public sealed class World
+    public sealed partial class World
     {
         // 칸 = 해역(지도에서 수심대·위도대가 같고 이어진 칸 묶음) × 수심층. 해역마다 해저 아래 층은 비어 있다(부피 0)
         public const int RMAX = 24, NY = 12, LS = RMAX, V = LS * NY, KM = 8;   // 크기 단계 최대 8
@@ -287,7 +295,7 @@ namespace Evo
             Array.Clear(cnt, 0, cnt.Length); Array.Clear(mu, 0, mu.Length); Array.Clear(cue, 0, cue.Length); Array.Clear(strains, 0, SMAX); Array.Clear(mcOk, 0, mcOk.Length);
             live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); gradesSeen.Clear(); gradesSeen.Add(0);
             Array.Clear(dep, 0, V); Array.Clear(depS, 0, depS.Length); Array.Clear(chl, 0, chl.Length);
-            geo.Generate(seed); geo.Regions(RMAX); Geometry();
+            geo.sea = 0; geo.Generate(seed); geo.Regions(RMAX); Geometry(); EarthReset(); Tweaks();
             for (int v = 0; v < V; v++)
             {
                 bool w = vol[v] > 0;
@@ -468,9 +476,11 @@ namespace Evo
         {
             for (int e = 0; e < Ev.N; e++)
             {
-                float cur = env[e], tg = target[e]; if (cur == tg) continue;
+                if (e == Ev.O2 && o2Bio) continue;                                   // 생물이 정하는 산소
+                ref float x = ref e == Ev.Temp ? ref tBase : ref env[e];             // 수온 목표 = 기후 바탕(지구 시스템이 사건·CO₂·얼음 몫을 더한다)
+                float cur = x, tg = target[e]; if (cur == tg) continue;
                 float st = rate >= 1 ? float.MaxValue : (Ev.Def[e].hi - Ev.Def[e].lo) * rate * P.DT;
-                env[e] = MathF.Abs(tg - cur) <= st ? tg : cur + MathF.Sign(tg - cur) * st;
+                x = MathF.Abs(tg - cur) <= st ? tg : cur + MathF.Sign(tg - cur) * st;
             }
         }
 
@@ -490,8 +500,10 @@ namespace Evo
             for (int c = 0; c < NR; c++)
             {
                 float lat = geo.rLat[c], sl = MathF.Sin(lat * MathF.PI / 180), D = geo.rDepth[c];
-                float ts = sst[c] = SST(lat, sea), ml = mld[c] = 20 + 350 * win * sl * sl;   // 겨울 혼합층: 고위도일수록 깊다(고위도 수백 m)
-                float L0 = env[Ev.Light] / 100 * (0.35f + 0.65f * MathF.Cos(lat * MathF.PI / 180)) * (1 + MathF.Min(0.9f, 2 * P.SEASON_L * sl) * sea);
+                float raw = env[Ev.Temp] + rdT[c] + 3 - 30 * sl * sl + P.SEASON_T * MathF.Sin(2 * lat * MathF.PI / 180) * sea;
+                float ts = sst[c] = MathF.Max(-1.8f, raw), ml = mld[c] = 20 + 350 * win * sl * sl;   // 겨울 혼합층: 고위도일수록 깊다(고위도 수백 m)
+                iceR[c] = Math.Clamp((-1.8f - raw) / 3, 0, 1);                                      // 바다얼음: 빛을 가리고 기체 교환을 막는다
+                float L0 = env[Ev.Light] / 100 * (0.35f + 0.65f * MathF.Cos(lat * MathF.PI / 180)) * (1 + MathF.Min(0.9f, 2 * P.SEASON_L * sl) * sea) * (1 - dark) * (1 - 0.85f * iceR[c]);
                 float kT = P.KT * MathF.Exp(-D / 50), kuv = P.KUV + 4 * kT;
                 double od = 0;
                 for (int y = 0; y < nyR[c]; y++)
@@ -517,7 +529,7 @@ namespace Evo
         public void Step()
         {
             tick++;
-            MoveEnv(); Layers();
+            MoveEnv(); EarthStep(); Layers();
             if (MathF.Abs(env[Ev.Salt] - mcSalt) > 0.5f) { Array.Clear(mcOk, 0, mcOk.Length); mcSalt = env[Ev.Salt]; }   // 염분 → 물 밀도 → 침강이 바뀌면 모양 캐시를 다시
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (parallel) Parallel.ForEach(live, Cache); else foreach (int s in live) Cache(s);
@@ -840,8 +852,8 @@ namespace Evo
             double nsed = P.NSED * env[Ev.Nut] / 100;
             for (int c = 0; c < NR; c++)
             {
-                int vb = Bot(c); nut[vb] += Math.Min(1, P.KSED * DT / dz[vb]) * (nsed - nut[vb]);   // 바닥 퇴적물
-                nut[c] += P.RIV * env[Ev.Nut] / 50 * geo.rCoast[c] * DT / dz[c];                  // 강: 해안선이 긴 해역의 표층
+                int vb = Bot(c); nut[vb] += Math.Min(1, P.KSED * DT / dz[vb]) * (nsed * rnM[c] - nut[vb]);   // 바닥 퇴적물
+                nut[c] += P.RIV * env[Ev.Nut] / 50 * geo.rCoast[c] * wMul * rnM[c] * DT / dz[c];      // 강: 해안선이 긴 해역의 표층, 풍화가 빠르면 더 많이
             }
             Mix(nut); Mix(bac); Mix(dox); Mix(pom); Mix(dom); Mix(cya);
             // 부스러기 침강: 층마다 WS·DT/두께 비율이 아래층으로(두께가 다르면 농도를 환산), 바닥층에서는 퇴적물로(에너지 = N/QN × 부피)
@@ -877,7 +889,7 @@ namespace Evo
                 double resp = o2d[v] - rem / P.QN - dec / vol[v] + o2cy;                  // 세균 호흡(숨 쉰 유기물만큼 산소)·퇴적물 분해
                 dox[v] = Math.Clamp(dox[v] + resp * kO2, 0, 21 + 10 * Math.Min(zc[v], 10) + 0.3 * env[Ev.O2]);
             }
-            for (int c = 0; c < NR; c++) dox[c] += Math.Min(1, P.KEX * DT / dz[c]) * (env[Ev.O2] - dox[c]);   // 수면: 대기와 평형
+            for (int c = 0; c < NR; c++) dox[c] += Math.Min(1, P.KEX * DT / dz[c]) * (1 - iceR[c]) * (env[Ev.O2] - dox[c]);   // 수면: 대기와 평형(얼음 밑은 막힘)
             Array.Clear(chl, 0, V);
             foreach (int s in live)
             {
