@@ -25,6 +25,27 @@ public partial class EvoTank : MonoBehaviour
     MaterialPropertyBlock mpb; readonly double[] bud = new double[14];
 
     int speed = 1; double acc; float frameSim;
+    // 무거운 틱은 가운데(칸·이동·화학)를 뒤 스레드에서 돌린다(job). 앞·뒤는 화면 스레드에서
+    System.Threading.Tasks.Task job;
+    float midMs;     // 지난 틱 가운데에 걸린 시간
+    bool syncSim;    // 점검 촬영: 세계를 직접 고치므로 늘 이 프레임 안에서
+    bool allJobs;    // 점검: 모든 틱을 뒤 스레드로
+    int jobs;        // 뒤 스레드로 보낸 틱 수(점검용)
+    void SimMid()
+    {
+        var t = System.Diagnostics.Stopwatch.StartNew();
+        w.StepMid();
+        midMs = (float)t.Elapsed.TotalMilliseconds;
+    }
+    // 뒤 스레드 틱을 끝낸다. 세계를 바꾸기 전(사건·다시 시작)에도 부른다
+    void SimFinish()
+    {
+        if (job == null) return;
+        var j = job; job = null;
+        j.Wait();
+        w.StepPost(); acc -= 1;
+    }
+    void OnApplicationQuit() { try { job?.Wait(); } catch (Exception) { } }
     static readonly float[] TPS = { 0, 12, 120, 1e9f };
     float mutX = 1, rateSel = 0.0001f;
 
@@ -45,6 +66,7 @@ public partial class EvoTank : MonoBehaviour
     {
         Application.targetFrameRate = 60;
         w = new World(Environment.TickCount & 0xffff) { o2Bio = true, autoQ = true, activity = 0.4f };   // 앱: 산소는 생물이, 사건은 자연이
+        w.po.MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2);   // 화면·렌더 스레드 몫 둘을 남긴다
         Bodies.Sp = id => w.species.TryGetValue(id, out var s) ? s : null;   // 몸 그리기가 종 표지를 찾는 길
         cam = new GameObject("Camera").AddComponent<Camera>();
         cam.fieldOfView = 50; cam.nearClipPlane = 0.05f; cam.farClipPlane = 300; cam.clearFlags = CameraClearFlags.SolidColor;
@@ -84,7 +106,7 @@ public partial class EvoTank : MonoBehaviour
     static (int g, float v)[] Fi(params (int, float)[] x) => new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f), (Gn.Jaw, 0f) }.Concat(x).ToArray();
     System.Collections.IEnumerator Shots(string dir, bool gallery)
     {
-        System.IO.Directory.CreateDirectory(dir); var galS = new List<Strain>();
+        System.IO.Directory.CreateDirectory(dir); var galS = new List<Strain>(); syncSim = true; SimFinish();   // 점검은 세계를 직접 고치므로 틱을 늘 이 프레임 안에서
         if (gallery)
         {
             w.PruneTo(GAL.Length + 4);
@@ -164,8 +186,15 @@ public partial class EvoTank : MonoBehaviour
         MoveBy(new Vector3(0, -6f, 0)); yield return wait; yield return Snap("6b-deep"); MoveBy(new Vector3(0, (float)(py - pk), 0)); Bt = bk2; yield return wait;
         int r0 = reg, rd = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] > w.geo.rDepth[rd]) rd = c;   // 해역 옮기기: 가장 깊은 바다 300 m
         GoTo(rd, 300); yield return wait; Debug.Log($"[EvoTank] region {r0}->{reg} {Geo.DName(w.geo.rDepth[reg])} depth {py:0} floor {Floor:0} vNear y{vNear / World.LS} {(reg == rd && Math.Abs(py - 300) < 1e-3 ? "ok" : "FAIL")}"); yield return Snap("7-ocean");
-        int rs = -1, rl = -1; for (int c = w.geo.NO; c < w.NR; c++) if (w.geo.rCells[c] > 0) { if (w.geo.rKind[c] == 1 && rs < 0) rs = c; if (w.geo.rKind[c] == 2 && rl < 0) rl = c; }   // 땅: 조간대 웅덩이, 육지 흙 속 물막
+        // 땅: 조간대 웅덩이, 육지 흙 속 물막. 해역 번호는 다시 나누면 바뀌므로 갈 때마다 새로 찾는다
+        int FirstOf(int kind)
+        {
+            for (int c = w.geo.NO; c < w.NR; c++) if (w.geo.rCells[c] > 0 && w.geo.rKind[c] == kind) return c;
+            return -1;
+        }
+        int rs = FirstOf(1);
         if (rs >= 0) { GoTo(rs, 0.5); yield return wait; Debug.Log($"[EvoTank] shore {w.geo.Name(reg)} floor {Floor:0.0} obs {obsCell} {(w.geo.rKind[reg] == 1 && w.geo.In(obsCell, reg) ? "ok" : "FAIL")}"); yield return Snap("7b-shore"); }
+        int rl = FirstOf(2);
         if (rl >= 0) { GoTo(rl, 0.05); yield return wait; Debug.Log($"[EvoTank] land {w.geo.Name(reg)} floor {Floor:0.00} obs {obsCell} {(w.geo.rKind[reg] == 2 && w.geo.In(obsCell, reg) ? "ok" : "FAIL")}"); yield return Snap("7c-land"); }
         GoTo(r0, 1.25); yield return wait;
         // 자연현상 점검: 지금 해역에 거대 화산, 빙하기 → 빙상·해수면·해역 다시 나누기, 계통수 사건 줄, 고급 패널
@@ -178,6 +207,13 @@ public partial class EvoTank : MonoBehaviour
         tab = 0; showCycle = showWorld = showAdv = true; yield return null; yield return null; yield return Snap("8d-advanced"); showCycle = showWorld = showAdv = false;
         tab = 3; yield return null; yield return Snap("8f-log");
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
+        // 뒤 스레드 틱 점검: 모든 틱을 뒤 스레드로 보내도 세계가 나아가고 화면이 멈추지 않는지
+        SimFinish(); syncSim = false; allJobs = true; speed = 2;
+        int j0 = jobs, fr0 = Time.frameCount; long k0 = w.tick;
+        yield return new WaitForSecondsRealtime(5);
+        SimFinish(); allJobs = false; syncSim = true;
+        int nj = jobs - j0, nf = Time.frameCount - fr0; long nk = w.tick - k0;
+        Debug.Log($"[EvoTank] thread jobs {nj} ticks {nk} frames {nf} {(nj > 10 && nk >= nj && nf > 100 ? "ok" : "FAIL")}");
         Application.Quit();
     }
 
@@ -185,11 +221,25 @@ public partial class EvoTank : MonoBehaviour
     void Update()
     {
         float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+        if (job != null && job.IsCompleted) SimFinish();
         if (speed > 0)
         {
             acc += dt * TPS[speed];
             var sw = System.Diagnostics.Stopwatch.StartNew(); float budget = speed == 3 ? 30 : 22;
-            while (acc >= 1 && sw.ElapsedMilliseconds < budget) { w.Step(); acc -= 1; }
+            while (job == null && acc >= 1 && sw.ElapsedMilliseconds < budget)
+            {
+                w.StepPre();
+                // 가벼운 틱: 보통 빠르기는 6 ms 밑, 빠르게(2·3)는 한 프레임에 두 틱 이상 들어갈 때. 예전처럼 이 프레임 안에서 여러 번
+                bool light = midMs < (speed == 1 ? 6 : budget / 2);
+                if (syncSim || light && !allJobs)
+                {
+                    SimMid(); w.StepPost(); acc -= 1;
+                }
+                else   // 무거운 틱은 뒤 스레드에서: 화면은 멈추지 않고 다음 프레임들에 끝을 확인한다
+                {
+                    job = System.Threading.Tasks.Task.Run(SimMid); jobs++;
+                }
+            }
             if (acc > 4) acc = speed == 3 ? 0 : 4;   // 못 따라가면 버린다(화면이 멈추지 않게)
             frameSim = (float)sw.Elapsed.TotalMilliseconds;
         }

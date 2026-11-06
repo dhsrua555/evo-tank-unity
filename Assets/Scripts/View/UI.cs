@@ -240,7 +240,7 @@ public partial class EvoTank
     static bool Located(int k) => k == (int)Qk.Volcano || k == (int)Qk.Impact || k == (int)Qk.Uplift;
     void FireQ(int cell)
     {
-        var k = (Qk)qSel; float amp = k == Qk.IceAge ? World.IceAmp(qSize) : qAmp;
+        var k = (Qk)qSel; float amp = k == Qk.IceAge ? World.IceAmp(qSize) : qAmp; SimFinish();
         var q = w.Fire(k, qSize, cell, amp, qRad, k == Qk.Volcano ? 60 : qDays); placing = false;
         toast = "<b>" + q.text + "</b>"; toastT = 6;
     }
@@ -321,7 +321,7 @@ public partial class EvoTank
                 GUILayout.EndHorizontal();
             }
             GUILayout.Space(4);
-            if (GUILayout.Button("새 행성에서 다시 시작 (원시 바다 · 공통 조상)", sBtn)) Later(() => { w.Reset(w.seed + 1, (float[])w.target.Clone()); Bodies.Clear(); avs.Clear(); sel = null; fit = true; reg = -1; obsCell = -1; fold.Clear(); });
+            if (GUILayout.Button("새 행성에서 다시 시작 (원시 바다 · 공통 조상)", sBtn)) Later(() => { SimFinish(); w.Reset(w.seed + 1, (float[])w.target.Clone()); Bodies.Clear(); avs.Clear(); sel = null; fit = true; reg = -1; obsCell = -1; fold.Clear(); });
             GUILayout.EndVertical();
         }
         if (DEV && Fold("개발: 수치 조정", showAdv, () => showAdv = !showAdv)) { GUILayout.BeginVertical(sCard); Advanced(); GUILayout.EndVertical(); }

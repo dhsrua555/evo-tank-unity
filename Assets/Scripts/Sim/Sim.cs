@@ -227,6 +227,35 @@ namespace Evo
         public bool sessile;
     }
 
+    // 포식 짝 계산에 쓰는 먹이 쪽 값만 모은 작은 묶음. Gather가 크기순으로 이어 놓아 짝마다 큰 Morph를 띄엄띄엄 읽지 않게 한다
+    public struct Prey
+    {
+        public float Leff, lnLeff, L, cruise, transp, burrow, speed, school, M, armor;
+        public float lor, wall, photo, skel;   // 유전자: 각·세포벽·광합성·골격(소화되는 정도)
+        public bool sessile, benthic;
+        public double escX, escY, escD;        // 도망 식의 먹이 몫: 눈·신경, 독, 떼(희석)
+        public double dens;                    // 밀도(/mL)
+        public int j, sp;                      // Gather 항목 번호, 칸 안 종 번호(포식 전환)
+
+        public static Prey Of(in Morph m, float[] g, double dens)
+        {
+            var p = new Prey
+            {
+                Leff = m.Leff, lnLeff = m.lnLeff, L = m.L, cruise = m.cruise, transp = m.transp, burrow = m.burrow,
+                speed = m.speed, school = m.school, M = m.M, armor = m.armor, sessile = m.sessile, benthic = m.benthic,
+                lor = g[Gn.Lorica], wall = g[Gn.Wall], photo = g[Gn.Photo], skel = g[Gn.Skel], dens = dens,
+            };
+            p.escX = 1 - 0.5 * g[Gn.Eye] * g[Gn.Neuro];
+            p.escY = 1 - 0.7 * m.toxin;
+            if (m.school > 0)
+            {
+                double nb = dens * Math.Pow(10 * m.L * 1e-4, 3);
+                p.escD = 1 + 3 * m.school * Math.Min(1, nb);
+            }
+            return p;
+        }
+    }
+
     public struct Rng
     {
         ulong s;
@@ -301,6 +330,9 @@ namespace Evo
         public readonly double[] birthHab = new double[3], cntHab = new double[3];   // 사는 곳별 출생·개체 수(누계, 점검용)
         public readonly History hist = new();
         public readonly double[] prof = new double[6];   // 단계별 누적 ms(캐시·칸·이동·화학·돌연변이·합계)
+        // 성능 측정(칸마다, 이번 틱): 항목 수, 포식 짝 수, 걸린 시간(Stopwatch 눈금) — 전체·모으기·포식 구간
+        public readonly int[] vN = new int[V], vPair = new int[V];
+        public readonly long[] vT = new long[V], vTg = new long[V], vTp = new long[V];
         int nextId = 1, nextSp = 1;
         readonly double[] vBirth = new double[V], vDeath = new double[V], vKill = new double[V], dep = new double[V];
         readonly float[] satA = new float[SMAX * V * KM];   // 지난 틱 포식자 배부름(Holling II 1/(1+먹이/최대)): 돌연변이 침입 적합도 계산용
@@ -340,6 +372,8 @@ namespace Evo
             public double[] dD = new double[NI], dUp = new double[NI], dB = new double[NI], need = new double[NI], aff = new double[NI], ing = new double[NI], eff = new double[NI], dens = new double[NI];
             public double[] host = new double[NI]; public Dictionary<int, double> spH = new();
             public int[] spi = new int[NI]; public double[] spW = new double[NI]; public Dictionary<int, int> spMap = new(); public int nsp;
+            public Prey[] pr = new Prey[NI];   // 먹이 후보(밀도 > 0)를 크기순으로: pr[p]는 key[p]·ord[p]와 같은 자리. pj에는 이 자리 번호가 들어간다
+            public double[] spF = new double[NI]; public int[] spSt = new int[NI]; public int stamp;   // 포식 전환: 먹이 종별 배율(포식자마다 한 번씩)
             public double[] B = new double[14]; public double[] row = new double[V * KM], rowB = new double[V];
         }
 
@@ -610,20 +644,34 @@ namespace Evo
         }
 
         // ---------- 한 틱 ----------
-        public void Step()
+        // 틱 = 앞(환경·지질) → 가운데(칸·이동·화학, 거의 모든 계산) → 뒤(돌연변이·집계, 계통 목록을 바꾼다).
+        // 앱은 가운데만 뒤 스레드에서 돌린다: 가운데는 배열 값만 바꾸고 live·species·strains·geo 구조는 건드리지 않으므로 화면이 읽어도 된다
+        public void Step() { StepPre(); StepMid(); StepPost(); }
+        public readonly ParallelOptions po = new();          // 앱: 화면 스레드 몫을 남기려고 병렬 수를 줄인다
+        readonly int[] vOrd = new int[V]; readonly long[] vKey = new long[V];   // 칸 계산 순서(지난 틱에 무거웠던 칸부터)
+        public void StepPre()
         {
             tick++;
             MoveEnv(); EarthStep(); Layers();
             if (MathF.Abs(env[Ev.Salt] - mcSalt) > 0.5f) { Array.Clear(mcOk, 0, mcOk.Length); mcSalt = env[Ev.Salt]; }   // 염분 → 물 밀도 → 침강이 바뀌면 모양 캐시를 다시
+        }
+        public void StepMid()
+        {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            if (parallel) Parallel.ForEach(live, Cache); else foreach (int s in live) Cache(s);
+            if (parallel) Parallel.ForEach(live, po, Cache); else foreach (int s in live) Cache(s);
             prof[0] += sw.Elapsed.TotalMilliseconds; sw.Restart();
-            if (parallel) Parallel.For(0, V, Voxel); else for (int v = 0; v < V; v++) Voxel(v);
+            for (int v = 0; v < V; v++) { vOrd[v] = v; vKey[v] = -vT[v]; }
+            Array.Sort(vKey, vOrd);   // 지난 틱에 무거웠던 칸부터 나눠 준다(칸끼리 서로 쓰지 않아 순서는 결과를 바꾸지 않는다)
+            if (parallel) Parallel.For(0, V, po, i => Voxel(vOrd[i])); else for (int v = 0; v < V; v++) Voxel(v);
             prof[1] += sw.Elapsed.TotalMilliseconds; sw.Restart();
-            if (parallel) Parallel.ForEach(live, Move); else foreach (int s in live) Move(s);
+            if (parallel) Parallel.ForEach(live, po, Move); else foreach (int s in live) Move(s);
             prof[2] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             Chem();
-            prof[3] += sw.Elapsed.TotalMilliseconds; sw.Restart();
+            prof[3] += sw.Elapsed.TotalMilliseconds;
+        }
+        public void StepPost()
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             Mutants();
             prof[4] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             Totals();
@@ -652,22 +700,32 @@ namespace Evo
             np = 0;
             for (int i = 0; i < n; i++) if (S.dens[i] > 0) { S.ord[np] = i; S.key[np] = S.m[i].Leff; np++; }
             Array.Sort(S.key, S.ord, 0, np);
+            for (int p = 0; p < np; p++)
+            {
+                int i = S.ord[p];
+                S.pr[p] = Prey.Of(in S.m[i], strains[S.idx[i]].g, S.dens[i]);
+                S.pr[p].j = i; S.pr[p].sp = S.spi[i];
+            }
             return n;
         }
 
         // 포식자 mi가 먹이 mj를 삼키는 청소율(mL/h) × 크기 선호. 세포 섭식(물살)과 몸 섭식(만남) 중 큰 쪽
-        static double Attack(in Morph mi, in Morph mj, double kt)
+        static double Attack(in Morph mi, in Prey mj, double kt)
         {
             if (mj.sessile && !mi.sessile && mi.speed < 1 && mi.gapeB <= 0) return 0;
             double F = 0;
             if (mi.Fc > 0 && mj.Leff <= mi.gapeC)
             {
-                double lr = mi.lnCell - mj.lnLeff - mi.lnOptC, pc = Math.Exp(-lr * lr / 0.8);
-                if (pc > 1e-4) F = mi.Fc * pc;
+                double lr = mi.lnCell - mj.lnLeff - mi.lnOptC, x = -lr * lr / 0.8;
+                if (x > -9.3)   // e^−9.3 < 1e-4: 크기가 멀리 벗어난 짝은 지수 계산 없이 뺀다
+                {
+                    double pc = Math.Exp(x);
+                    if (pc > 1e-4) F = mi.Fc * pc;
+                }
             }
             if (mi.gapeB > 0 && mj.Leff <= mi.gapeB)
             {
-                double lr = mi.lnL - mj.lnLeff - mi.lnPrey, pb = Math.Exp(-lr * lr / 1.2);   // 포식자:먹이 길이비(유전자, 처음 ~4.5 = 질량비 ~100)
+                double lr = mi.lnL - mj.lnLeff - mi.lnPrey, xb = -lr * lr / 1.2, pb = xb > -9.3 ? Math.Exp(xb) : 0;   // 포식자:먹이 길이비(유전자, 처음 ~4.5 = 질량비 ~100)
                 if (pb > 1e-4)
                 {
                     // 감지 거리: 눈으로 보는 몫은 투명한 먹이에서 줄어든다. 만남 속도는 평소 돌아다니는 속도(매복이면 먹이가 다가와야 만난다)
@@ -679,16 +737,16 @@ namespace Evo
             if (mj.benthic) F *= 1 - 0.8 * mj.burrow * (1 - Math.Max(mi.burrow, 0.5 * mi.graze));   // 모래 속: 파는 포식자만 꺼낸다
             return F;
         }
-        // 빠르고 보는 먹이는 잘 도망친다. 독이 있으면 뱉는다. 빽빽한 무리 속 한 마리는 덜 잡힌다(희석·혼란: 이웃이 몸길이 10배 안에 있어야)
-        static double Escape(float[] gj, in Morph mj, double vi, double dj)
+        // 빠르고 보는 먹이는 잘 도망친다(먹이 쪽 몫 escX·escY·escD는 Prey.Of에서). 포식자가 빠를수록 덜 도망친다
+        static double Escape(in Prey mj, double vi)
         {
-            double e = 1 / (1 + 0.5 * mj.speed / (vi + 30)) * (1 - 0.5 * gj[Gn.Eye] * gj[Gn.Neuro]) * (1 - 0.7 * mj.toxin);
-            if (mj.school > 0) { double nb = dj * Math.Pow(10 * mj.L * 1e-4, 3); e /= 1 + 3 * mj.school * Math.Min(1, nb); }
+            double e = 1 / (1 + 0.5 * mj.speed / (vi + 30)) * mj.escX * mj.escY;
+            if (mj.school > 0) e /= mj.escD;
             return e;
         }
         // 삼켜도 살아남는 몫(각·벽·골판·갑옷). 턱은 갑옷을 깨고, 식물 소화는 세포벽·광합성 먹이(질소가 적고 섬유가 많다)를 삭인다
-        static double Digest(float[] gj, in Morph mj, in Morph mi) => (1 - 0.7 * gj[Gn.Lorica]) * (1 - 0.3 * gj[Gn.Wall] * (1 - mi.herb)) * (1 - 0.2 * gj[Gn.Photo] * (1 - mi.herb))
-            * (1 - 0.4 * gj[Gn.Skel] * (mi.gapeB > 0 ? 1 : 0)) * (1 - 0.6 * mj.armor * (1 - 0.7 * mi.jaw));
+        static double Digest(in Prey mj, in Morph mi) => (1 - 0.7 * mj.lor) * (1 - 0.3 * mj.wall * (1 - mi.herb)) * (1 - 0.2 * mj.photo * (1 - mi.herb))
+            * (1 - 0.4 * mj.skel * (mi.gapeB > 0 ? 1 : 0)) * (1 - 0.6 * mj.armor * (1 - 0.7 * mi.jaw));
         static double Molt(Strain st) => st.dev ? 1 - 0.3 * st.g[Gn.Exo] : 1;   // 외골격은 벗고 새로 지어야 자란다(탈피): 자라기가 느리다
         double Imax(in Morph m, double kt) => P.MAXING * m.M * kt * Math.Pow(Math.Max(1, m.M / P.M0), -0.25 * m.org) * m.imaxF;
         double Eff(float[] g, in Morph m, int v)
@@ -724,19 +782,28 @@ namespace Evo
             n2 = 0;
             for (int p = LowerBound(S.key, np, (float)lo); p < np && S.key[p] <= hi; p++)
             {
-                int j = S.ord[p];   // 같은 계통도 먹는다(동족 포식) — 빼면 같은 크기의 돌연변이만 부모에게 잡아먹히는 허상이 생긴다
-                double a = Attack(in mi, in S.m[j], kt); if (a <= 0) continue;
-                double w = a * Escape(strains[S.idx[j]].g, in S.m[j], mi.speed, S.dens[j]) * S.dens[j];
-                S.pj[n2] = j; S.pw[n2] = w; n2++;
-                food += w * S.m[j].M;
-                if (densI > 0) S.risk[j] += densI * a;                              // 포식 신호(카이로몬)
+                ref var pj = ref S.pr[p];   // 같은 계통도 먹는다(동족 포식) — 빼면 같은 크기의 돌연변이만 부모에게 잡아먹히는 허상이 생긴다
+                double a = Attack(in mi, in pj, kt); if (a <= 0) continue;
+                double w = a * Escape(in pj, mi.speed) * pj.dens;
+                S.pj[n2] = p; S.pw[n2] = w; n2++;
+                food += w * pj.M;
+                if (densI > 0) S.risk[pj.j] += densI * a;                           // 포식 신호(카이로몬)
             }
             if (P.SW > 1 && n2 > 1)   // 포식 전환: 같은 먹은 양을 먹이 종별 만남^α 비율로 다시 나눈다 → 흔한 종이 더, 드문 종이 덜 잡힌다
             {
                 int ns = S.spMap.Count; Array.Clear(S.spW, 0, ns); double F = 0, Fa = 0;
-                for (int p = 0; p < n2; p++) { double x = S.pw[p] * S.m[S.pj[p]].M; S.spW[S.spi[S.pj[p]]] += x; F += x; }
-                for (int a = 0; a < ns; a++) if (S.spW[a] > 0) Fa += Math.Pow(S.spW[a], P.SW);
-                if (Fa > 0) for (int p = 0; p < n2; p++) { double W = S.spW[S.spi[S.pj[p]]]; S.pw[p] *= Math.Pow(W, P.SW - 1) * F / Fa; }
+                for (int p = 0; p < n2; p++) { ref var pj = ref S.pr[S.pj[p]]; double x = S.pw[p] * pj.M; S.spW[pj.sp] += x; F += x; }
+                for (int a = 0; a < ns; a++) if (S.spW[a] > 0) Fa += Math.Pow(S.spW[a], P.SW);   // α = 2라도 x·x로 바꾸지 않는다: glibc pow(x, 2)는 0.08%에서 끝자리가 달라 결과가 갈린다(1500일 비교)
+                if (Fa > 0)
+                {
+                    int st = ++S.stamp;   // 먹이 종별 배율은 이 포식자에서 처음 만날 때 한 번만 셈한다
+                    for (int p = 0; p < n2; p++)
+                    {
+                        int a = S.pr[S.pj[p]].sp;
+                        if (S.spSt[a] != st) { S.spSt[a] = st; S.spF[a] = (P.SW == 2 ? S.spW[a] : Math.Pow(S.spW[a], P.SW - 1)) * F / Fa; }   // pow(x, 1) = x는 정확(200만 개 확인)
+                        S.pw[p] *= S.spF[a];
+                    }
+                }
             }
             // 부스러기(POM): 세포 수준 섭식은 고운 부스러기(5 μm), 소화관은 뭉친 바다눈(50 μm)을 같은 크기 규칙으로 먹는다. 움직이지 않는 먹이
             fd = 0;
@@ -757,10 +824,20 @@ namespace Evo
 
         void Voxel(int v)
         {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            vN[v] = vPair[v] = 0; vTg[v] = vTp[v] = 0;   // 물이 없는 칸(땅이 된 칸)도 지난 값이 남지 않게
+            VoxelCore(v);
+            vT[v] = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        }
+        void VoxelCore(int v)
+        {
             vBirth[v] = vDeath[v] = vKill[v] = 0;
             if (vol[v] <= 0) return;
             var S = scratch.Value; var r = new Rng(((ulong)seed << 40) ^ ((ulong)tick << 12) ^ (ulong)v);
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = Gather(S, v, true, out int np);
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+            vN[v] = n; vTg[v] = t1 - t0;
             if (n == 0) return;
             float t = T[v], kt = Kt(t), DT = P.DT; double Vv = vol[v];
             float o2s = (float)(dox[v] / (dox[v] + P.O2_K));
@@ -771,6 +848,7 @@ namespace Evo
                 if (mi.Fc <= 0 && mi.gapeB <= 0) continue;
                 var gi = strains[S.idx[i]].g; double dI = S.dens[i];
                 double food = Food(S, v, np, in mi, gi, kt, dI, out double fb, out double fd, out double fs, out int n2);
+                vPair[v] += n2;
                 double sat = 1 / (1 + food / Math.Max(Imax(in mi, kt), 1e-12));     // Holling II: 소화 시간
                 satA[Ix(S.idx[i], v, S.stg[i])] = (float)sat;
                 double eff = S.eff[i] = Eff(gi, in mi, v);
@@ -783,11 +861,12 @@ namespace Evo
                 S.gainP[i] += sEat * P.SED_Q * eff; sedEat += sEat * dI;
                 for (int p = 0; p < n2; p++)
                 {
-                    int j = S.pj[p]; double eat = S.pw[p] * sat, dg = Digest(strains[S.idx[j]].g, in S.m[j], in mi);
-                    S.gainP[i] += eat * dg * S.m[j].M * eff;
-                    if (dI > 0) S.kill[j] += dI * eat * dg / S.dens[j];
+                    ref var pj = ref S.pr[S.pj[p]]; double eat = S.pw[p] * sat, dg = Digest(in pj, in mi);
+                    S.gainP[i] += eat * dg * pj.M * eff;
+                    if (dI > 0) S.kill[pj.j] += dI * eat * dg / pj.dens;
                 }
             }
+            vTp[v] = System.Diagnostics.Stopwatch.GetTimestamp() - t1;
             // 먹은 질소(세균·부스러기·잡아먹힌 먹이)는 먹은 쪽이 먼저 몸 짓는 데 쓰고, 남는 것은 배설(영양염)·똥(POM)으로
             double foodN = 0;
             if (bacEat > 0 && pico > 0) { double e = Math.Min(pico * 0.95, bacEat * DT), fc = cya[v] / pico; cya[v] -= e * fc; bac[v] -= e * (1 - fc); foodN += e * 2.9e-7; }
@@ -1164,13 +1243,14 @@ namespace Evo
             double food = Food(S, v, np, in m, x.g, kt, 0, out double fb, out double fd, out double fs, out int n2);
             double sat = 1 / (1 + food / Math.Max(Imax(in m, kt), 1e-12)), eff = Eff(x.g, in m, v);
             double gB = fb * (bac[v] + cya[v]) * sat * P.BAC_E * eff, gP = (fd * pom[v] / P.QN * P.DET_Q + fs * dep[v] / geo.rArea[v % LS] * P.SED_Q) * sat * eff;
-            for (int p = 0; p < n2; p++) { int j = S.pj[p]; gP += S.pw[p] * sat * Digest(strains[S.idx[j]].g, in S.m[j], in m) * S.m[j].M * eff; }
+            for (int p = 0; p < n2; p++) { ref var pj = ref S.pr[S.pj[p]]; gP += S.pw[p] * sat * Digest(in pj, in m) * pj.M * eff; }
             double kill = 0;   // 이 칸 포식자들이 나를 잡아먹는 속도
+            var me = Prey.Of(in m, x.g, densVir);   // 먹이로서의 나
             for (int i = 0; i < n; i++)
             {
                 if (S.dens[i] <= 0) continue; ref var mi = ref S.m[i]; if (mi.Fc <= 0 && mi.gapeB <= 0) continue;
-                double a = Attack(in mi, in m, kt); if (a <= 0) continue;
-                kill += S.dens[i] * a * Escape(x.g, in m, mi.speed, densVir) * satA[Ix(S.idx[i], v, S.stg[i])] * Digest(x.g, in m, in mi);
+                double a = Attack(in mi, in me, kt); if (a <= 0) continue;
+                kill += S.dens[i] * a * Escape(in me, mi.speed) * satA[Ix(S.idx[i], v, S.stg[i])] * Digest(in me, in mi);
             }
             double E = Budget(x, v, ref m, gP, gB, S.B);
             double cellB = m.esd * m.esd * m.esd * 1e-3 + P.FIXB, mm = E / (m.C * cellB), load = Load(x.g, v);

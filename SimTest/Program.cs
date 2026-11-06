@@ -48,6 +48,7 @@ static class Program
         for (int d = 1; d <= days; d++)
         {
             foreach (var q in qs.Where(q => q.day == d)) { var qq = w.Fire(q.kind, q.size, q.cell, q.kind == Qk.IceAge && q.amp == 0 ? World.IceAmp(q.size) : q.amp, q.rad, q.len); Console.WriteLine($"# 사건 d{d}: {qq.text}"); }
+            if (Environment.GetEnvironmentVariable("STRESS") is string sx && int.Parse(sx) == d) Stress(w, d);
             var s1 = Stopwatch.StartNew();
             int tpd = (int)(24 / w.P.DT); for (int h = 0; h < tpd; h++) w.Step();   // 하루 = 24 h / DT 틱
             ms = s1.Elapsed.TotalMilliseconds / tpd;
@@ -61,11 +62,37 @@ static class Program
         if (Environment.GetEnvironmentVariable("RECS") != null) RecCheck(w);
         var hp = Environment.GetEnvironmentVariable("HETP"); if (hp != null) HetProbe(w, int.Parse(hp));
         var pe = Environment.GetEnvironmentVariable("PROBE"); if (pe != null) Probe(w, int.Parse(pe), Environment.GetEnvironmentVariable("PROBE_SP"));
-        Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}  mutants {w.mutKeep}/{w.mutTry}");
+        Console.WriteLine($"# wall {sw.Elapsed.TotalSeconds:F1}s cpu {Process.GetCurrentProcess().TotalProcessorTime.TotalSeconds:F0}s  prof(ms/tick) cache {w.prof[0]/w.tick:F2} voxel {w.prof[1]/w.tick:F2} move {w.prof[2]/w.tick:F2} chem {w.prof[3]/w.tick:F2} mut {w.prof[4]/w.tick:F2} tot {w.prof[5]/w.tick:F2}  mutants {w.mutKeep}/{w.mutTry}");
         foreach (var e in w.events.Where(e => e.type == "grade")) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
         foreach (var e in w.events.Where(e => e.type == "earth" && (e.text.StartsWith("땅이") || e.text.StartsWith("조산"))).TakeLast(30)) Console.WriteLine($"  [{w.Time(e.t)}] {e.text}");
         Console.WriteLine($"# species ever {w.species.Count} alive {w.species.Values.Count(s => s.total > 0)} looks {string.Join(",", w.looksSeen.Select(Taxa.Name))}");
         return 0;
+    }
+
+    // 성능 시험(STRESS=<날>): 그날 다세포 몸 설계 40계통을 부모 칸에 넣는다(부모 개체 30%, 세포 수를 단계마다 나눠 생물량은 그대로) → 다세포가 많은 상태의 틱 비용
+    static void Stress(World w, int d)
+    {
+        (int, float)[] B = { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f) };
+        var sets = new[] {
+            B.Concat(new[] { (Gn.Elong, 2f), (Gn.Seg, 4f), (Gn.Burrow, 0.8f) }).ToArray(),
+            B.Concat(new[] { (Gn.Cells, 18f), (Gn.Elong, 1.2f), (Gn.Seg, 4f), (Gn.Limb, 0.7f), (Gn.Exo, 0.6f), (Gn.Circ, 0.5f), (Gn.Eye, 0.4f) }).ToArray(),
+            B.Concat(new[] { (Gn.Elong, 2f), (Gn.Jaw, 0.6f), (Gn.Transp, 0.7f), (Gn.Ambush, 0.7f), (Gn.Eye, 0.3f) }).ToArray(),
+            new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Egg, 10f), (Gn.Jaw, 0.7f) },
+            new[] { (Gn.Cells, 12f), (Gn.Diff, 0.8f), (Gn.Form, 0.5f), (Gn.Photo, 0.8f), (Gn.Attach, 0.7f), (Gn.Wall, 0.6f), (Gn.Phago, 0f), (Gn.Dry, 0.9f) },
+        };
+        w.PruneTo(48); int made = 0; var par0 = w.live.OrderByDescending(s => w.strains[s].total).Take(8).ToArray();
+        for (int i = 0; i < 40; i++)
+        {
+            var par = w.strains[par0[i % par0.Length]]; var g = (float[])par.g.Clone();
+            foreach (var (j, x) in sets[i % sets.Length]) g[j] = x;
+            var ns = w.Inject(par.slot, g, 0.3); if (ns == null) continue; made++;
+            for (int v = 0; v < World.V; v++)
+            {
+                double c = 0; for (int k = 0; k < ns.K; k++) c += w.cnt[World.Ix(ns.slot, v, k)] * ns.C[k];
+                for (int k = 0; k < ns.K; k++) w.cnt[World.Ix(ns.slot, v, k)] = Math.Round(c / (ns.K * ns.C[k]));
+            }
+        }
+        Console.WriteLine($"# STRESS d{d}: 다세포 {made}계통 넣음 (live {w.live.Count}, dev {w.live.Count(s => w.strains[s].dev)})");
     }
 
     // 수평 섞기(양해법)의 틱당 바깥 교환 몫 최댓값: 2를 넘으면 진동하며 커진다
@@ -328,6 +355,7 @@ static class Program
         }
     }
 
+    static readonly double[] profLast = new double[6]; static long tickLast;   // PERF: 지난 보고 뒤 단계별 ms/틱
     static void Report(World w, int d, double ms)
     {
         var m = w.MeanGenes();
@@ -340,6 +368,16 @@ static class Program
         ds /= a; db /= a; ns /= a; nb /= a; bs /= a; cy /= a; pm /= a; dm /= a;
         Console.WriteLine($"d{d,5} ms {ms,5:F2} strains {w.live.Count,3} sp {alive,3} N/mL {w.totalCount / w.volTot,8:G3} bio {w.totalBio / w.volTot,8:G3} " +
             $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy:G2} pom {pm:F2} dom {dm:F2} looks {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
+        if (Environment.GetEnvironmentVariable("PERF") != null)   // 마지막 틱의 칸별 부하: 항목 수(최대·평균·NI에 닿은 칸), 포식 짝 수, 칸 시간(최대·합) → 병렬 효율
+        {
+            double f = 1000.0 / Stopwatch.Frequency; int occ = 0, full = 0, nMax = 0; long pr = 0, tMax = 0, tSum = 0, nSum = 0, tg = 0, tp = 0;
+            for (int v = 0; v < World.V; v++) { int n = w.vN[v]; if (n > 0) occ++; if (n >= World.NI) full++; nMax = Math.Max(nMax, n); nSum += n; pr += w.vPair[v]; tMax = Math.Max(tMax, w.vT[v]); tSum += w.vT[v]; tg += w.vTg[v]; tp += w.vTp[v]; }
+            int dev = w.live.Count(s => w.strains[s].dev); double kAvg = w.live.Average(s => (double)w.strains[s].K);
+            var ph = new double[6]; for (int i = 0; i < 6; i++) { ph[i] = (w.prof[i] - profLast[i]) / Math.Max(1, w.tick - tickLast); profLast[i] = w.prof[i]; }
+            tickLast = w.tick;
+            Console.WriteLine($"      PHASE ms/tick cache {ph[0]:F1} voxel {ph[1]:F1} move {ph[2]:F1} chem {ph[3]:F1} mut {ph[4]:F1} tot {ph[5]:F1}");
+            Console.WriteLine($"      PERF n max {nMax} avg {(occ > 0 ? nSum / occ : 0)} full {full} occ {occ} pairs {pr / 1e3:F0}k voxT max {tMax * f:F2} sum {tSum * f:F1} ms (gather {tg * f:F1} pred {tp * f:F1})  dev {dev} K {kAvg:F1}");
+        }
         Console.WriteLine($"      earth T {w.env[Ev.Temp]:F1} (base {w.tBase:F1}) CO2 {w.co2:F0} O2 {w.env[Ev.O2]:F1} bur {w.burRate:G3} wMul {w.wMul:F2} ice {w.ice:F2} sea {w.geo.sea:+0;-0} aer {w.aer:F2} dark {w.dark:F2} regions {w.NR} land {w.geo.LandCells()} regrid {w.regridN} iceR {w.iceR.Take(w.NR).Count(x => x > 0.5f)}");
         if (Environment.GetEnvironmentVariable("BUD") != null && big != null || Environment.GetEnvironmentVariable("BUD") != null && w.live.Count > 0)
         {
