@@ -494,6 +494,7 @@ public partial class EvoTank : MonoBehaviour
         GUILayout.Space(10);
         if (GUILayout.Button("이 환경에서 새로 시작(공통 조상부터)", sBtn)) { w.Reset(w.seed + 1, (float[])w.target.Clone()); avs.Clear(); sel = null; fit = true; }
         GUILayout.Space(6);
+        GUILayout.Label($"<b>이 자리의 물질 순환</b>\n남세균 {Num(Mix(w.cya))}/mL · 세균 {Num(Mix(w.bac))}/mL · 영양염 {Mix(w.nut):0.00} μM\n유기물 입자(바다눈) {Mix(w.pom):0.00} μM N · 녹은 유기물 {Mix(w.dom):0.00} μM N · 산소 {Mix(w.dox):0.0}% atm\n퇴적물에 묻힌 유기물 누계 {Num(w.buried)}", sS);
         GUILayout.Label($"물기둥 {World.NY * World.DZ:0} m · 칸 {World.V}개 · 살아 있는 계통 {w.live.Count} · 계산 {frameSim:0} ms/프레임", sS);
     }
 

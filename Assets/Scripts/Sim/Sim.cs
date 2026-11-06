@@ -32,7 +32,7 @@ namespace Evo
             Skel = 28, Egg = 29, N = 30;
         // 키, 이름, 최소, 최대, 시작, 돌연변이 표준편차, 종 거리 척도(0 = 거리에 안 셈)
         public static readonly GeneDef[] Def = {
-            new("size", "세포 크기", 1, 8, 3.3f, 0.12f, 0.7f),            // log₂ 지름(μm): 2–256 μm, 시작 10 μm
+            new("size", "세포 크기", 1, 8, 2.6f, 0.12f, 0.7f),            // log₂ 지름(μm): 2–256 μm, 시작 6 μm(세균을 가장 잘 먹는 크기, 첫 진핵생물 = 식세포 편모충)
             new("osmo", "삼투 조절 한계", 3, 320, 40, 8, 40),             // g/L
             new("vacuole", "수축포", 0, 1, 0.1f, 0.05f, 0.25f),
             new("wall", "세포벽", 0, 1, 0, 0.05f, 0.25f),
@@ -40,7 +40,7 @@ namespace Evo
             new("chemo", "화학 감각", 0, 1, 0.2f, 0.05f, 0.25f),
             new("eye", "광수용·눈", 0, 1, 0, 0.04f, 0.25f),
             new("photo", "광합성", 0, 1, 0, 0.05f, 0.25f),
-            new("phago", "식세포 작용", 0, 1, 0.5f, 0.05f, 0.25f),
+            new("phago", "식세포 작용", 0, 1, 0.7f, 0.05f, 0.25f),
             new("aerobic", "호기 호흡", 0, 1, 0.3f, 0.05f, 0.25f),
             new("pigment", "광보호 색소", 0, 1, 0.1f, 0.05f, 0.25f),
             new("topt", "최적 온도", -2, 60, 25, 1.8f, 6),
@@ -79,8 +79,8 @@ namespace Evo
     {
         public float DT = 2;              // 시간/틱
         public float BASAL = 0.004f;      // 기초 대사(부피 비례, 시간당): 원생생물 대사 ∝ 질량^1, 후생동물 ^0.75 (DeLong 2010)
-        public float FIX = 0.0012f;       // 세포당 고정비(핵·유전체): 너무 작은 세포는 손해 (Raven 1998)
-        public float FIXB = 0.15f;        // 세포 하나 짓는 비용 중 크기와 무관한 부분(10 μm 세포 = 1)
+        public float FIX = 4e-5f;         // 세포당 고정비(핵·유전체 ≈ 5 μm³ 몫의 기초 대사): 2 μm 아래 세포만 손해 (Raven 1998; 가장 작은 진핵생물 ~1 μm)
+        public float FIXB = 0.01f;        // 세포 하나 짓는 비용 중 크기와 무관한 부분(10 μm 세포 = 1)
         public float E_ACT = 7543;        // 0.65 eV / k (Gillooly 2001)
         public float C_OSMO = 0.02f;      // 녹은 유기물 흡수(표면적 비례)
         public float C_PHOTO = 0.12f;     // 광합성(엽록체 부피 비례, package effect로 큰 세포는 효율↓)
@@ -93,10 +93,10 @@ namespace Evo
         public float W_IN = 0.0028f, W_OUT = 0.0012f, PUMP = 0.02f, PUMP_COST = 0.25f;
         public float CLR = 1e-4f;         // 세포 수준 청소율(mL/h, 10 μm·식세포 작용 1): 부피^0.77 (Hansen 1997)
         public float M0 = 4e5f;           // 원생생물 선(질량^1)과 후생동물 선(^0.75)이 만나는 질량(10 μm 세포 단위, 4e5 ≈ 0.2 mg). 1 g 어류: 최대 섭식 ~1%/h(Hartvig 2011 h=85), 유지비 ~0.1%/h(k=10), 자연사 ~0.8%/일(Lorenzen) — docs/research-sizeecology.md
-        public float MAXING = 0.08f;      // 최대 섭식(10 μm 세포 질량당 시간당), 동물은 질량^0.75
-        public float PRED_EFF = 0.4f;     // 포식 총성장효율 상한 (Straile 1997: 관측 20–30%)
+        public float MAXING = 0.16f;      // 최대 섭식(10 μm 세포 질량당 시간당), 동물은 질량^0.75. 원생생물 Imax ~0.2/h·성장 효율 ~⅓ → 최대 성장 1–2/일 (Hansen 1997)
+        public float PRED_EFF = 0.6f;     // 동화 효율(소화 비용 뺀 몫, mizer α = 0.6). 기초 대사는 따로 빼므로 총성장효율은 관측처럼 20–30%가 된다 (Straile 1997)
         public float BAC_E = 3e-4f;       // 세균 한 마리 에너지(10 μm 세포 = 1, 부피비)
-        public float DEATH = 0.004f;      // 모형 밖 포식자·노화 (시간당)
+        public float DEATH = 0.002f;      // 모형 밖 포식자·노화 (시간당, 하루 ~5%: 플랑크톤 모형의 선형 사망 0.02–0.1/일)
         public float VIR = 0.012f, VIR_K = 2e4f;   // 계통별 바이러스: 흔한 계통일수록 많이 죽는다(kill-the-winner, Thingstad 2000). 시간당 최대, 반포화 밀도(/mL)
         public float SEASON_T = 5, SEASON_L = 0.3f;   // 계절: 수온 ±°C, 햇빛 ±비율 (가을에 식으면 성층이 깨져 바닥까지 섞인다)
         public float TSR = 0.025f;        // 온도-크기 규칙 2.5%/°C (Atkinson 2003)
@@ -117,6 +117,19 @@ namespace Evo
         public float MIX_ML = 14f, MIX_TC = 0.01f, MIX_DEEP = 0.03f, MIX_H = 0.05f;   // 칸 사이 교환 비율(시간당) = Kz/DZ²: 혼합층 Kz ~1e-3, 수온약층 ~1e-6, 심층 ~2e-6 m²/s (research-water)
         public float KEX = 0.08f;         // 수면 산소 교환(피스톤 속도 ~1 m/day ÷ 0.5 m 층)
         public float KO2 = 4.8e-4f, KDEC = 0.03f / 24;       // 에너지 1(10 μm 세포 1개분, 탄소 ~6 pmol)/mL ↔ 용존 산소(대기 % 환산, 20°C 포화 280 μM)
+        // 물질 순환: 죽은 몸·똥 → 유기물 입자(POM, 바다눈) → 세균이 녹임 → 녹은 유기물(DOM) → 세균이 먹고 숨 쉬며 영양염으로(미생물 고리, Azam 1983)
+        public float KDOM_B = 0.2f, KDOM_O = 5;   // DOM 반포화(μM N): 세균은 낮은 농도에서도 잘 먹고, 원생생물 흡수(삼투 영양)는 서툴다
+        public float BAC_Y = 0.3f;        // 세균 성장 효율(del Giorgio & Cole 1998: 바다 0.1–0.4)
+        public float BAC_M = 0.01f;       // 세균 사망(바이러스 용해, 시간당, 세균 1e6/mL일 때) → DOM(바이러스 고리, Wilhelm & Suttle 1999)
+        public float BAC_REF = 1e6f, CYA_REF = 3e5f;   // 바이러스는 숙주가 많을수록 잘 퍼진다(kill-the-winner): 사망률 ∝ 밀도/기준 밀도
+        public float KH = 0.1f / 24;      // POM → DOM 분해(시간당, 하루 ~10%)
+        public float WS = 2f / 24;        // POM 침강(m/h): 작은 부스러기 하루 ~2 m (큰 바다눈은 50–200 m/일)
+        public float F_EGEST = 0.3f;      // 먹고 남긴 질소 중 똥(POM)으로 나가는 몫(나머지는 배설 = 영양염)
+        public float F_LYSIS = 0.3f;      // 포식 말고 죽은 몸 중 바로 녹는 몫(DOM), 나머지는 사체 입자(POM)
+        public float DET_Q = 0.5f;        // 부스러기 먹이 질(살아 있는 먹이 대비 소화되는 비율)
+        public float BURY = 0.002f / 24;  // 퇴적물 속 유기물이 묻혀 순환에서 빠지는 속도(시간당). 묻힌 탄소만큼 길게 보면 산소가 남는다(Berner 2004)
+        public float CYA_G = 0.05f, CYA_M = 0.006f, CYA_IK = 0.05f;   // 남세균(1 μm 광합성 세균): 최대 성장(시간당, 하루 ~1회 분열), 바이러스 사망, 광포화
+        public float SZM = -0.25f;        // 바깥 사망률 ∝ 질량^−¼ (Peterson & Wroblewski 1984, McGurk 1986)
     }
 
     public sealed class Strain
@@ -192,6 +205,9 @@ namespace Evo
         public readonly float[] cue = new float[SMAX * V];          // 포식 신호 0–1 (가소성)
         public readonly float[] gP = new float[SMAX * V * KM], gB = new float[SMAX * V * KM], kR = new float[SMAX * V * KM];   // 지난 틱 포식·세균 섭식 이득, 잡아먹힘 사망률(화면·시험용)
         public readonly double[] nut = new double[V], bac = new double[V], chl = new double[V], dox = new double[V], o2d = new double[V];
+        public readonly double[] pom = new double[V], dom = new double[V];   // 유기물 입자·녹은 유기물(μM N)
+        public readonly double[] cya = new double[V];   // 남세균(마리/mL): 진화하지 않는 바탕 생산자. 빛·영양염으로 자라 산소를 내고, 원생생물이 세균처럼 먹는다
+        public double buried;            // 퇴적물에 묻힌 유기물 누계(에너지, 10 μm 세포 단위)
         public readonly float[] T = new float[NY], I = new float[V], U = new float[NY], mixV = new float[NY];
         public readonly Strain[] strains = new Strain[SMAX];
         public readonly List<int> live = new();
@@ -236,7 +252,8 @@ namespace Evo
             Array.Clear(cnt, 0, cnt.Length); Array.Clear(mu, 0, mu.Length); Array.Clear(cue, 0, cue.Length); Array.Clear(strains, 0, SMAX);
             live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); gradesSeen.Clear(); gradesSeen.Add(0);
             lostN = 0; Array.Clear(dep, 0, V);
-            for (int v = 0; v < V; v++) { nut[v] = P.NSED * env[Ev.Nut] / 100 * 0.6; bac[v] = 1e6; chl[v] = 0; dox[v] = env[Ev.O2]; }
+            for (int v = 0; v < V; v++) { nut[v] = P.NSED * env[Ev.Nut] / 100 * 0.6; bac[v] = 1e6; chl[v] = 0; dox[v] = env[Ev.O2]; pom[v] = 0.5; dom[v] = 2; cya[v] = 1e5; }
+            buried = 0;
             var g0 = new float[Gn.N]; for (int i = 0; i < Gn.N; i++) g0[i] = Gn.Def[i].init;
             var sp = NewSpecies(g0, 0); sp.name = "Protomonas primigenia"; sp.ko = "원시 편모충 (공통 조상)"; sp.named = true;
             var s = NewStrain(g0, sp.id, 0, 0);
@@ -461,7 +478,7 @@ namespace Evo
             for (int i = 0; i < n; i++) if (cnt[Ix(S.idx[i], v, S.stg[i])] > 0) { S.ord[np] = i; S.key[np] = S.m[i].Leff; np++; }
             Array.Sort(S.key, S.ord, 0, np);
             float o2s = (float)(dox[v] / (dox[v] + P.O2_K));
-            double bacEat = 0;
+            double bacEat = 0, detEat = 0, detE = pom[v] / P.QN, pico = bac[v] + cya[v];   // 세균 + 남세균(크기가 비슷해 같은 먹이로 본다)   // 부스러기 에너지 밀도(10 μm 세포/mL 환산)
             for (int i = 0; i < n; i++)
             {
                 ref var mi = ref S.m[i];
@@ -471,8 +488,8 @@ namespace Evo
                 double imax = P.MAXING * mi.M * kt * Math.Pow(Math.Max(1, mi.M / P.M0), -0.25 * mi.org);
                 // 세균(0.6 μm): 6 μm 안팎 세포가 가장 잘 먹고, 섬모(여과 섭식)는 큰 세포도 세균을 먹게 해 준다
                 double lb = Math.Log(mi.esd / 6) / (2.2 + 2 * gi[Gn.Cilia]);
-                double fb = mi.Fc * Math.Exp(-lb * lb) * bac[v] / (bac[v] + 2e5);
-                double food = fb * bac[v] * P.BAC_E;
+                double fb = mi.Fc * Math.Exp(-lb * lb) * pico / (pico + 2e5);
+                double food = fb * pico * P.BAC_E;
                 double lo = Math.Min(mi.Fc > 0 ? mi.cellL / Math.Exp(mi.lnOptC + 2.5) : 1e30, mi.gapeB > 0 ? mi.L / 400 : 1e30);
                 double hi = Math.Max(mi.Fc > 0 ? mi.gapeC : 0, mi.gapeB);
                 int p0 = LowerBound(S.key, np, (float)lo), cnt2 = 0;
@@ -507,12 +524,23 @@ namespace Evo
                     food += w * mj.M;
                     if (nI > 0) S.risk[j] += nI / VML * F * pref;                     // 포식 신호(카이로몬)
                 }
+                // 부스러기(POM): 세포 수준 섭식은 고운 부스러기(5 μm), 소화관은 뭉친 바다눈(50 μm)을 같은 크기 규칙으로 먹는다. 움직이지 않는 먹이
+                double fd = 0;
+                if (mi.Fc > 0 && 5 <= mi.gapeC) { double lr = Math.Log(mi.cellL / 5) - mi.lnOptC; fd = mi.Fc * Math.Exp(-lr * lr / 0.8); }
+                if (mi.gapeB >= 50)
+                {
+                    double lr = Math.Log(mi.L / 50) - 1.5, R = (mi.Rs + (mi.L + 50) / 2) * 1e-4, vr = vi * 0.36 + 0.36 * 20;
+                    fd = Math.Max(fd, Math.PI * R * R * vr * kt * Math.Exp(-lr * lr / 1.2));
+                }
+                food += fd * detE * P.DET_Q;
                 double sat = 1 / (1 + food / Math.Max(imax, 1e-12));                // Holling II: 소화 시간
                 double aer = 1 + P.AER_GAIN * gi[Gn.Aerobic] * o2s * Math.Min(1, dox[v] / Math.Max(1e-3, mi.pcrit)) + 0.4 * (1 - gi[Gn.Aerobic]) * (1 - o2s);
                 double eff = P.PRED_EFF * Math.Min(1, aer / 2.5) * mi.perf; S.eff[i] = eff;
-                double bEat = fb * bac[v] * sat;
+                double bEat = fb * pico * sat;
                 S.gainB[i] = bEat * P.BAC_E * eff;
                 bacEat += bEat * nI / VML;
+                double dEat = fd * detE * sat;                                       // 먹은 부스러기(에너지/h/개체)
+                S.gainP[i] += dEat * P.DET_Q * eff; detEat += dEat * nI / VML;
                 for (int p = 0; p < cnt2; p++)
                 {
                     int j = S.pj[p]; var gj = strains[S.idx[j]].g; ref var mj = ref S.m[j];
@@ -522,9 +550,12 @@ namespace Evo
                     if (nI > 0) S.kill[j] += nI * eat * digest / cnt[Ix(S.idx[j], v, S.stg[j])];
                 }
             }
-            if (bacEat > 0) { double e = Math.Min(bac[v], bacEat * DT); bac[v] -= e; nut[v] += e * 2.9e-7; }
+            // 먹은 질소(세균·부스러기·잡아먹힌 먹이)는 먹은 쪽이 먼저 몸 짓는 데 쓰고, 남는 것은 배설(영양염)·똥(POM)으로
+            double foodN = 0;
+            if (bacEat > 0 && pico > 0) { double e = Math.Min(pico * 0.95, bacEat * DT), fc = cya[v] / pico; cya[v] -= e * fc; bac[v] -= e * (1 - fc); foodN += e * 2.9e-7; }
+            if (detEat > 0) { double e = Math.Min(pom[v], detEat * DT * P.QN); pom[v] -= e; foodN += e; }
             // 에너지 수지 → 성장·출생·사망
-            double pool = nut[v], born = 0, died = 0, killed = 0, o2c = 0, o2p = 0, needW = 0;
+            double pool = nut[v], born = 0, died = 0, killed = 0, o2c = 0, o2p = 0, needW = 0, deadN = 0, domUse = 0;
             float uv = U[y];
             for (int i = 0; i < n; i++)
             {
@@ -538,10 +569,11 @@ namespace Evo
                 if (k == 0) cue[s * V + v] = (float)(S.risk[i] / (S.risk[i] + 0.02));
                 S.dD[i] = S.dUp[i] = S.dB[i] = S.need[i] = S.ing[i] = 0;
                 double c = cnt[q]; if (c <= 0) continue;
+                domUse += c * S.B[0] / 0.4 * DT * P.QN / VML;                          // 삼투 영양: 녹은 유기물을 흡수(에너지 40%만 남는다)
                 o2c += c * S.B[12] * (0.3 + 0.7 * st.g[Gn.Aerobic] * o2s); o2p += c * S.B[1] * 1.3;
                 double uvm = 1 + P.UV_MUT * uv * (1 - 0.9 * st.g[Gn.Pigment]);
                 double load = P.LOAD * st.g[Gn.Mutrate] * uvm;
-                double sizeM = Math.Pow(Math.Max(1, m.M / P.M0), -0.25 * m.org);           // 큰 동물은 바깥 사망률이 낮다(질량^−0.25)
+                double sizeM = Math.Pow(Math.Max(1, m.M), P.SZM);                        // 큰 생물일수록 바깥 사망률이 낮다(질량^−¼). 어린 동물도 몸 크기대로
                 double dens = c / VML, vir = P.VIR * dens / (dens + P.VIR_K) * Math.Min(kt, 1.5);
                 double dr = P.DEATH * Math.Min(kt, Math.Sqrt(kt)) * sizeM + vir + (mm < 0 ? -2 * mm : 0) + S.kill[i] + hd;
                 double d = r.Binom(c, 1 - Math.Exp(-dr * DT));
@@ -559,15 +591,19 @@ namespace Evo
                     else bth = r.Poisson(c * E * 0.9 / (st.C[0] * cellB) * DT * (1 - load));   // 성체: 알·번식체
                 }
                 double need = bth * c0b + (st.dev && k < st.K - 1 ? c * Math.Max(0, E) * DT * P.QN / VML : 0);
-                pool += d * nInd;
+                double kf = dr > 0 ? S.kill[i] / dr : 0;                                // 잡아먹혀 죽은 몫은 먹은 쪽 질소, 나머지는 사체
+                foodN += d * kf * nInd; deadN += d * (1 - kf) * nInd;
                 S.dD[i] = d; S.dUp[i] = up; S.dB[i] = bth; S.need[i] = need;
                 S.aff[i] = 10 * st.fA / m.esd * m.expo;                              // 표면적:부피가 큰 쪽이 영양염을 먼저 잡는다(R* 이론, Tilman 1982)
                 // 먹이를 먹는 생물은 먹이의 질소로 몸을 짓는다(남는 것은 내놓음 = 미생물 고리). 먹이 질소는 이번 틱 죽은 먹이가 물에 돌려준 몫
                 S.ing[i] = S.eff[i] > 0 ? c * (S.gainP[i] + S.gainB[i]) / S.eff[i] * DT * P.QN / VML : 0;
                 died += d; killAcc[s * V + v] += d * (dr > 0 ? S.kill[i] / dr : 0);
             }
+            double du = Math.Min(domUse, dom[v]); dom[v] -= du; pool += du;          // 흡수한 DOM 질소는 영양염 풀로(몸 짓기는 아래 need가 가져간다)
             double resv = 0; for (int i = 0; i < n; i++) resv += Math.Min(S.need[i], S.ing[i]);
-            double fr = resv > pool * 0.9 ? pool * 0.9 / resv : 1, pool2 = pool * 0.9 - resv * fr;
+            double fr = resv > foodN ? foodN / resv : 1, pool2 = pool * 0.9, left = foodN - resv * fr;
+            pool += left * (1 - P.F_EGEST); pool2 += left * (1 - P.F_EGEST) * 0.9;
+            pom[v] += left * P.F_EGEST + deadN * (1 - P.F_LYSIS); dom[v] += deadN * P.F_LYSIS;
             for (int i = 0; i < n; i++) needW += (S.need[i] - Math.Min(S.need[i], S.ing[i])) * S.aff[i];
             double share = needW > 0 ? pool2 / needW : 0, used = 0;
             for (int i = 0; i < n; i++)
@@ -577,7 +613,7 @@ namespace Evo
                 double own = Math.Min(S.need[i], S.ing[i]), got = own * fr + (S.need[i] - own) * Math.Min(1, share * S.aff[i]);
                 double f = S.need[i] > 0 ? got / S.need[i] : 1;                      // 영양염이 모자라면 못 짓는다
                 if (f < 1) { S.dB[i] = r.Binom(S.dB[i], f); S.dUp[i] = r.Binom(S.dUp[i], f); }
-                used += S.need[i] * Math.Min(1, f);
+                used += (S.need[i] - own) * Math.Min(1, share * S.aff[i]);         // 영양염 풀에서 가져간 몫(먹은 질소 몫은 위에서 이미 뺐다)
                 born += S.dB[i]; genAcc[s * V + v] += S.dB[i];
                 cnt[q] -= S.dD[i] + S.dUp[i];
                 if (S.dUp[i] > 0) cnt[q + 1] += S.dUp[i];
@@ -600,7 +636,7 @@ namespace Evo
             double o2 = dox[v], o2s = o2 / (o2 + P.O2_K), hyp = Math.Min(1, o2 / Math.Max(1e-3, m.pcrit));
             double aer = 1 + P.AER_GAIN * g[Gn.Aerobic] * o2s * hyp + 0.4 * (1 - g[Gn.Aerobic]) * (1 - o2s);
             double Il = I[v];
-            double up = P.C_OSMO * A10 * nup * work * aer * m.expo;
+            double up = P.C_OSMO * A10 * dom[v] / (dom[v] + P.KDOM_O) * work * aer * m.expo;   // 삼투 영양: 녹은 유기물(DOM)
             double pkg = 1 / (1 + 0.025 * m.esd * st.thinAx);                    // package effect: 두꺼운 세포는 빛 흡수 효율↓ (Finkel 2010)
             double phPot = P.C_PHOTO * g[Gn.Photo] * V10 * pkg * Il / (Il + P.IK) * work * (1 - 0.1 * g[Gn.Pigment]) * m.expo;
             double nCap = P.KUP * A10 * nup * m.expo * kt;                         // 질소·인 흡수 능력: 표면적:부피가 큰 세포가 빈영양에 강함
@@ -690,21 +726,38 @@ namespace Evo
             float DT = P.DT;
             double nsed = P.NSED * env[Ev.Nut] / 100;
             for (int c = 0; c < LS; c++) nut[(NY - 1) * LS + c] += P.KSED * DT * (nsed - nut[(NY - 1) * LS + c]);
-            Mix(nut); Mix(bac); Mix(dox);
+            Mix(nut); Mix(bac); Mix(dox); Mix(pom); Mix(dom); Mix(cya);
+            // 부스러기 침강: 층마다 WS·DT/DZ 비율이 아래층으로, 바닥층에서는 퇴적물로(에너지 = N/QN × 부피)
+            double fs = Math.Min(0.9, P.WS * DT / DZ);
+            for (int y = NY - 1; y >= 0; y--) for (int c = 0; c < LS; c++)
+            {
+                int v = y * LS + c; double f = pom[v] * fs; pom[v] -= f;
+                if (y < NY - 1) pom[v + LS] += f; else { dep[v] += f / P.QN * VML; lostN += f; }
+            }
             foreach (int s in live) for (int c = 0; c < LS; c++) { double m = depS[s * LS + c]; if (m == 0) continue; dep[(NY - 1) * LS + c] += m; lostN += m * P.QN / VML; depS[s * LS + c] = 0; }
             float ts = env[Ev.Temp], sal = env[Ev.Salt];
             for (int v = 0; v < V; v++)
             {
                 int y = v / LS; float t = T[y];
-                double nn = nut[v], g = 0.08 * Kt(t) * nn / (nn + 0.5) * (1 - bac[v] / (2e6 + 4e5 * nn)) * Math.Min(1, 0.3 + dox[v] / 2);
-                double db = bac[v] * (g - 0.01) * DT;
+                // 부스러기 → DOM(세균 효소), 세균은 DOM을 먹고 자라며 (1−Y)는 숨 쉬어 영양염으로 돌려준다. 죽은 세균(바이러스)은 다시 DOM
+                double kt = Kt(t), hyd = pom[v] * Math.Min(0.5, P.KH * kt * DT); pom[v] -= hyd; dom[v] += hyd;
+                double g = 0.08 * kt * dom[v] / (dom[v] + P.KDOM_B) * Math.Min(1, 0.3 + dox[v] / 2);
+                const double NB = 2.9e-7;                                          // 세균 한 마리 ≈ 4 fg N (μM per 마리/mL)
+                double prod = Math.Min(bac[v] * g * DT, dom[v] * 0.9 * P.BAC_Y / NB), uptake = prod * NB / P.BAC_Y, mort = bac[v] * P.BAC_M * (bac[v] / P.BAC_REF) * DT;
+                double db = prod - mort, rem = uptake - prod * NB;                 // rem = 숨 쉬어 무기물로 돌아간 질소
                 bac[v] = Math.Max(1e3, bac[v] + db);
-                nut[v] = Math.Max(0, nn - db * 2.9e-7);                            // 세균 한 마리 ≈ 4 fg N
+                dom[v] = Math.Max(0, dom[v] - uptake + mort * NB); nut[v] += rem;
+                // 남세균: 빛 × 영양염으로 자라고(광합성 → 산소), 바이러스로 죽으면 DOM. 엽록소 그늘에도 들어간다
+                double gc = P.CYA_G * kt * I[v] / (I[v] + P.CYA_IK) * nut[v] / (nut[v] + 0.3);
+                double pc = Math.Min(cya[v] * gc * DT, nut[v] * 0.9 / NB), mc = cya[v] * P.CYA_M * (cya[v] / P.CYA_REF) * DT;
+                cya[v] = Math.Max(10, cya[v] + pc - mc); nut[v] -= pc * NB; dom[v] += mc * NB;
+                double o2cy = pc * P.BAC_E * 1.3;
                 // 산소 용해도는 따뜻하고 짤수록 낮다 → 같은 호흡이 산소를 더 빨리 깎는다
                 double sol = Math.Exp(-0.0205 * (t - 20)) * (1 - 0.0052 * sal / 1.0 * 0.1), kO2 = P.KO2 / Math.Max(0.2, sol);
                 // 바닥 퇴적물: 가라앉은 유기물이 하루 ~3%씩 분해되며 산소를 쓰고 영양염을 돌려준다(KDEC)
-                double dec = y == NY - 1 ? dep[v] * P.KDEC * DT : 0; dep[v] -= dec; nut[v] += dec * P.QN / VML; lostN -= dec * P.QN / VML;
-                double resp = o2d[v] - Math.Max(0, db) * P.BAC_E * 2.3 - dec / VML;
+                double dec = y == NY - 1 ? dep[v] * P.KDEC * DT : 0, bur = y == NY - 1 ? dep[v] * P.BURY * DT : 0;
+                dep[v] -= dec + bur; buried += bur; nut[v] += dec * P.QN / VML; lostN -= dec * P.QN / VML;
+                double resp = o2d[v] - rem / P.QN - dec / VML + o2cy;                     // 세균 호흡(숨 쉰 유기물만큼 산소)·퇴적물 분해
                 dox[v] = Math.Clamp(dox[v] + resp * kO2, 0, 21 + 100 * (y + 0.5) * DZ / 10 + 0.3 * env[Ev.O2]);
             }
             for (int c = 0; c < LS; c++) dox[c] += P.KEX * DT * (env[Ev.O2] - dox[c]);   // 수면: 대기와 평형
@@ -715,6 +768,7 @@ namespace Evo
                 double ph0 = st.g[Gn.Photo] * Math.Pow(st.esd0 / 10, 3);
                 for (int v = 0; v < V; v++) for (int k = 0; k < st.K; k++) { double c = cnt[Ix(s, v, k)]; if (c > 0) chl[v] += c / VML * ph0 * st.C[k]; }
             }
+            for (int v = 0; v < V; v++) chl[v] += cya[v] * P.BAC_E;
         }
 
         void Mix(double[] a)

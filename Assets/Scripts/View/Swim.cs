@@ -80,6 +80,7 @@ public partial class EvoTank
     {
         if (!snow) { snow = DotsMesh(600); mSnow = new Material(Shader.Find("Evo/Snow")); mpbS = new MaterialPropertyBlock(); }
         var col = (ms ? new Color(0.8f, 0.9f, 0.85f) : new Color(0.75f, 0.8f, 0.95f)) * (0.35f + 0.65f * sun);
+        float amt = Mathf.Clamp((float)Mix(w.pom) / 1.5f, 0.08f, 1.6f);   // 바다눈 양 = 그 자리의 실제 유기물 입자(POM) 농도
         float pxk = 2 * Mathf.Tan(cam.fieldOfView * Mathf.Deg2Rad / 2) / Screen.height;
         for (int i = 0; i < SNOW_P.Length; i++)
         {
@@ -88,7 +89,7 @@ public partial class EvoTank
             if (wl < 0.01f) continue;
             float Pu = P * u, R = H;
             var f = new Vector3((float)Frac(px / P), (float)Frac(-py / P), (float)Frac(pz / P));
-            mpbS.SetVector("_Par", new Vector4(P / 400 * u, 0.5f * wl, R, pxk));
+            mpbS.SetVector("_Par", new Vector4(P / 400 * u, 0.5f * wl * amt, R, pxk));
             mpbS.SetVector("_Mot", new Vector4(SNOW_SINK[i] / P, i == 0 ? 0.004f : 0.0005f, yF, yS));
             mpbS.SetColor("_Col", col);
             int lo = Mathf.FloorToInt(-R / Pu), hi = Mathf.CeilToInt(R / Pu) + 1;

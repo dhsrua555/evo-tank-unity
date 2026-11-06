@@ -107,6 +107,7 @@ static class Program
             ("polyp", new[] { (Gn.Cells, 12f), (Gn.Diff, 0.8f), (Gn.Form, 1f), (Gn.Gut, 0.6f), (Gn.Neuro, 0.3f), (Gn.Attach, 0.7f), (Gn.Photo, 0f), (Gn.Phago, 0.5f) }),
             ("medusa", new[] { (Gn.Cells, 14f), (Gn.Diff, 0.8f), (Gn.Form, 1f), (Gn.Gut, 0.6f), (Gn.Neuro, 0.4f), (Gn.Photo, 0f), (Gn.Phago, 0.5f) }),
             ("worm", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Elong, 2f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f) }),
+            ("wormE6", new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Elong, 2f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f), (Gn.Egg, 6f) }),
             ("chordate", new[] { (Gn.Cells, 20f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.8f), (Gn.Neuro, 0.7f), (Gn.Bilat, 0.8f), (Gn.Skel, 0.5f), (Gn.Circ, 0.4f), (Gn.Eye, 0.3f), (Gn.Elong, 2f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f) }),
             ("fish1cm", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f) }),
             ("fishE13", new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 13f) }),
@@ -143,9 +144,11 @@ static class Program
         Console.WriteLine($"# path probe parent id{par.id} n={par.total:G3}");
         for (int t = 0; t < 12; t++) w.Step();
         if (Environment.GetEnvironmentVariable("DBG") is string dn) foreach (var (name, st) in list) if (name == dn) Dbg(name, st);
+        var last = list.ToDictionary(x => x.Item2.id, x => (day: 0, bio: b0[x.Item2.id]));   // 멸종한 계통은 마지막으로 살아 있던 날까지로 잰다(예전엔 1e-30을 넣어 −59%/일 같은 허수가 나왔다)
         for (int t = 12; t < days * 12; t++)
         {
             w.Step();
+            if (t % 12 == 0) foreach (var (_, st) in list) if (w.strains[st.slot] == st) last[st.id] = (t / 12, Bio(st));
             if (t % 120 == 0 && Environment.GetEnvironmentVariable("TL") != null)
                 Console.WriteLine($"   t{t / 12,4}d " + string.Join(" ", list.Select(x => w.strains[x.Item2.slot] != x.Item2 ? $"{x.Item1}:-" : $"{x.Item1}:" + string.Join(",", Enumerable.Range(0, x.Item2.K).Select(k => x.Item2.stage[k] < 1 ? "0" : Math.Log10(x.Item2.stage[k]).ToString("F0"))))));
             if (t == 12 * int.Parse(Environment.GetEnvironmentVariable("DBGT") ?? "100") && Environment.GetEnvironmentVariable("DBG") is string dn2) foreach (var (name, st) in list) if (name == dn2 && w.strains[st.slot] == st) Dbg(name, st);
@@ -153,7 +156,9 @@ static class Program
         foreach (var (name, st) in list)
         {
             var m = w.MorphAt(st, w.Vox(10, 1, 10), st.K - 1, 0);
-            Console.WriteLine($"  {name,-9} {World.GradeName[World.Grade(st)],-6} K{st.K} adult L {m.L:G3}um pcrit {m.pcrit:F1}% speed {m.speed:G3}um/s  bio growth {Math.Log(Math.Max(1e-30, Bio(st)) / b0[st.id]) / days * 100:+0.0;-0.0}%/일  alive {(w.strains[st.slot] == st ? "yes" : "no")}");
+            bool alive = w.strains[st.slot] == st; var (ld, lb) = alive ? (days, Bio(st)) : last[st.id];
+            string stg = alive ? string.Join(",", Enumerable.Range(0, st.K).Select(k => st.stage[k] < 1 ? "0" : Math.Log10(st.stage[k]).ToString("F0"))) : "";
+            Console.WriteLine($"  {name,-9} {World.GradeName[World.Grade(st)],-6} K{st.K} adult L {m.L:G3}um pcrit {m.pcrit:F1}% speed {m.speed:G3}um/s  bio growth {Math.Log(Math.Max(1e-30, lb) / b0[st.id]) / Math.Max(1, ld) * 100:+0.0;-0.0}%/일  {(alive ? "alive " + stg : $"멸종 {ld + 1}일째")}");
         }
     }
 
@@ -167,8 +172,16 @@ static class Program
         double ds = 0, db = 0, ns = 0, nb = 0, bs = 0;
         for (int c = 0; c < World.LS; c++) { ds += w.dox[c]; db += w.dox[(World.NY - 1) * World.LS + c]; ns += w.nut[c]; nb += w.nut[(World.NY - 1) * World.LS + c]; bs += w.bac[c]; }
         ds /= World.LS; db /= World.LS; ns /= World.LS; nb /= World.LS; bs /= World.LS;
+        double cy = 0, pm = 0, dm = 0; for (int c = 0; c < World.LS; c++) { cy += w.cya[c]; pm += w.pom[c]; dm += w.dom[c]; }
         Console.WriteLine($"d{d,5} ms {ms,5:F2} strains {w.live.Count,3} sp {alive,3} N/mL {w.totalCount / (World.V * World.VML),8:G3} bio {w.totalBio / (World.V * World.VML),8:G3} " +
-            $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} grade {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
+            $"DO {ds:F1}/{db:F1} nut {ns:F2}/{nb:F2} bac {bs:G2} cya {cy / World.LS:G2} pom {pm / World.LS:F2} dom {dm / World.LS:F2} grade {maxG} maxL {maxL:G3}um maxC {maxC:G3}");
+        if (Environment.GetEnvironmentVariable("BUD") != null && big != null || Environment.GetEnvironmentVariable("BUD") != null && w.live.Count > 0)
+        {
+            var top = w.live.Select(i => w.strains[i]).OrderByDescending(x => x.total).First(); int bv = 0; double bc = 0;
+            for (int v = 0; v < World.V; v++) { double c = w.cnt[World.Ix(top.slot, v, 0)]; if (c > bc) { bc = c; bv = v; } }
+            var mo = w.M(top.slot, bv, 0); int q = World.Ix(top.slot, bv, 0); var B = new double[14]; w.Budget(top, bv, ref mo, w.gP[q], w.gB[q], B);
+            Console.WriteLine($"      top id{top.id} @y{bv / World.LS} n {top.total:G3} mu {w.mu[q]:G3}/h kill {w.kR[q]:G3}/h | osm {B[0]:G3} ph {B[1]:G3} bac {B[2]:G3} pred {B[3]:G3} | basal {B[4]:G3} traits {B[5]:G3} body {B[6]:G3} osmo {B[7] + B[8]:G3} uv {B[9]:G3} o2 {B[10]:G3} temp {B[11]:G3} net {B[13]:G3}");
+        }
         Console.WriteLine($"      size {m[Gn.Size]:F2} cells {m[Gn.Cells]:F2} photo {m[Gn.Photo]:F2} phago {m[Gn.Phago]:F2} aer {m[Gn.Aerobic]:F2} osmo {m[Gn.Osmo]:F0} topt {m[Gn.Topt]:F1} pig {m[Gn.Pigment]:F2} vac {m[Gn.Vacuole]:F2} wall {m[Gn.Wall]:F2} gut {m[Gn.Gut]:F2} neuro {m[Gn.Neuro]:F2} diff {m[Gn.Diff]:F2}");
         if (Environment.GetEnvironmentVariable("DOPROF") != null)
         {
