@@ -26,7 +26,7 @@ public partial class EvoTank
         if (Time.time - cDragT > 2) cYaw += Time.deltaTime * 12;   // 손 떼면 천천히 돈다
         var m = w.M(sel.slot, V, sel.k); cardMesh = Body(st, sel.k, m);
         cardEye = Quaternion.Euler(cPitch, cYaw, 0) * new Vector3(0, 0, -2.3f);
-        cardVP = Render1(cardRT, cardMesh, m.L * 1e-6f >= MICRO, cardEye, sel.t0, sel.rate);
+        cardVP = Render1(cardRT, cardMesh, m.L * 1e-6f >= MICRO, cardEye, sel.t0, sel.rate, m.sessile);
     }
 
     // 확대 카드: 왼쪽 수심계 옆. 끌면 돌리고, 부위마다 이름표(뒤쪽 것은 흐리게)

@@ -30,7 +30,7 @@ namespace Evo
             Aerobic = 9, Pigment = 10, Topt = 11, Tbreadth = 12, Mutrate = 13, Elong = 14, Spines = 15, Lorica = 16, Cilia = 17,
             Plastic = 18, Cells = 19, Form = 20, Diff = 21, Attach = 22, Buoy = 23, Gut = 24, Neuro = 25, Bilat = 26, Circ = 27,
             Skel = 28, Egg = 29,
-            Seg = 30, Limb = 31, Exo = 32, Mineral = 33, Jaw = 34, Herb = 35, Detr = 36, Ambush = 37, Burrow = 38, Toxin = 39, Transp = 40, School = 41, PreyR = 42, N = 43;
+            Seg = 30, Limb = 31, Exo = 32, Mineral = 33, Jaw = 34, Herb = 35, Detr = 36, Ambush = 37, Burrow = 38, Toxin = 39, Transp = 40, School = 41, PreyR = 42, Dry = 43, N = 44;
         // 몸 부품(발생하는 다세포에서만 뜻이 있다): 단세포·군체에서는 돌연변이도 거리 계산도 하지 않는다
         public static bool BodyOnly(int j) => j >= Seg && j <= Jaw || j == Burrow || j == School;
         public static bool BodyReady(float[] g) => g[Cells] >= 4 && g[Diff] >= 0.4f;
@@ -80,6 +80,8 @@ namespace Evo
             new("transp", "투명함", 0, 1, 0, 0.05f, 0.25f),                // 눈으로 찾는 포식자에게 덜 보임(색소·껍데기·큰 몸이면 소용없다)
             new("school", "떼짓기", 0, 1, 0, 0.05f, 0.25f),                // 눈·신경이 있어야. 무리가 빽빽하면 한 마리가 잡힐 확률↓
             new("preyr", "먹이 크기비", 0.5f, 4, 1.5f, 0.15f, 0.8f),        // ln(몸길이 ÷ 좋아하는 먹이 길이), 몸 수준 섭식. 1.5 ≈ 4.5배
+            // 5단계: 땅
+            new("dry", "마름 견디기", 0, 1, 0, 0.05f, 0.25f),               // 겉막·점액·휴면(포자·낭종)으로 물 밖에서 버팀. 물속에선 쓸모없는 비용
         };
     }
 
@@ -152,6 +154,10 @@ namespace Evo
         public float BURY = 0.002f / 24;  // 퇴적물 속 유기물이 묻혀 순환에서 빠지는 속도(시간당). 묻힌 탄소만큼 길게 보면 산소가 남는다(Berner 2004)
         public float CYA_G = 0.05f, CYA_M = 0.006f, CYA_IK = 0.05f;   // 남세균(1 μm 광합성 세균): 최대 성장(시간당, 하루 ~1회 분열), 바이러스 사망, 광포화
         public float JUMP = 1e-8f;        // 단세포의 먼 거리 이동(시간당, 표층에서 아무 해역으로)
+        public float DESIC = 0.2f;        // 마름(물 밖에 드러난 표면적당, 시간당): 마름 견디기 0인 원생생물은 땅에서 하루 몸의 몇 배를 잃는다(몇 시간이면 죽음), 조간대는 ⅓
+        public float TIDE = 0.35f;        // 조간대가 물 밖에 드러나는 몫(썰물·햇볕). 육지는 1
+        public float LANDX = 0.02f;       // 육지 물막과 이웃 사이 교환(바닷물 교환 대비): 물보라·빗물·기어 감
+        public float NLAND = 0.3f;        // 흙 속 물막 영양염(바다 퇴적물 대비, × 풍화 배율): 바위가 풍화되며 나오는 인
         public float SED_Q = 0.3f;        // 퇴적물 유기물의 먹이 질(대부분 분해 안 되는 찌꺼기)
         public float SZM = -0.25f;        // 바깥 사망률 ∝ 질량^−¼ (Peterson & Wroblewski 1984, McGurk 1986)
         // 지구 시스템(Earth.cs). 지질 과정은 압축: 생태 1일 = 지질 1000년
@@ -224,7 +230,7 @@ namespace Evo
     public sealed partial class World
     {
         // 칸 = 해역(지도에서 수심대·위도대가 같고 이어진 칸 묶음) × 수심층. 해역마다 해저 아래 층은 비어 있다(부피 0)
-        public const int RMAX = 24, NY = 12, LS = RMAX, V = LS * NY, KM = 8;   // 크기 단계 최대 8
+        public const int RMAX = 24 + Geo.NLAND, NY = 12, LS = RMAX, V = LS * NY, KM = 8;   // 크기 단계 최대 8
         public static readonly float[] ZE = { 0, 6, 12, 20, 30, 45, 65, 90, 130, 200, 400, 1000, 4500 };   // 층 경계 수심(m): 빛이 드는 위쪽을 잘게(16층도 시험: 계산만 늘었다)
         public const int SMAX = 256, NI = 1000, TB = 132;   // TB: 모양 캐시 수온 칸(0.5 °C, −2–64 °C)
 
@@ -244,7 +250,8 @@ namespace Evo
         public readonly float[] T = new float[V], I = new float[V], U = new float[V];
         public readonly Geo geo = new();
         public readonly double[] vol = new double[V];                           // 칸 부피(mL). 해저 아래 = 0
-        public readonly float[] dz = new float[V], zc = new float[V], kb = new float[V];   // 층 두께·가운데 수심(m), 아래 층과 섞이는 속도(Kz/거리, m/h)
+        public readonly float[] dz = new float[V], zc = new float[V], kb = new float[V];
+        public readonly float[] ex = new float[V];                              // 물 밖에 드러나는 몫(조간대 TIDE, 육지 1, 바다 0)   // 층 두께·가운데 수심(m), 아래 층과 섞이는 속도(Kz/거리, m/h)
         public readonly int[] nyR = new int[RMAX];                              // 해역마다 물이 있는 층 수
         public readonly float[] mld = new float[RMAX], sst = new float[RMAX];   // 혼합층 깊이(m)·표층 수온
         public int NR => geo.NR;
@@ -262,6 +269,7 @@ namespace Evo
         public int pin = -1;   // 화면이 따라가는 계통 id(기록 정리에서 뺀다)
         public readonly List<(long t, string type, string text)> events = new();
         public readonly HashSet<Look> looksSeen = new();   // 나온 적 있는 몸 설계(순서 없음)
+        public bool landed, landA;                          // 땅에 자리 잡은 생물·동물이 나왔나
         public double totalCount, totalBio, births, deaths, kills;
         public long mutTry, mutKeep;   // 돌연변이 후보·기록한 수(누계)
         public readonly History hist = new();
@@ -313,9 +321,9 @@ namespace Evo
             this.seed = seed; tick = 0; nextId = 1; nextSp = 1;
             for (int e = 0; e < Ev.N; e++) env[e] = target[e] = envInit != null ? envInit[e] : Ev.Def[e].init;
             Array.Clear(cnt, 0, cnt.Length); Array.Clear(mu, 0, mu.Length); Array.Clear(cue, 0, cue.Length); Array.Clear(strains, 0, SMAX); Array.Clear(mcOk, 0, mcOk.Length);
-            live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); looksSeen.Clear(); looksSeen.Add(Look.Cell);
+            live.Clear(); species.Clear(); recs.Clear(); events.Clear(); hist.Clear(); looksSeen.Clear(); looksSeen.Add(Look.Cell); landed = landA = false;
             Array.Clear(dep, 0, V); Array.Clear(depS, 0, depS.Length); Array.Clear(chl, 0, chl.Length);
-            geo.sea = 0; geo.Generate(seed); geo.Regions(RMAX); Geometry(); EarthReset(); Tweaks();
+            geo.sea = 0; geo.Generate(seed); geo.Regions(RMAX - Geo.NLAND); Geometry(); EarthReset(); Tweaks();
             for (int v = 0; v < V; v++)
             {
                 bool w = vol[v] > 0;
@@ -326,7 +334,7 @@ namespace Evo
             var sp = NewSpecies(g0, 0); sp.name = "Protomonas primigenia"; sp.ko = "원시 편모충 (공통 조상)"; sp.named = true;
             var s = NewStrain(g0, sp.id, 0, 0);
             var r = new Rng((ulong)seed);
-            for (int v = 0; v < V; v++) if (vol[v] > 0 && zc[v] < 100) cnt[Ix(s.slot, v, 0)] = Math.Round(vol[v] * (400 + 200 * r.U()));   // 빛이 드는 100 m 위, 400–600 마리/mL
+            for (int v = 0; v < V; v++) if (vol[v] > 0 && zc[v] < 100 && ex[v] < 1) cnt[Ix(s.slot, v, 0)] = Math.Round(vol[v] * (400 + 200 * r.U()));   // 빛이 드는 100 m 위, 400–600 마리/mL
             Log("start", $"원시 바다(해역 {NR}곳)에 공통 조상 원생생물이 퍼져 있습니다 (mL당 약 500마리).");
             Layers(); Totals();
         }
@@ -334,7 +342,7 @@ namespace Evo
         // 지도 → 해역 물기둥: 층 두께·부피, 이웃 해역과 맞닿은 면(수평 교환). 지형이 바뀌면 다시 부른다
         void Geometry()
         {
-            Array.Clear(vol, 0, vol.Length); Array.Clear(dz, 0, dz.Length); Array.Clear(zc, 0, zc.Length); Array.Clear(nyR, 0, nyR.Length); Array.Clear(kb, 0, kb.Length); volTot = 0;
+            Array.Clear(vol, 0, vol.Length); Array.Clear(dz, 0, dz.Length); Array.Clear(zc, 0, zc.Length); Array.Clear(nyR, 0, nyR.Length); Array.Clear(kb, 0, kb.Length); Array.Clear(ex, 0, V); volTot = 0;
             for (int c = 0; c < NR; c++)
             {
                 float D = geo.rDepth[c]; int n = 0;
@@ -344,15 +352,17 @@ namespace Evo
                 for (int y = 0; y < n; y++)
                 {
                     int v = y * LS + c; float bot = y == n - 1 ? D : ZE[y + 1];
-                    dz[v] = bot - ZE[y]; zc[v] = (ZE[y] + bot) / 2; vol[v] = geo.rArea[c] * (double)dz[v] * 1e6; volTot += vol[v];
+                    dz[v] = bot - ZE[y]; zc[v] = (ZE[y] + bot) / 2; vol[v] = geo.rArea[c] * (double)dz[v] * 1e6; if (c < geo.NO) volTot += vol[v];
                 }
+                ex[c] = geo.rKind[c] == 1 ? P.TIDE : geo.rKind[c] == 2 ? 1 : 0;
             }
             adj = new List<(int, int)>[RMAX]; for (int c = 0; c < RMAX; c++) adj[c] = new();
             qa = new double[geo.links.Count * NY];
             for (int li = 0; li < geo.links.Count; li++)
             {
                 var (a, b, e, dist) = geo.links[li]; adj[a].Add((b, li)); adj[b].Add((a, li));
-                for (int y = 0; y < Math.Min(nyR[a], nyR[b]); y++) qa[li * NY + y] = e * Geo.CELL * Math.Min(dz[y * LS + a], dz[y * LS + b]) / dist;
+                double f = geo.rKind[a] == 2 || geo.rKind[b] == 2 ? P.LANDX : 1;
+                for (int y = 0; y < Math.Min(nyR[a], nyR[b]); y++) qa[li * NY + y] = f * e * Geo.CELL * Math.Min(dz[y * LS + a], dz[y * LS + b]) / dist;
             }
         }
 
@@ -805,7 +815,7 @@ namespace Evo
                     + 0.004 * g[Gn.Toxin] + 0.002 * g[Gn.Herb] + 0.001 * g[Gn.Transp] + 0.002 * m.school) * V10
                 + lab * 0.002 * g[Gn.Flagella] * (m.esd / 8)
                 + lab * (0.001 * g[Gn.Eye] + 0.004 * g[Gn.Eye] * g[Gn.Eye]) * Math.Pow(V10, 0.6)
-                + (0.0015 * g[Gn.Chemo] + 0.003 * g[Gn.Pigment] + 0.005 * g[Gn.Wall] + 0.002 * lab * g[Gn.Cilia]) * A10) * K * kt * C * sc;
+                + (0.0015 * g[Gn.Chemo] + 0.003 * g[Gn.Pigment] + 0.005 * g[Gn.Wall] + 0.002 * lab * g[Gn.Cilia] + 0.01 * g[Gn.Dry]) * A10) * K * kt * C * sc;
             // 몸 구조: 가시·각(표면적), 모양 유지(세포벽이 있으면 공짜에 가깝다), 군체 접착·분업, 부착 기관, 가소성,
             // 동물 기관(소화관·신경·순환·골격·좌우대칭): 기관 조직 유지비. 신경 조직은 비싸다(척추동물 뇌 = 대사의 수 %–20%)
             B[6] = ((0.003 * m.spines + 0.004 * g[Gn.Lorica] + 0.002 * g[Gn.Elong] * g[Gn.Elong] * (1 - 0.7 * g[Gn.Wall])) * A10
@@ -823,6 +833,7 @@ namespace Evo
                 double pump = Math.Min(influx, P.PUMP * g[Gn.Vacuole] * A10);
                 osm += pump * P.PUMP_COST; od = influx - pump;
             }
+            if (ex[v] > 0) { double wet = (1 - g[Gn.Dry]) * (1 - 0.3 * g[Gn.Exo]); od += P.DESIC * ex[v] * wet * wet * A10; }   // 물 밖: 겉에서 물이 날아간다. 외골격(큐티클)이 조금 막아 준다
             B[7] = osm * kt * C * m.expo; B[8] = od * C * m.expo;                // 다세포는 겉 세포만 바깥물과 맞닿는다
             double prot = 1 - 0.9 * g[Gn.Pigment];
             B[9] = P.UV_DMG * U[v] * prot * (1 - 0.5 * g[Gn.Lorica]) * A10 * m.expo * C;
@@ -899,7 +910,7 @@ namespace Evo
             double nsed = P.NSED * env[Ev.Nut] / 100;
             for (int c = 0; c < NR; c++)
             {
-                int vb = Bot(c); nut[vb] += Math.Min(1, P.KSED * DT / dz[vb]) * (nsed * rnM[c] - nut[vb]);   // 바닥 퇴적물
+                int vb = Bot(c); nut[vb] += Math.Min(1, P.KSED * DT / dz[vb]) * (nsed * rnM[c] * (geo.rKind[c] == 2 ? P.NLAND * wMul : 1) - nut[vb]);   // 바닥 퇴적물(육지는 흙)
                 nut[c] += P.RIV * env[Ev.Nut] / 50 * geo.rCoast[c] * wMul * rnM[c] * DT / dz[c];      // 강: 해안선이 긴 해역의 표층, 풍화가 빠르면 더 많이
             }
             Mix(nut); Mix(bac); Mix(dox); Mix(pom); Mix(dom); Mix(cya);
@@ -924,7 +935,7 @@ namespace Evo
                 bac[v] = Math.Max(1e3, bac[v] + db);
                 dom[v] = Math.Max(0, dom[v] - uptake + mort * NB); nut[v] += rem;
                 // 남세균: 빛 × 영양염으로 자라고(광합성 → 산소), 바이러스로 죽으면 DOM. 엽록소 그늘에도 들어간다
-                double gc = P.CYA_G * kt * I[v] / (I[v] + P.CYA_IK) * nut[v] / (nut[v] + 0.3);
+                double gc = P.CYA_G * kt * I[v] / (I[v] + P.CYA_IK) * nut[v] / (nut[v] + 0.3) * (1 - ex[v]);   // 바탕 남세균은 바다 것: 물 밖에서는 못 자란다(땅의 생산자는 진화로 나와야)
                 double pc = Math.Min(cya[v] * gc * DT, nut[v] * 0.9 / NB), mc = cya[v] * P.CYA_M * (cya[v] / P.CYA_REF) * DT;
                 cya[v] = Math.Max(10, cya[v] + pc - mc); nut[v] -= pc * NB; dom[v] += mc * NB;
                 double o2cy = pc * P.BAC_E * 1.3;
@@ -1224,6 +1235,15 @@ namespace Evo
                 ns.named = true; st.sp = ns.id;
                 foreach (int o in live) { var so = strains[o]; if (so.sp == sp.id && Dist(so.g, ns.rep) < Dist(so.g, sp.rep)) so.sp = ns.id; }
                 Log("sp", $"신종: {ns.name} — {Taxa.Name(st)} · {ns.ko} ({Names.Of(sp)}에서 갈라짐)");
+            }
+            // 상륙: 마름을 견디는 계통이 육지 물막에 mL당 10(10 μm 세포 몫) 넘게 자리 잡으면(바다에서 날려 온 것만으로는 이만큼 못 쌓인다)
+            for (int c = geo.NO; c < NR && !landA; c++) if (geo.rKind[c] == 2) foreach (int s in live)
+            {
+                var st = strains[s]; if (st.g[Gn.Dry] < 0.5f) continue;
+                double b = 0; for (int k = 0; k < st.K; k++) b += cnt[Ix(s, c, k)] * st.C[k];
+                if (b / vol[c] < 10) continue;
+                if (!landed) { landed = true; Log("grade", $"처음으로 생물이 땅에 올라왔습니다: {Taxa.Name(st)} ({geo.Name(c)})"); }
+                if (st.dev && (st.g[Gn.Gut] > 0.5f || st.g[Gn.Neuro] > 0.5f)) { landA = true; Log("grade", $"처음으로 동물이 땅에 올라왔습니다: {Taxa.Name(st)} ({geo.Name(c)})"); break; }
             }
             if (recs.Count > 6000) PruneRecs();
             hist.Add(this);

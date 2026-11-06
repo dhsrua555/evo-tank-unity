@@ -7,6 +7,7 @@
 //   얼음: 고위도 바다가 얼면 빙상 → 해수면이 내려가 대륙붕이 드러난다(최대 −120 m), 녹으면 올라간다(최대 +70 m)
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Evo
 {
@@ -67,7 +68,7 @@ namespace Evo
             if (autoQ) AutoQuakes(dd);
             // 탄소: 기준 상태에서 방출 = 풍화(80%) + 매몰(20%)
             double V0 = CO2_0 / P.TAU_C, dT = env[Ev.Temp] - tBase;
-            if (tick % 12 == 0) { double b = buried - burPrev; burPrev = buried; areaTot = 0; for (int c = 0; c < NR; c++) areaTot += geo.rArea[c]; double r = b / Math.Max(1, areaTot * 1e-6); burRate = burRate == 0 ? r : burRate + (r - burRate) / 30; }
+            if (tick % 12 == 0) { double b = buried - burPrev; burPrev = buried; areaTot = 0; for (int c = 0; c < geo.NO; c++) areaTot += geo.rArea[c]; double r = b / Math.Max(1, areaTot * 1e-6); burRate = burRate == 0 ? r : burRate + (r - burRate) / 30; }
             double bN = Math.Min(3, burRate / P.BUR21);
             wMul = (float)(Math.Sqrt(co2 / CO2_0) * Math.Exp(0.07 * dT) * geo.LandCells() / Math.Max(1.0, land0) * (1 + upl));
             co2 = Math.Max(20, co2 + (V0 + outg - 0.8 * V0 * wMul - 0.2 * V0 * bN) * dd);
@@ -171,7 +172,7 @@ namespace Evo
         double[] Near(int cell, float radius)
         {
             var wr = new double[NR]; if (cell < 0) return wr;
-            for (int i = 0; i < Geo.G * Geo.G; i++) { int a = geo.reg[i]; if (a >= 0 && CellDist(i, cell) <= radius) wr[a] += 1.0 / geo.rCells[a]; }
+            for (int i = 0; i < Geo.G * Geo.G; i++) if (CellDist(i, cell) <= radius) foreach (int a in Owners(i)) wr[a] += 1.0 / geo.rCells[a];
             return wr;
         }
 
@@ -201,18 +202,22 @@ namespace Evo
             }
         }
 
+        // 지도 칸이 속한 해역들(바다 칸 = 해역 하나, 땅 칸 = 육지 + 해안이면 조간대)
+        IEnumerable<int> Owners(int i) { if (geo.reg[i] >= 0) yield return geo.reg[i]; if (geo.sreg[i] >= 0) yield return geo.sreg[i]; if (geo.lreg[i] >= 0) yield return geo.lreg[i]; }
+
         // 지형·해수면이 바뀐 뒤: 해역을 다시 나누고, 개체·물질을 칸 단위로 옛 해역 → 새 해역에 옮긴다(양 보존, 땅이 된 칸의 것은 사라짐)
         void Regrid()
         {
             geoDirty = false; int G2 = Geo.G * Geo.G;
-            var oReg = (int[])geo.reg.Clone(); var oCells = (int[])geo.rCells.Clone(); var oNy = (int[])nyR.Clone(); var oVol = (double[])vol.Clone();
+            var oReg = (int[])geo.reg.Clone(); var oS = (int[])geo.sreg.Clone(); var oL = (int[])geo.lreg.Clone(); var oCells = (int[])geo.rCells.Clone(); var oNy = (int[])nyR.Clone(); var oVol = (double[])vol.Clone();
             var chem = new[] { nut, bac, dox, pom, dom, cya }; var oChem = new double[chem.Length][]; for (int j = 0; j < chem.Length; j++) oChem[j] = (double[])chem[j].Clone();
             var oDep = (double[])dep.Clone(); var oCnt = new double[live.Count][];
             for (int j = 0; j < live.Count; j++) { oCnt[j] = new double[V * KM]; Array.Copy(cnt, Ix(live[j], 0, 0), oCnt[j], 0, V * KM); }
             double before = 0; foreach (var a in oCnt) foreach (var x in a) before += x;
-            geo.Regions(RMAX); Geometry();
+            geo.Regions(RMAX - Geo.NLAND); Geometry();
             var pair = new Dictionary<(int, int), int>();
-            for (int i = 0; i < G2; i++) if (oReg[i] >= 0 && geo.reg[i] >= 0) { var k = (oReg[i], geo.reg[i]); pair[k] = pair.GetValueOrDefault(k) + 1; }
+            void Pair(int a, int b) { if (a >= 0 && b >= 0) { var k = (a, b); pair[k] = pair.GetValueOrDefault(k) + 1; } }
+            for (int i = 0; i < G2; i++) { Pair(oReg[i], geo.reg[i]); Pair(oS[i], geo.sreg[i]); Pair(oL[i], geo.lreg[i]); }   // 바다는 바다로, 조간대는 조간대로, 육지는 육지로
             foreach (int s in live) Array.Clear(cnt, Ix(s, 0, 0), V * KM);
             var amt = new double[chem.Length][]; for (int j = 0; j < chem.Length; j++) amt[j] = new double[V];
             Array.Clear(dep, 0, V);
@@ -240,13 +245,13 @@ namespace Evo
         void Tweaks()   // 칸별 보정 → 해역 평균
         {
             Array.Clear(rdT, 0, RMAX); Array.Clear(rnM, 0, RMAX);
-            for (int i = 0; i < Geo.G * Geo.G; i++) { int c = geo.reg[i]; if (c >= 0) { rdT[c] += cellDT[i] / geo.rCells[c]; rnM[c] += cellNM[i] / geo.rCells[c]; } }
+            for (int i = 0; i < Geo.G * Geo.G; i++) foreach (int c in Owners(i)) { rdT[c] += cellDT[i] / geo.rCells[c]; rnM[c] += cellNM[i] / geo.rCells[c]; }
         }
 
         // 고급 패널: 해역 c의 칸들에 수온 보정·영양염 배율
         public void SetRegionTweak(int c, float dT, float nM)
         {
-            for (int i = 0; i < Geo.G * Geo.G; i++) if (geo.reg[i] == c) { cellDT[i] = dT; cellNM[i] = nM; }
+            for (int i = 0; i < Geo.G * Geo.G; i++) if (Owners(i).Contains(c)) { cellDT[i] = dT; cellNM[i] = nM; }
             rdT[c] = dT; rnM[c] = nM;
         }
     }

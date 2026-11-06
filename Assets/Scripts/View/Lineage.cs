@@ -262,11 +262,11 @@ public partial class EvoTank
     {
         var ph = new Strain { id = r.id, g = r.g, hue = r.hue }; World.Shape(ph);
         int k = ph.K - 1; var m = w.MorphAt(ph, V, k, 0); bool mac = m.L * 1e-6f >= MICRO;
-        Render1(rt, Bodies.Get(ph, k, m, 0, 0), mac, Quaternion.Euler(16, yaw, 0) * new Vector3(0, 0, -2.3f), r.id, 1);
+        Render1(rt, Bodies.Get(ph, k, m, 0, 0), mac, Quaternion.Euler(16, yaw, 0) * new Vector3(0, 0, -2.3f), r.id, 1, m.sessile);
     }
 
     // 메시 하나를 rt에 그린다(몸길이 1이 화면의 80%쯤). 돌려주는 값 = 메시 좌표 → 화면 행렬(이름표용)
-    Matrix4x4 Render1(RenderTexture rt, Mesh mesh, bool mac, Vector3 eye, float t0, float rate)
+    Matrix4x4 Render1(RenderTexture rt, Mesh mesh, bool mac, Vector3 eye, float t0, float rate, bool up = false)   // up: 부착 생물 메시(+Z = 위)를 세워서
     {
         cb ??= new CommandBuffer { name = "portrait" }; mpbP ??= new MaterialPropertyBlock();
         var view = Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(eye, Quaternion.LookRotation(-eye), Vector3.one).inverse;
@@ -276,7 +276,7 @@ public partial class EvoTank
         cb.SetViewProjectionMatrices(view, proj);
         cb.SetGlobalVector("_WorldSpaceCameraPos", eye);
         var bb = mesh.bounds; float s = 0.56f / Mathf.Max(1e-4f, Mathf.Max(bb.extents.x, Mathf.Max(bb.extents.y, bb.extents.z)));
-        var model = Matrix4x4.Scale(Vector3.one * s) * Matrix4x4.Translate(-bb.center);   // 편모·가시·축족까지 칸에 꽉 차게
+        var model = (up ? Matrix4x4.Rotate(Quaternion.Euler(-90, 0, 0)) : Matrix4x4.identity) * Matrix4x4.Scale(Vector3.one * s) * Matrix4x4.Translate(-bb.center);   // 편모·가시·축족까지 칸에 꽉 차게
         cb.DrawMesh(mesh, model, mac ? mMacro : mMicro, 0, 0, mpbP);
         Graphics.ExecuteCommandBuffer(cb);
         return proj * view * model;

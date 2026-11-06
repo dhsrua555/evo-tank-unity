@@ -471,6 +471,24 @@ public static class Bodies
     static void Seaweed(MB b, Strain st, in Morph m, System.Random r)
     {
         var g = st.g;
+        if (g[Gn.Dry] >= 0.8f)   // 이끼(육상): 키 작은 줄기 여럿이 쿠션처럼 빽빽이 모여 물을 머금는다. 잎은 줄기에 붙은 작은 비늘
+        {
+            for (int i = 0; i < 34; i++)
+            {
+                float a = (float)r.NextDouble() * 6.28f, rr = 0.32f * Mathf.Sqrt((float)r.NextDouble()), h = 0.3f + 0.12f * (float)r.NextDouble() - 0.5f * rr;
+                var p0 = new Vector3(Mathf.Cos(a) * rr, Mathf.Sin(a) * rr, -0.5f); var lean = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0) * rr * 0.3f;
+                var pts = new[] { p0, p0 + lean * 0.4f + Vector3.forward * h * 0.5f, p0 + lean + Vector3.forward * h };
+                var c = Col(0.28f, 0.5f + 0.15f * (float)r.NextDouble(), 0.18f, 1);
+                Tube(b, pts, u => 0.007f, c * 0.75f, 4, SWAY, 0.005f, i, Vector3.right);
+                for (int j = 2; j <= 10; j++)
+                {
+                    var q = Vector3.Lerp(pts[0], pts[2], j / 10.5f); float la = j * 2.4f + i;
+                    var ld = new Vector3(Mathf.Cos(la), Mathf.Sin(la), 1.1f).normalized;
+                    Ellipsoid(b, q + ld * 0.014f, new Vector3(0.007f, 0.003f, 0.018f) * (1.15f - 0.5f * j / 10f), Quaternion.LookRotation(ld, Vector3.forward), c * (0.9f + 0.02f * j), 4);
+                }
+            }
+            b.Mark("줄기", new Vector3(0, 0, -0.2f)); b.Mark("잎", new Vector3(0.05f, 0, -0.1f)); return;
+        }
         var col = Color.Lerp(Col(0.25f, 0.75f, 0.3f, 0.85f), Col(0.75f, 0.25f, 0.3f, 0.85f), g[Gn.Pigment]);   // 색소가 많으면 홍조류
         if (g[Gn.Pigment] > 0.3f && g[Gn.Pigment] < 0.6f) col = Col(0.55f, 0.45f, 0.2f, 0.85f);                 // 중간이면 갈조류 빛
         float th = 0.012f + 0.02f * g[Gn.Form];
@@ -540,7 +558,8 @@ public static class Bodies
             }
             if (g[Gn.Mineral] > 0.4f)   // 산호: 석회 골격 위에 작은 폴립 여럿(군체)
             {
-                Ellipsoid(b, Mk(b, "석회 골격", new Vector3(0.3f, 0, -0.42f)), new Vector3(0.38f, 0.38f, 0.12f), Quaternion.identity, Col(0.93f, 0.9f, 0.82f, 1), 10, u => 1 + 0.08f * Mathf.Sin(u.x * 9) * Mathf.Sin(u.y * 7));
+                b.Mark("석회 골격", new Vector3(0.3f, 0, -0.38f));
+                Ellipsoid(b, new Vector3(0, 0, -0.42f), new Vector3(0.38f, 0.38f, 0.12f), Quaternion.identity, Col(0.93f, 0.9f, 0.82f, 1), 10, u => 1 + 0.08f * Mathf.Sin(u.x * 9) * Mathf.Sin(u.y * 7));
                 for (int p = 0; p < 6; p++) Polyp(p == 0 ? new Vector3(0, 0, -0.12f) : new Vector3(Mathf.Cos(p * 1.26f) * 0.22f, Mathf.Sin(p * 1.26f) * 0.22f, -0.2f), 0.5f, p * 3);
                 b.Mark("폴립", new Vector3(0.05f, 0, -0.2f));
             }

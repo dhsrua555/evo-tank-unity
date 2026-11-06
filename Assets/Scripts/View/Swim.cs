@@ -21,9 +21,9 @@ public partial class EvoTank
     // 관찰자 수심 위아래 두 층과 무게, 가장 가까운 칸, 바닥·수면 높이
     void Cells()
     {
-        if (regSeen != w.regridN && obsCell >= 0) { regSeen = w.regridN; reg = NearestSea(obsCell); }
-        if (reg < 0 || reg >= w.NR) { reg = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] < w.geo.rDepth[reg]) reg = c; }
-        if (obsCell < 0 || w.geo.reg[obsCell] != reg) obsCell = Array.IndexOf(w.geo.reg, reg);
+        if (regSeen != w.regridN && obsCell >= 0) { regSeen = w.regridN; reg = w.geo.Any(obsCell); }   // 지형이 바뀌어도 같은 지도 칸에 남는다(바다가 땅이 되면 그 땅)
+        if (reg < 0 || reg >= w.NR) { reg = 0; for (int c = 1; c < w.geo.NO; c++) if (w.geo.rDepth[c] < w.geo.rDepth[reg]) reg = c; }
+        if (obsCell < 0 || w.geo.Any(obsCell) != reg) for (obsCell = 0; obsCell < Geo.G * Geo.G - 1 && w.geo.Any(obsCell) != reg; obsCell++) { }
         py = Math.Min(py, Floor);
         int n = w.nyR[reg], y0 = 0;
         while (y0 < n - 2 && w.zc[(y0 + 1) * World.LS + reg] <= py) y0++;
@@ -38,12 +38,6 @@ public partial class EvoTank
 
     // 다른 해역으로(지도·혈통 찾기): 시야의 개체는 새로 뽑는다
     void GoTo(int r, double depth, int cell = -1) { reg = r; obsCell = cell; py = depth; avs.Clear(); sel = null; tRes = 0; Cells(); }
-    int NearestSea(int cell)
-    {
-        int best = -1; float bd = 1e9f;
-        for (int i = 0; i < Geo.G * Geo.G; i++) if (w.geo.reg[i] >= 0) { int dx = i % Geo.G - cell % Geo.G, dz = i / Geo.G - cell / Geo.G; float d = dx * dx + dz * dz; if (d < bd) { bd = d; best = i; } }
-        if (best >= 0) obsCell = best; return best >= 0 ? w.geo.reg[best] : 0;
-    }
 
     // 관찰자를 dm(m, 화면 축: y = 위)만큼 옮긴다. 시야보다 멀리 가면 개체를 새로 뽑는다
     void MoveBy(Vector3 dm)
@@ -153,7 +147,7 @@ public partial class EvoTank
                                : Color.Lerp(new Color(0.5f, 0.86f, 0.84f), new Color(0.03f, 0.08f, 0.26f), Mathf.Log(1 + d / 20) / Mathf.Log(251));
                 if (d > 0 && g.reg[i] >= 0) c = Color.Lerp(c, new Color(0.92f, 0.96f, 1), w.iceR[g.reg[i]] * 0.8f);   // 바다얼음
                 if (d <= 0 && Geo.Lat(i / G) > 45) c = Color.Lerp(c, new Color(0.92f, 0.96f, 1), Mathf.Clamp01(w.ice * 1.5f - (60 - Geo.Lat(i / G)) / 20));   // 빙상: 고위도 땅부터
-                if (g.reg[i] == reg) c = Color.Lerp(c, new Color(1, 0.9f, 0.2f), 0.8f);   // 지금 해역: 깊이와 상관없이 밝은 노랑(땅 갈색과 헷갈리지 않게)
+                if (g.Any(i) == reg) c = Color.Lerp(c, new Color(1, 0.9f, 0.2f), 0.8f);   // 지금 해역: 깊이와 상관없이 밝은 노랑(땅 갈색과 헷갈리지 않게)
                 mapT.SetPixel(i % G, i / G, c);   // 아래 줄 = 남쪽(위도 2°), 위 = 북쪽(60°)
             }
             mapT.Apply();
@@ -170,13 +164,13 @@ public partial class EvoTank
         }
         GUI.Label(new Rect(img.xMax + 10, r.y + 6, r.xMax - img.xMax - 16, r.height - 12),
             placing ? $"<b><color=#ffb070>{World.QName[qSel]}</color></b>\n지도에서 일어날 곳을 누르세요.\n\n(자연 탭에서 다시 누르면 취소)"
-            : $"<b>{Geo.LName(g.rLat[reg])} {Geo.DName(g.rDepth[reg])}</b>\n북위 {g.rLat[reg]:0}° · 수심 {g.rDepth[reg]:0} m\n넓이 {g.rCells[reg] * 4}만 km²\n표층 {w.sst[reg]:0.0}°C · 혼합층 {w.mld[reg]:0} m{(w.iceR[reg] > 0.05f ? $"\n바다얼음 {w.iceR[reg] * 100:0}%" : "")}\n\n해역 {w.NR}곳 · 지도를 누르면 그 바다로", sS);
+            : $"<b>{g.Name(reg)}</b>\n북위 {g.rLat[reg]:0}° · {(g.rKind[reg] == 0 ? $"수심 {g.rDepth[reg]:0} m" : g.rKind[reg] == 1 ? $"물 밖에 드러남 {w.P.TIDE * 100:0}%" : "흙 속 물막 10 cm")}\n넓이 {g.rArea[reg] * 1e-10:0.#}만 km²\n표층 {w.sst[reg]:0.0}°C · 혼합층 {w.mld[reg]:0} m{(w.iceR[reg] > 0.05f ? $"\n바다얼음 {w.iceR[reg] * 100:0}%" : "")}\n\n바다 {g.NO}곳 · 땅 {w.NR - g.NO}곳 · 지도를 누르면 그곳으로", sS);
         if (GUI.Button(img, GUIContent.none, GUIStyle.none))
         {
             var p = Event.current.mousePosition;
             int x = Mathf.Clamp((int)((p.x - img.x) / img.width * G), 0, G - 1), z = Mathf.Clamp(G - 1 - (int)((p.y - img.y) / img.height * G), 0, G - 1);
             if (placing) FireQ(z * G + x);
-            else { int to = g.reg[z * G + x]; if (to >= 0 && to != reg) GoTo(to, py, z * G + x); }
+            else { int to = g.Any(z * G + x); if (to >= 0 && to != reg) GoTo(to, py, z * G + x); }
         }
     }
 }

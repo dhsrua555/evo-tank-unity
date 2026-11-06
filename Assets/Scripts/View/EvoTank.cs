@@ -21,7 +21,7 @@ public partial class EvoTank : MonoBehaviour
     bool noDots;
 
     World w; Camera cam;
-    Material mMicro, mMacro, mDots; Mesh dots, floorM;
+    Material mMicro, mMacro, mDots; Mesh dots, floorM, floorL;
     MaterialPropertyBlock mpb; readonly double[] bud = new double[14];
 
     int speed = 1; double acc; float frameSim;
@@ -51,7 +51,7 @@ public partial class EvoTank : MonoBehaviour
         mMicro = new Material(Shader.Find("Evo/Micro")); mMacro = new Material(Shader.Find("Evo/Macro"));
         mDots = new Material(Shader.Find("Evo/Dots"));
         mpb = new MaterialPropertyBlock(); LookInit();
-        dots = DotsMesh(3000); floorM = FloorMesh(); Cells();
+        dots = DotsMesh(3000); floorM = FloorMesh(new Color(0.55f, 0.48f, 0.36f)); floorL = FloorMesh(new Color(0.3f, 0.22f, 0.14f)); Cells();
         Fonts();
         var args = Environment.GetCommandLineArgs(); int ai = Array.IndexOf(args, "-shots");
         if (ai >= 0 && ai + 1 < args.Length) StartCoroutine(Shots(args[ai + 1], Array.IndexOf(args, "-gallery") >= 0));
@@ -77,6 +77,8 @@ public partial class EvoTank : MonoBehaviour
         Wm((Gn.Bilat, 0f), (Gn.Neuro, 0.4f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f), (Gn.Limb, 0.5f)), Wm((Gn.Bilat, 0f), (Gn.Neuro, 0.4f), (Gn.Exo, 0.6f), (Gn.Mineral, 0.7f)),
         Wm((Gn.Bilat, 0f), (Gn.Neuro, 0.3f), (Gn.Gut, 0.6f), (Gn.Attach, 0.7f), (Gn.Mineral, 0.6f), (Gn.Cells, 12f)),
         Fi(), Fi((Gn.Mineral, 0.6f)), Fi((Gn.Jaw, 0.7f), (Gn.Exo, 0.5f), (Gn.Mineral, 0.6f)), Fi((Gn.Jaw, 0.7f), (Gn.Limb, 0.5f)), Fi((Gn.Jaw, 0.7f), (Gn.Mineral, 0.6f), (Gn.Limb, 0.5f)),
+        // 5단계: 이끼(마름 견디기 + 광합성 다세포)
+        new[] { (Gn.Cells, 12f), (Gn.Diff, 0.8f), (Gn.Form, 0.5f), (Gn.Photo, 0.8f), (Gn.Attach, 0.7f), (Gn.Wall, 0.6f), (Gn.Phago, 0f), (Gn.Dry, 0.9f) },
     };
     static (int g, float v)[] Wm(params (int, float)[] x) => new[] { (Gn.Cells, 16f), (Gn.Diff, 0.9f), (Gn.Form, 1f), (Gn.Gut, 0.7f), (Gn.Neuro, 0.6f), (Gn.Bilat, 0.6f), (Gn.Photo, 0f), (Gn.Phago, 0.4f), (Gn.Aerobic, 1f) }.Concat(x).ToArray();
     static (int g, float v)[] Fi(params (int, float)[] x) => new[] { (Gn.Cells, 28f), (Gn.Diff, 1f), (Gn.Form, 1f), (Gn.Gut, 0.9f), (Gn.Neuro, 0.8f), (Gn.Bilat, 0.9f), (Gn.Skel, 0.8f), (Gn.Circ, 0.8f), (Gn.Eye, 0.8f), (Gn.Elong, 1.5f), (Gn.Photo, 0f), (Gn.Phago, 0.3f), (Gn.Aerobic, 1f), (Gn.Buoy, 0.3f), (Gn.Egg, 10f), (Gn.Jaw, 0f) }.Concat(x).ToArray();
@@ -110,7 +112,7 @@ public partial class EvoTank : MonoBehaviour
                 sel = new Av { id = st.id, slot = st.slot, k = k, look = lk, dir = Vector3.forward, rot = Quaternion.identity, L = w.M(st.slot, V, k).L * 1e-6f, rate = 1 };
                 cYaw = 60; cPitch = 14; cDragT = Time.time; yield return null; yield return null;
                 RenderTexture.active = cardRT; tex.ReadPixels(new Rect(0, 0, 512, 512), 0, 0); RenderTexture.active = null;
-                System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, lk == Look.Cell ? $"card-{(int)Bodies.PlanOf(st)}{Bodies.PlanOf(st)}{(st.aspect < 1.5f ? "" : "-long")}.png" : $"card-L{(int)lk:00}{lk}{(lk == Look.Echino && st.g[Gn.Limb] < 0.3f ? "-urchin" : "")}.png"), tex.EncodeToPNG());
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, lk == Look.Cell ? $"card-{(int)Bodies.PlanOf(st)}{Bodies.PlanOf(st)}{(st.aspect < 1.5f ? "" : "-long")}.png" : $"card-L{(int)lk:00}{lk}{(lk == Look.Echino && st.g[Gn.Limb] < 0.3f ? "-urchin" : lk == Look.Seaweed && st.g[Gn.Dry] >= 0.8f ? "-moss" : "")}.png"), tex.EncodeToPNG());
                 Debug.Log($"[EvoTank] plan {(lk == Look.Cell ? Bodies.PlanOf(st).ToString() : lk.ToString())} {StageName(st, k)} verts {cardMesh?.vertexCount} parts {string.Join(",", Bodies.Parts(cardMesh).Select(x => x.name))}");
             }
             sel = null;
@@ -142,12 +144,15 @@ public partial class EvoTank : MonoBehaviour
         MoveBy(new Vector3(0, -6f, 0)); yield return wait; yield return Snap("6b-deep"); MoveBy(new Vector3(0, (float)(py - pk), 0)); Bt = bk2; yield return wait;
         int r0 = reg, rd = 0; for (int c = 1; c < w.NR; c++) if (w.geo.rDepth[c] > w.geo.rDepth[rd]) rd = c;   // 해역 옮기기: 가장 깊은 바다 300 m
         GoTo(rd, 300); yield return wait; Debug.Log($"[EvoTank] region {r0}->{reg} {Geo.DName(w.geo.rDepth[reg])} depth {py:0} floor {Floor:0} vNear y{vNear / World.LS} {(reg == rd && Math.Abs(py - 300) < 1e-3 ? "ok" : "FAIL")}"); yield return Snap("7-ocean");
+        int rs = Array.IndexOf(w.geo.rKind, (byte)1), rl = Array.IndexOf(w.geo.rKind, (byte)2);   // 땅: 조간대 웅덩이, 육지 흙 속 물막
+        if (rs >= 0) { GoTo(rs, 0.5); yield return wait; Debug.Log($"[EvoTank] shore {w.geo.Name(reg)} floor {Floor:0.0} obs {obsCell} {(reg == rs && w.geo.Any(obsCell) == rs ? "ok" : "FAIL")}"); yield return Snap("7b-shore"); }
+        if (rl >= 0) { GoTo(rl, 0.05); yield return wait; Debug.Log($"[EvoTank] land {w.geo.Name(reg)} floor {Floor:0.00} obs {obsCell} {(reg == rl && w.geo.Any(obsCell) == rl ? "ok" : "FAIL")}"); yield return Snap("7c-land"); }
         GoTo(r0, 1.25); yield return wait;
         // 자연현상 점검: 지금 해역에 거대 화산, 빙하기 → 빙상·해수면·해역 다시 나누기, 계통수 사건 줄, 고급 패널
         tab = 0; qSel = 0; qSize = 3; float t0 = w.env[Ev.Temp]; FireQ(obsCell); yield return wait;
         Debug.Log($"[EvoTank] quake volcano {(w.quakes.Count > 0 && w.aer > 1 ? "ok" : "FAIL")} aer {w.aer:0.00} T {t0:0.0}->{w.env[Ev.Temp]:0.0} text {w.quakes[^1].text}"); yield return Snap("8-volcano");
         int rg0 = w.regridN; w.Fire(Qk.IceAge, 3, -1, World.IceAmp(3), 0, 40); speed = 3; yield return new WaitForSecondsRealtime(12);
-        Debug.Log($"[EvoTank] quake ice ice {w.ice:0.00} sea {w.geo.sea:0} regrid {rg0}->{w.regridN} reg {reg}/{w.NR} obs {obsCell}->{w.geo.reg[obsCell]} {(w.regridN > rg0 && reg < w.NR && w.geo.reg[obsCell] == reg ? "ok" : "FAIL")} T {w.env[Ev.Temp]:0.0}"); yield return Snap("8b-ice");
+        Debug.Log($"[EvoTank] quake ice ice {w.ice:0.00} sea {w.geo.sea:0} regrid {rg0}->{w.regridN} reg {reg}/{w.NR} obs {obsCell}->{w.geo.Any(obsCell)} {(w.regridN > rg0 && reg < w.NR && w.geo.Any(obsCell) == reg ? "ok" : "FAIL")} T {w.env[Ev.Temp]:0.0}"); yield return Snap("8b-ice");
         speed = 0; tab = 3; yield return null; yield return Snap("8c-tree");
         tab = 0; advanced = true; yield return null; yield return Snap("8d-advanced"); advanced = false;
         speed = 3; tab = 3; yield return new WaitForSecondsRealtime(gallery ? 8 : 30); yield return Snap("5-fast");
@@ -321,6 +326,7 @@ public partial class EvoTank : MonoBehaviour
         // 이 깊이까지 내려온 햇빛 색: 빨강이 먼저 줄어 깊을수록 청록. 물빛 = 그 빛이 물에 흩어진 색
         var lc = new Vector3(Mathf.Exp(-SIGMA.x * (float)py), Mathf.Exp(-SIGMA.y * (float)py), Mathf.Exp(-SIGMA.z * (float)py)); lc /= Mathf.Max(lc.x, Mathf.Max(lc.y, lc.z));
         var water = Color.Lerp(new Color(0.01f, 0.03f, 0.06f), new Color(0.1f + 0.14f * lc.x, 0.42f * lc.y, 0.55f * lc.z), sun);
+        int kd = w.geo.rKind[reg]; if (kd > 0) water = Color.Lerp(water, new Color(0.3f, 0.27f, 0.17f) * (0.3f + 0.7f * sun), kd == 2 ? 0.65f : 0.3f);   // 조간대 웅덩이·흙 속 물막: 흙탕 빛
         cam.backgroundColor = ms ? water : new Color(0.01f, 0.012f, 0.02f);
         Shader.SetGlobalVector("_FogCol", water); Shader.SetGlobalFloat("_Sun", sun);
         Shader.SetGlobalVector("_Sigma", SIGMA / u); Shader.SetGlobalVector("_LightCol", new Vector4(lc.x, lc.y, lc.z, 1));
@@ -359,7 +365,7 @@ public partial class EvoTank : MonoBehaviour
         if (yF > -H)   // 바닥이 보이면: 모래 판을 시야를 덮게 깔고, 헤엄치면 함께 흘러간다
         {
             float ox = -(float)Frac(px * u / BOX) * BOX, oz = -(float)Frac(pz * u / BOX) * BOX;
-            for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) Graphics.DrawMesh(floorM, Matrix4x4.Translate(new Vector3(ox + i * BOX, yF + H, oz + j * BOX)), mMacro, 0);
+            for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) Graphics.DrawMesh(kd == 2 ? floorL : floorM, Matrix4x4.Translate(new Vector3(ox + i * BOX, yF + H, oz + j * BOX)), mMacro, 0);
         }
         LookEnd(ms, u, sun);
     }
@@ -427,13 +433,13 @@ public partial class EvoTank : MonoBehaviour
         }
         var m = new Mesh { vertices = v, uv = uv, uv2 = id, triangles = t }; m.bounds = new Bounds(Vector3.zero, Vector3.one * 1000); return m;
     }
-    static Mesh FloorMesh()
+    static Mesh FloorMesh(Color b)   // 모래(바다·조간대)·흙(육지)
     {
         var r = new System.Random(3); int n = 24; var v = new List<Vector3>(); var c = new List<Color>(); var t = new List<int>();
         for (int i = 0; i <= n; i++) for (int j = 0; j <= n; j++)
         {
             float x = -H + BOX * i / n, z = -H + BOX * j / n; v.Add(new(x, -H + (float)r.NextDouble() * 0.06f, z));
-            float k = 0.8f + 0.2f * (float)r.NextDouble(); c.Add(new Color(0.55f * k, 0.48f * k, 0.36f * k, 1));
+            float k = 0.8f + 0.2f * (float)r.NextDouble(); c.Add(new Color(b.r * k, b.g * k, b.b * k, 1));
         }
         for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) { int a = i * (n + 1) + j; t.AddRange(new[] { a, a + 1, a + n + 1, a + 1, a + n + 2, a + n + 1 }); }
         var m = new Mesh(); m.SetVertices(v); m.SetColors(c); m.SetTriangles(t, 0); m.SetUVs(0, Enumerable.Repeat(Vector4.zero, v.Count).ToList()); m.RecalculateNormals(); return m;
@@ -580,7 +586,7 @@ public partial class EvoTank : MonoBehaviour
         GUILayout.Space(4); GUILayout.Label($"돌연변이 속도 ×{mutX:0.00}  (높을수록 새 계통이 자주 생긴다)", sL);
         float mx = Mathf.Pow(2, GUILayout.HorizontalSlider(Mathf.Log(mutX, 2), -2, 2));
         if (Mathf.Abs(mx - mutX) > 1e-3f) { mutX = mx; var d0 = new Params(); w.P.MUT_NEW = d0.MUT_NEW * mx; w.P.MUT_U = d0.MUT_U * mx; w.P.MUT_FLOOR = d0.MUT_FLOOR * mx; }
-        GUILayout.Space(4); GUILayout.Label($"<b>이 해역만</b> ({Geo.LName(w.geo.rLat[reg])} {Geo.DName(w.geo.rDepth[reg])})  수온 {w.rdT[reg]:+0.0;-0.0;0} °C · 영양염 ×{w.rnM[reg]:0.0}", sL);
+        GUILayout.Space(4); GUILayout.Label($"<b>이 해역만</b> ({w.geo.Name(reg)})  수온 {w.rdT[reg]:+0.0;-0.0;0} °C · 영양염 ×{w.rnM[reg]:0.0}", sL);
         float rT = Mathf.Round(GUILayout.HorizontalSlider(w.rdT[reg], -10, 10) * 2) / 2, rN = Mathf.Round(GUILayout.HorizontalSlider(w.rnM[reg], 0, 5) * 10) / 10;
         if (rT != w.rdT[reg] || rN != w.rnM[reg]) w.SetRegionTweak(reg, rT, rN);
         GUILayout.Space(4); GUILayout.Label("미리 정한 바다", sL);
