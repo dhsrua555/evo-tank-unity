@@ -14,17 +14,17 @@ Shader "Evo/Dots"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
-            float _Count, _Size, _Box; float4 _Color;
+            float _Count, _Size, _Box; float4 _Color, _Off, _YLim;   // _Off 헤엄친 만큼 어긋남(상자 비율), _YLim 바닥·수면 높이
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float fade : TEXCOORD1; };
             v2f vert (appdata v)
             {
                 v2f o; float t = _Time.y, k = v.uv2.x * 97.0;
-                float3 c = frac(v.vertex.xyz + float3(sin(t * 0.21 + k) * 0.01, -t * 0.004, cos(t * 0.17 + k * 1.3) * 0.01));
+                float3 c = frac(v.vertex.xyz + float3(sin(t * 0.21 + k) * 0.01, -t * 0.004, cos(t * 0.17 + k * 1.3) * 0.01) - _Off.xyz);
                 float3 w = (c - 0.5) * _Box;
                 float4 vp = mul(UNITY_MATRIX_V, float4(w, 1)); vp.xy += v.uv * _Size;
                 o.pos = v.uv2.x > _Count ? float4(0, 0, -10, 1) : mul(UNITY_MATRIX_P, vp);
-                float3 e = abs(c - 0.5) * 2; o.fade = saturate((1 - max(e.x, max(e.y, e.z))) * 6);
+                o.fade = saturate((1 - length(c - 0.5) * 2) * 4) * step(_YLim.x, w.y) * step(w.y, _YLim.y);   // 관찰자 둘레 구 안만
                 o.uv = v.uv; return o;
             }
             fixed4 frag (v2f i) : SV_Target { float a = saturate(1 - dot(i.uv, i.uv)); return fixed4(_Color.rgb, a * a * _Color.a * i.fade); }

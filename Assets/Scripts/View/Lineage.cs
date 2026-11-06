@@ -57,7 +57,7 @@ public partial class EvoTank
         if (t != follow) Switch(follow, t, why);
         int slot = idSlot[t]; var st = w.strains[slot];
         if (sel != null && sel.slot == slot && sel.id == st.id) return;
-        int bk = -1; double bc = 0; for (int k = 0; k < st.K; k++) { double c = w.cnt[World.Ix(slot, V, k)]; if (c > bc) { bc = c; bk = k; } }
+        int bk = -1; double bc = 0; for (int k = 0; k < st.K; k++) { double c = Dens(slot, k); if (c > bc) { bc = c; bk = k; } }
         if (bk < 0) { int ak = 0; for (int k = 1; k < st.K; k++) if (st.stage[k] > st.stage[ak]) ak = k; Focus(slot, ak, false); return; }   // 이 칸에 없으면 그 계통이 많은 곳으로
         float L = w.M(slot, V, bk).L * 1e-6f; if (L < B * 0.006f || L > B * 0.5f) Bt = Mathf.Clamp(L * SELZ, 2e-5f, 3);
         want = (slot, bk); tRes = 0;
