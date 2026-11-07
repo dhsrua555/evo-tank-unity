@@ -46,12 +46,21 @@ public partial class EvoTank : MonoBehaviour
         w.StepPost(); acc -= 1;
     }
     void OnApplicationQuit() { try { job?.Wait(); } catch (Exception) { } }
+
+    // 오류를 화면 위 알림으로도 띄운다: 휴대폰에선 로그를 볼 수 없으니 이 화면을 찍어 보내면 어디서 났는지 안다
+    void ShowError(string msg, string stack, LogType type)
+    {
+        if (type != LogType.Exception && type != LogType.Error) return;
+        toast = $"<b>오류</b> {msg}\n{stack.Split('\n')[0]}";
+        toastT = 10;
+    }
     static readonly float[] TPS = { 0, 12, 120, 1e9f };
     float mutX = 1, rateSel = 0.0001f;
 
     float B = 3e-4f, Bt = 3e-4f; bool fit = true;    // 상자 한 변(m)과 목표값. fit = 다음 Scan에서 한 번 가장 큰 생물에 맞춤
     float conc = 1;
     float yaw = 35, pitch = 18, dist = 9, camDist = 9; Vector3 m0; bool dragging, overUI;
+    int ctlFrames; float lastTouch = -1;   // 휴대폰 점검 줄: Controls가 돈 횟수, 마지막 터치 시각
     (int slot, int k) want = (-1, 0);                  // 종 목록에서 고른 것: 다음 표본에서 하나 고른다
 
     sealed class Av { public int id, slot, k; public Look look; public Vector3 p, dir, vs = Vector3.one; public float L, spd, sink, t0, rate, grow = 1, pinch = -1, ph; public bool sessile, crawl; public Quaternion rot; }   // vs 개체마다 조금 다른 몸 비율, pinch 분열 진행(0–1)
@@ -66,6 +75,7 @@ public partial class EvoTank : MonoBehaviour
     {
         Application.targetFrameRate = 60;
         if (Application.isMobilePlatform) Screen.sleepTimeout = SleepTimeout.NeverSleep;   // 휴대폰: 지켜보는 앱이라 화면이 꺼지지 않게
+        Application.logMessageReceived += ShowError;
         w = new World(Environment.TickCount & 0xffff) { o2Bio = true, autoQ = true, activity = 0.4f };   // 앱: 산소는 생물이, 사건은 자연이
         w.po.MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2);   // 화면·렌더 스레드 몫 둘을 남긴다
         Bodies.Sp = id => w.species.TryGetValue(id, out var s) ? s : null;   // 몸 그리기가 종 표지를 찾는 길
@@ -455,6 +465,7 @@ public partial class EvoTank : MonoBehaviour
     // ---------- 조작 ----------
     void Controls(float dt)
     {
+        ctlFrames++; if (Input.touchCount > 0) lastTouch = Time.time;   // 휴대폰 점검 줄용
         var mp = Input.mousePosition; var gp = new Vector2(mp.x, Screen.height - mp.y) / UIScale;
         overUI = win != 0 || panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || gauge.Contains(gp) || mapR.Contains(gp) || card.Contains(gp) || tray.Contains(gp) || help && gp.y > Screen.height / UIScale - 200 && gp.x < 570;
         if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1)) { m0 = mp; dragging = !overUI; }

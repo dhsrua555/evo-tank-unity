@@ -12,8 +12,8 @@ public static class EvoBuild
 {
     const string Scene = "Assets/Main.unity";
     // 판: 올릴 때 둘 다 바꾼다(안드로이드 번호는 늘기만 해야 덮어 설치된다). README 내려받기 링크의 판 번호도 함께
-    public const string Version = "0.1.0";
-    const int VersionCode = 1;
+    public const string Version = "0.1.1";
+    const int VersionCode = 2;
 
     static void Build(BuildTarget target, string path)
     {
@@ -66,6 +66,7 @@ public static class EvoBuild
         PlayerSettings.allowedAutorotateToPortrait = PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
         PlayerSettings.allowedAutorotateToLandscapeLeft = PlayerSettings.allowedAutorotateToLandscapeRight = true;
         PlayerSettings.Android.predictiveBackSupport = false;   // 뒤로 버튼을 Esc로 받는다(창 닫기·고르기 풀기)
+        PlayerSettings.Android.applicationEntry = AndroidApplicationEntry.Activity;   // GameActivity(기본)는 실제 기기에서 터치·UI가 전혀 안 먹는 Unity 버그가 있다(IN-87521, 11-07 태블릿에서 겪음)
         EditorUserBuildSettings.buildAppBundle = false;
         Build(BuildTarget.Android, "Builds/Android/EvoTank.apk");
     }

@@ -163,6 +163,9 @@ public partial class EvoTank
         TopBar(W);
         // 아래 왼쪽: 축척·수심 + 작은 단추
         GUI.Box(info, GUIContent.none, sBox);
+        // ponytail: 휴대폰 점검 줄(터치가 안 먹는 원인 찾기). 원인을 고치면 지운다. 조작 횟수가 안 늘면 Update가 Controls 전에 멈춘 것
+        if (Application.isMobilePlatform)
+            GUI.Label(new Rect(14, Hh - 80, 700, 20), $"<size=11>{1 / Time.smoothDeltaTime:0} fps · 계산 {frameSim:0} ms · {SystemInfo.graphicsDeviceType} · 프레임 {Time.frameCount} · 조작 {ctlFrames} · 마지막 터치 {Time.time - lastTouch:0} s 전</size>", sS);
         ScaleBar(new Rect(22, Hh - 50, 220, 30));
         GUI.Label(new Rect(250, Hh - 46, 160, 40), $"<size=11>시야 {Len(B)}\n수심 {py:0.00} m{(DEV ? $" · 농축 ×{Num(conc)}" : "")}</size>", sS);
         float bx = 410;
