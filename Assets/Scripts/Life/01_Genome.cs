@@ -68,7 +68,7 @@ namespace Life
             for (int i = 0; i < G.NA; i++) g[i] = 0.6f;    // 쓰지 않는 기능도 조금씩(각 ~1 %): 첫 공통 조상은 여러 대사 유전자를 갖고 있었다
             g[G.ADH] = 0.3f; g[G.WALL] = 0.4f; g[G.NFIX] = 0.4f; g[G.DRY] = 0.4f;
             g[G.RIB] = 1.0f; g[G.FIX] = 0.85f; g[G.CHEMO] = 0.95f;
-            g[G.EOX] = 0.375f; g[G.SPEC] = 0.2f; g[G.DNR] = 0.1f; g[G.TOPT] = 0.35f; g[G.TW] = 0.6f;
+            g[G.EOX] = 0.45f; g[G.SPEC] = 0.2f; g[G.DNR] = 0.1f; g[G.TOPT] = 0.35f; g[G.TW] = 0.6f;
             g[G.SIZE] = 0.13f; g[G.ASPECT] = 0.2f; g[G.BRANCH] = 0.9f; g[G.ANGLE] = 0.2f; g[G.PROP] = 0.5f; g[G.DIFF] = 0;
             g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f;
             return g;

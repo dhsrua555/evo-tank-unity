@@ -18,6 +18,7 @@ namespace Tank
         public double biomass, peak;
         public Body body; public Traits t; public float[] g;
         public double[] income;                 // 빛·화학·산 먹이·사체·녹은 유기물(오늘)
+        public double[] energy;                 // 쓴 ATP: 빛·화학·유기물 태우기(오늘)
         public int[] where; public float[] share;   // 많이 사는 칸(최대 8)과 그 몫
         public bool Alive => died < 0;
     }
@@ -100,7 +101,7 @@ namespace Tank
             {
                 var sp = p.species[i]; var old = cache[i];
                 if (!sp.Alive && old != null && !old.Alive) continue;
-                var w = new SpView { id = sp.id, parent = sp.parent, clade = sp.clade, born = sp.born, died = sp.died, strains = sp.strains, name = sp.name, role = sp.role, biomass = sp.biomass, peak = sp.peak, g = sp.g, income = (double[])sp.income.Clone() };
+                var w = new SpView { id = sp.id, parent = sp.parent, clade = sp.clade, born = sp.born, died = sp.died, strains = sp.strains, name = sp.name, role = sp.role, biomass = sp.biomass, peak = sp.peak, g = sp.g, income = (double[])sp.income.Clone(), energy = (double[])sp.energy.Clone() };
                 var rep = sp.rep >= 0 ? p.strains[sp.rep] : null;
                 if (rep != null) { w.body = rep.b; w.t = rep.t; }
                 else if (old != null) { w.body = old.body; w.t = old.t; }

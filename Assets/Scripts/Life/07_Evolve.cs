@@ -126,10 +126,11 @@ namespace Life
                 s.total = tot;
             }
             var order = new List<Strain>(alive); order.Sort((a, b) => a.total.CompareTo(b.total));
+            double all = 0; foreach (var s in alive) all += s.total;
             int free = Cfg.SMAX - alive.Count, need = Math.Max(0, 96 - free), k = 0;
             foreach (var s in order)
             {
-                bool tiny = s.total <= 0;
+                bool tiny = s.total <= Cfg.RARE * all;   // 생물권의 이 몫보다 적으면 사라진 것으로 친다(셀 수 없는 꼬리)
                 if (!tiny && k >= need) break;
                 Remove(s); k++;
             }
@@ -138,7 +139,7 @@ namespace Life
 
         void Remove(Strain s)
         {
-            for (int v = 0; v < V; v++) { int si = s.slot * V + v; if (B[si] != 0) { pool[P.DOC][v] += B[si]; B[si] = 0; } }
+            for (int v = 0; v < V; v++) { int si = s.slot * V + v; if (B[si] != 0) { ToDoc(pool, v, B[si]); B[si] = 0; } }
             for (int q = 0; q < NINC; q++) for (int v = 0; v < V; v++) inc[(q * Cfg.SMAX + s.slot) * V + v] = 0;
             strains[s.slot] = null; s.slot = -1;
         }

@@ -16,10 +16,12 @@ namespace Life
         public double g;                 // 성장률(음수 = 굶어 줄어듦)
         public double mort;              // 먹히지 않고 죽는 비율(온도·산소 독성·황화수소·마름·바탕)
         public double fix, assim, catab, docUp, phagoUsed;  // 고정한 C, 몸으로 쓴 유기 C, 태운 유기 C, 흡수한 녹은 유기물, 쓴 먹은 것
+        public double assimNP, catabNP;  // 그중 N·P를 같이 가진 몫(먹은 것). 녹은 유기물은 탄소만
         public double aerFrac;           // 태운 것 중 산소 호흡 몫
         public double nh4, po4, nfix;    // 흡수
         public double dCO2, dO2, dH2, dCH4, dH2S, dFE2, dSO4;   // 칸 풀 변화(+ = 내놓음)
         public double chemoATP, o2Made, fixPh;   // fixPh: 빛 에너지로 고정한 몫
+        public double photoATP, orgATP;  // 쓴 ATP의 출처: 빛, (chemoATP) 화학, 유기물 태우기
         public int lim;                  // 성장을 막은 것: 0 에너지·탄소, 1 리보솜, 2 질소, 3 인
     }
 
@@ -95,12 +97,12 @@ namespace Life
                 bestF = (lo + hi) / 2; gce = Gce(bestF, out bestC);
             }
             double gRib = Cfg.K_RIB * phi[G.RIB] * fT;
-            double gN = (nIn + nfix + U * 16 / 106) * 106 / 16, gP = (pIn + U / 106) * 106;
+            double gN = (nIn + nfix + phago * 16 / 106) * 106 / 16, gP = (pIn + phago / 106) * 106;   // 녹은 유기물은 N·P가 없다
             double g = Math.Min(Math.Min(gce, gRib), Math.Min(gN, gP));
             // 질소 고정 비용을 쓴 만큼 다시 셈
             if (g > 0)
             {
-                double nUse = Math.Max(0, Math.Min(nfix, g * 16 / 106 - nIn - (1 - bestF) * U * 16 / 106));
+                double nUse = Math.Max(0, Math.Min(nfix, g * 16 / 106 - nIn - (1 - bestF) * phago * 16 / 106));
                 if (nUse > 0) { double g2 = (gce * Cfg.A_BIO - Cfg.A_NFIX * nUse) / Cfg.A_BIO; g = Math.Min(g, g2); }
             }
             r.g = g; r.lim = g == gce ? 0 : g == gRib ? 1 : g == gN ? 2 : g == gP ? 3 : 0;
@@ -112,9 +114,10 @@ namespace Life
             r.docUp = docUp * lam; r.phagoUsed = phago * lam;
             double Uu = r.docUp + r.phagoUsed;
             r.catab = bestF * Uu; r.assim = (1 - bestF) * Uu; r.aerFrac = aer;
-            double needN = Math.Max(0, g) * 16 / 106 - r.assim * 16 / 106; needN = Math.Max(0, needN);
+            r.catabNP = bestF * r.phagoUsed; r.assimNP = (1 - bestF) * r.phagoUsed;
+            double needN = Math.Max(0, g) * 16 / 106 - r.assimNP * 16 / 106; needN = Math.Max(0, needN);
             r.nh4 = Math.Min(nIn, needN); r.nfix = Math.Max(0, needN - r.nh4);
-            r.po4 = Math.Max(0, Math.Max(0, g) / 106 - r.assim / 106);
+            r.po4 = Math.Max(0, Math.Max(0, g) / 106 - r.assimNP / 106);
             // 고정에 쓴 전자: 광합성 몫은 공여체 몫대로, 화학합성 몫은 이미 산화한 공여체에서
             double eUse = 4 * r.fix, ePhUse = ePh + eCh > 0 ? eUse * ePh / (ePh + eCh) : 0;
             r.dH2 -= ePhUse * aH2 / dsum / 2; r.dH2S -= ePhUse * aHS / dsum / 8; r.dSO4 += ePhUse * aHS / dsum / 8;
@@ -122,7 +125,7 @@ namespace Life
             r.dCO2 -= r.fix; r.fixPh = ePh + eCh > 0 ? r.fix * ePh / (ePh + eCh) : 0;
             // 화학합성: 필요한 만큼만 돌린다(lam)
             double chemoLam = atpCh > 0 ? Math.Clamp(lam, 0, 1) : 0;
-            r.chemoATP = atpCh * chemoLam;
+            r.chemoATP = atpCh * chemoLam; r.photoATP = atpPh * lam; r.orgATP = r.catab * yOrg;
             for (int d = 0; d < 4; d++)
             {
                 double x = R[d] * chemoLam; if (x <= 0) continue;

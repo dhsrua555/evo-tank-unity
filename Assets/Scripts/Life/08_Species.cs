@@ -17,6 +17,7 @@ namespace Life
         public int strains;
         public Role role = Role.혼합;
         public readonly double[] income = new double[5];   // 빛 고정, 화학 고정, 산 먹이, 사체, 녹은 유기물(오늘, mol C)
+        public readonly double[] energy = new double[3];   // 쓴 ATP: 빛, 화학, 유기물 태우기(오늘)
         public bool Alive => died < 0;
     }
 
@@ -57,11 +58,24 @@ namespace Life
         }
 
         // 하루 한 번: 계통마다 자기 종의 창시 유전체에서 D_SP 넘게 멀어졌고 그 종 안에서 자리를 잡았으면(생물량 5 % 이상)
+        // 먹이 관계 역할: 다른 생물·사체를 먹어 얻는 탄소가 1/3을 넘으면 포식·청소, 아니면 주 에너지원(빛·화학·유기물 태우기)으로.
+        // (빛으로 ATP를 만들고 탄소는 녹은 유기물에서 얻는 광종속영양도 '광합성' 쪽: 에너지가 빛에서 온다)
+        public static Role RoleOf(double[] inc, double[] en)
+        {
+            double C = 0; for (int q = 0; q < 5; q++) C += inc[q];
+            if (C > 0 && inc[2] >= inc[3] && inc[2] > C / 3) return Role.포식;
+            if (C > 0 && inc[3] > C / 3) return Role.청소;
+            double E = en[0] + en[1] + en[2]; if (E <= 0) return Role.혼합;
+            int k = en[0] >= en[1] && en[0] >= en[2] ? 0 : en[1] >= en[2] ? 1 : 2;
+            if (en[k] <= 0.5 * E) return Role.혼합;
+            return k == 0 ? Role.광합성 : k == 1 ? Role.화학합성 : Role.분해;
+        }
+
         // 가까운 살아 있는 종에 들어가거나 새 종을 연다(부모 = 원래 종). 사슬처럼 이어 붙이지 않으므로 종이 한 덩어리로 뭉치지 않는다.
         void Speciate()
         {
             var order = new List<Strain>(alive); order.Sort((a, b) => b.total.CompareTo(a.total));
-            foreach (var sp in species) if (sp.Alive) { sp.biomass = 0; sp.strains = 0; sp.rep = -1; Array.Clear(sp.income, 0, 5); }
+            foreach (var sp in species) if (sp.Alive) { sp.biomass = 0; sp.strains = 0; sp.rep = -1; Array.Clear(sp.income, 0, 5); Array.Clear(sp.energy, 0, 3); }
             foreach (var s in order) if (s.species >= 0) species[s.species].biomass += s.total;
             foreach (var s in order)
             {
@@ -78,6 +92,7 @@ namespace Life
                 var sp = species[s.species]; sp.biomass += s.total; sp.strains++;
                 if (sp.rep < 0) { sp.rep = s.slot; sp.g = s.g; }     // 가장 많은 계통이 대표
                 for (int q = 0; q < 5; q++) { double x = 0; for (int v = 0; v < V; v++) x += inc[(q * Cfg.SMAX + s.slot) * V + v]; sp.income[q] += x; }
+                for (int q = 0; q < 3; q++) { double x = 0; for (int v = 0; v < V; v++) x += inc[((8 + q) * Cfg.SMAX + s.slot) * V + v]; sp.energy[q] += x; }
             }
             foreach (var sp in species) if (sp.Alive) sp.peak = Math.Max(sp.peak, sp.biomass);
             nAliveSp = 0;
@@ -86,9 +101,7 @@ namespace Life
                 if (!sp.Alive) continue;
                 if (sp.strains == 0) { sp.died = (int)Day; sp.rep = -1; continue; }
                 nAliveSp++;
-                double sum = 0; for (int q = 0; q < 5; q++) sum += sp.income[q];
-                int k = 0; for (int q = 1; q < 5; q++) if (sp.income[q] > sp.income[k]) k = q;
-                sp.role = sum > 0 && sp.income[k] > 0.5 * sum ? (Role)k : Role.혼합;
+                sp.role = RoleOf(sp.income, sp.energy);
             }
         }
     }

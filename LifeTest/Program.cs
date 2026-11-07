@@ -53,13 +53,13 @@ static class Program
                 foreach (int vv in new[] { vb, vb + 1 })
                 {
                     Strain top = null; double tb = 0; foreach (var st in pl.alive) { double x = pl.B[st.slot * pl.V + vv]; if (x > tb) { tb = x; top = st; } }
-                    if (top == null) continue; var e = pl.EnvAt(vv); double g0 = Cell.Grow(top.t, top.b, e, 0, 0).g;
+                    if (top == null) continue; var e = pl.EnvAt(vv); var r0 = Cell.Grow(top.t, top.b, e, 0, 0); double g0 = r0.g - r0.mort;   // 순증가(먹힘·바이러스 뺌)
                     var sb = new System.Text.StringBuilder($"    선택 칸 {vv} 빛 {e.light:0.00} T {e.T:0} H2 {e.H2:0.00} H2S {e.H2S:0.0} Fe2 {e.FE2:0.0} DOC {e.DOC:0.00} | g {g0:0.000} |");
-                    foreach (int gi in new[] { G.PHOTO, G.CHEMO, G.OSMO, G.FIX, G.RIB, G.EOX, G.TOPT, G.PHAGO, G.ADH })
+                    foreach (int gi in new[] { G.PHOTO, G.OSMO, G.FIX, G.RIB, G.EOX, G.SOD, G.RESP, G.PHAGO, G.ADH, G.SIZE })
                         foreach (double dd in new[] { Cfg.STEP, -Cfg.STEP })
                         {
                             var g2 = (float[])top.g.Clone(); g2[gi] = (float)Math.Clamp(g2[gi] + dd, 0, 1); var t2 = Traits.Of(g2);
-                            double g1 = Cell.Grow(t2, Body.Of(g2, t2), e, 0, 0).g; sb.Append($" {G.Name[gi]}{(dd > 0 ? "+" : "−")} {g1 - g0:+0.000;-0.000}");
+                            var r1 = Cell.Grow(t2, Body.Of(g2, t2), e, 0, 0); double g1 = r1.g - r1.mort; sb.Append($" {G.Name[gi]}{(dd > 0 ? "+" : "−")} {g1 - g0:+0.000;-0.000}");
                         }
                     Console.WriteLine(sb);
                 }
@@ -119,7 +119,7 @@ static class Program
         var j = pl.jumps.OrderBy(x => x).ToList();
         if (j.Count > 0) Say("점진성(정착 돌연변이 몸 모양 변화 95 % ≤ 0.4)", j[(int)(0.95 * (j.Count - 1))] <= 0.4, $"중앙 {j[j.Count / 2]:0.000}, 95 % {j[(int)(0.95 * (j.Count - 1))]:0.000}, 최대 {j[^1]:0.00}");
         Say("질량 보존(장부 어긋남 < 1e-6)", H.Max(h => h.drift) < 1e-6, $"최대 {H.Max(h => h.drift):0e0}");
-        { var L = pl.Ledger(); string[] en = { "C", "N", "P", "Fe", "S" }; Console.WriteLine("장부 원소별 어긋남: " + string.Join(" ", Enumerable.Range(0, 5).Select(k => $"{en[k]} {(L[k] - pl.ledger0[k]) / Math.Abs(pl.ledger0[k]):+0.0e0;-0.0e0}"))); }
+        { var L = pl.Ledger(); L[1] -= pl.nfixV.Sum(); string[] en = { "C", "N", "P", "Fe", "S" }; Console.WriteLine("장부 원소별 어긋남: " + string.Join(" ", Enumerable.Range(0, 5).Select(k => $"{en[k]} {(L[k] - pl.ledger0[k]) / Math.Abs(pl.ledger0[k]):+0.0e0;-0.0e0}"))); }
         { var hg = new int[G.N]; foreach (var st in pl.alive) if (st.gene >= 0) hg[st.gene]++; Console.WriteLine("살아 있는 계통의 창시 돌연변이 유전자: " + string.Join(" ", Enumerable.Range(0, G.N).Select(i => $"{G.Name[i]} {hg[i]}")));
           Console.WriteLine("g[EOX] 분포: " + string.Join(" ", pl.alive.Select(st => st.g[G.EOX]).Distinct().Take(12).Select(x => x.ToString("0.000")))); }
         Console.WriteLine($"단계 시간(초): 하루 {pl.tStage[0]:0.0} · 기후 {pl.tStage[1]:0.0} · 생태 {pl.tStage[2]:0.0} · 물질 {pl.tStage[3]:0.0} · 진화 {pl.tStage[4]:0.0}");

@@ -50,7 +50,7 @@ namespace Life
         public const double K_FE_OX = 0.5, K_HS_OX = 0.1, K_CH4_OX = 0.0005, K_H2_OX = 0.001;
         public const double HYDROLYSIS = 0.05;        // 사체 → 녹은 유기물(/일)
         public const double K_UV = 0.5;               // 자외선이 녹은 유기물을 깨는 속도(/일, 수면 빛 1, 오존 없을 때)
-        public static readonly double[] POC_SIZE = { 3, 30, 300 };    // 사체 크기 칸(μm)
+        public static readonly double[] POC_SIZE = { 1, 10, 100 };    // 사체 크기 칸(μm): 죽은 세포 크기 그대로(덩이·큰 몸은 큰 칸)
         public static readonly double[] POC_SINK = { 1, 10, 100 };    // 침강(m/일)
 
         // 세포
@@ -92,7 +92,8 @@ namespace Life
         public const int EVAL = 160;                   // 틱마다 평가하는 돌연변이 후보 수
         public const double NCAP = 100;               // 돌연변이 공급에 쓰는 계통·칸 개체 수 상한(클론 간섭 근사)
         public const double NFOUND = 100;             // 정착 확률 식의 창시 개체 수
-        public const double FOUND = 1e-2;             // 새 계통 시작 생물량 = 부모의 이 비율(지역 집단에서 번진 몫)
+        public const double RARE = 1e-12;             // 계통이 생물권 전체의 이 몫 밑으로 떨어지면 멸종
+        public const double FOUND = 3e-2;             // 새 계통 시작 생물량 = 부모의 이 비율(지역 집단에서 번진 몫)
         public const int SMAX = 320;                  // 동시에 추적하는 계통 수
         public const double BMIN = 1e-14;             // 이보다 적으면(μM C, 칸 평균) 그 칸에서 사라짐
         public const double D_SP = 0.12;              // 종: 종 창시 유전체에서 이만큼 멀어지면 새 종

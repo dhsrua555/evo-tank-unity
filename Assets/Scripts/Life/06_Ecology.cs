@@ -8,7 +8,7 @@ namespace Life
     public sealed partial class Planet
     {
         // 계통·칸별 오늘 수입(mol): 0 빛 고정 · 1 화학합성 고정 · 2 산 먹이 · 3 사체 · 4 녹은 유기물 · 5 만든 O2 · 6 산소 호흡으로 태운 C · 7 태운 C
-        public const int NINC = 8;
+        public const int NINC = 11;
         public double[] inc;
         // [slot·V+v] 마지막 틱 값: 순성장률, 자원 나눔 몫, 포식 섭취 배율(Holling), 먹힘률 — 돌연변이 평가에 쓴다
         public const int LQ = 4 + P.N;
@@ -57,7 +57,7 @@ namespace Life
         }
         public static double Attack(Traits t, Body b) => Cfg.ATTACK * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);
         public static double Vul(Traits t) => 1 - 0.8 * t.Sat(G.WALL, 0.02);
-        static int PocClass(double size) => size < 10 ? P.POC0 : size < 100 ? P.POC1 : P.POC2;
+        static int PocClass(double size) => size < 3 ? P.POC0 : size < 30 ? P.POC1 : P.POC2;
 
         void Bio(int v)
         {
@@ -68,7 +68,7 @@ namespace Life
             {
                 var s = alive[i]; double bb = B[s.slot * V + v];
                 if (bb > Cfg.BMIN) { S.slot[n] = s.slot; S.b[n] = bb; S.size[n] = s.b.size; S.vul[n] = Vul(s.t); S.spc[n] = s.species; n++; }
-                else if (bb != 0) { c[P.DOC][v] += bb; B[s.slot * V + v] = 0; }   // 사라진 몫은 녹은 유기물로
+                else if (bb != 0) { ToDoc(c, v, bb); B[s.slot * V + v] = 0; }   // 사라진 몫은 녹은 유기물로
             }
             for (int k = 0; k < 125; k++) binB[v * 125 + k] = 0;
             if (n == 0) return;
@@ -162,21 +162,23 @@ namespace Life
                 c[P.H2S][v] += r.dH2S * w; c[P.FE2][v] += r.dFE2 * w; c[P.FE3][v] -= r.dFE2 * w; c[P.SO4][v] += r.dSO4 * w;
                 c[P.DOC][v] -= r.docUp * w; c[P.NH4][v] -= r.nh4 * w; c[P.PO4][v] -= r.po4 * w;
                 nfixV[v] += r.nfix * w * M;   // 질소 고정(대기 N2 → 몸): 칸별로 모아 매일 장부에
-                c[P.NH4][v] += catab * 16 / 106 * bi * dt; c[P.PO4][v] += catab / 106 * bi * dt;   // 태운 유기물의 N·P는 다시 풀로
+                c[P.NH4][v] += r.catabNP * l * 16 / 106 * bi * dt; c[P.PO4][v] += r.catabNP * l / 106 * bi * dt;   // 태운 먹이의 N·P는 다시 풀로
                 // 탄소 수지: 새 몸 = 고정 + 동화. 남는 몫은 먼저 고정을 덜 한 것으로(CO2로 되돌림), 그래도 남으면 동화 탄소를 녹은 유기물로 내보낸다
-                // (이 순서여야 생리에서 셈한 무기 질소·인 필요량 = (성장 − 동화)와 맞는다)
                 double cin = fix + assim, built = Math.Min(gpos, cin), exc = cin - built;
                 double excFix = Math.Min(exc, fix), excOrg = exc - excFix;
                 c[P.DOC][v] += excOrg * bi * dt; c[P.CO2][v] += excFix * bi * dt;
+                // 질소·인 수지: 들어온 것(무기염 + 고정 + 먹이 몫) − 새 몸에 든 것 = 남는 몫은 무기염으로
+                double nLeft = (r.nh4 + r.nfix) * l + r.assimNP * l * 16 / 106 - built * 16 / 106, pLeft = r.po4 * l + r.assimNP * l / 106 - built / 106;
+                c[P.NH4][v] += nLeft * bi * dt; c[P.PO4][v] += pLeft * bi * dt;
                 // 먹고 남긴 것: 똥(30 %) → 사체, 쓰지 못한 섭취 → 녹은 유기물
                 double eatTot = S.intake[i];
                 c[P.POC1][v] += eatTot * Cfg.EGEST;
                 double phUsed = r.phagoUsed * l * bi * dt, phAvail = eatTot * (1 - Cfg.EGEST);
-                c[P.DOC][v] += Math.Max(0, phAvail - phUsed);
+                ToDoc(c, v, Math.Max(0, phAvail - phUsed));
                 // 죽음: 바이러스(→ 녹은 유기물), 굶음(→ 녹은 유기물), 나머지(→ 몸 크기에 맞는 사체)
                 double hb = binB[v * 125 + s.t.vbin], vm = Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K);
                 double other = Math.Max(0, r.mort - vm), rate = other + vm - gneg, lost = bi * (1 - Math.Exp(-rate * dt));
-                if (rate > 0) { c[PocClass(s.b.size)][v] += lost * other / rate; c[P.DOC][v] += lost * (vm - gneg) / rate; }
+                if (rate > 0) { c[PocClass(s.b.size)][v] += lost * other / rate; ToDoc(c, v, lost * (vm - gneg) / rate); }
                 B[si] = bi + built * bi * dt - lost;
                 var ph = s.t.phi; bool isPh = ph[G.PHOTO] >= Math.Max(Math.Max(ph[G.CHEMO], ph[G.OSMO]), ph[G.PHAGO]);
                 limBio[((l < 0.9 ? 4 + S.limK[i] : r.lim) + (isPh ? LQ : 0)) * V + v] += bi * M;
@@ -189,6 +191,7 @@ namespace Life
                 inc[2 * st + o] += S.prey[i] * (1 - Cfg.EGEST) * usedF * M; inc[3 * st + o] += S.det[i] * (1 - Cfg.EGEST) * usedF * M;
                 inc[4 * st + o] += r.docUp * w * M; inc[5 * st + o] += r.o2Made * w * M;
                 inc[6 * st + o] += catab * r.aerFrac * bi * dt * M; inc[7 * st + o] += catab * bi * dt * M;
+                inc[8 * st + o] += r.photoATP * w * M; inc[9 * st + o] += r.chemoATP * w * M; inc[10 * st + o] += r.orgATP * w * M;
             }
             for (int k = 0; k < P.N; k++) if (c[k][v] < 0) c[k][v] = 0;
         }

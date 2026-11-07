@@ -96,9 +96,9 @@ namespace Life
             c[P.CH4][v] -= d; c[P.CO2][v] += d; c[P.O2][v] -= 2 * d;
             d = Math.Min(Cfg.K_H2_OX * c[P.H2][v] * c[P.O2][v] * dt, Math.Min(c[P.H2][v], 2 * c[P.O2][v]) * 0.9);
             c[P.H2][v] -= d; c[P.O2][v] -= d / 2;
-            for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.HYDROLYSIS * dt; c[p][v] -= d; c[P.DOC][v] += d; }
+            for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.HYDROLYSIS * dt; c[p][v] -= d; ToDoc(c, v, d); }
             // 자외선: 오존이 없으면 표층의 녹은 유기물을 CO2로 깬다(산소가 1e-2 PAL쯤 되면 오존층이 막는다)
-            d = c[P.DOC][v] * Cfg.K_UV * light[v] / (1 + O2PAL / 0.01) * dt; c[P.DOC][v] -= d; c[P.CO2][v] += d; c[P.NH4][v] += d * 16 / 106; c[P.PO4][v] += d / 106;
+            d = c[P.DOC][v] * Cfg.K_UV * light[v] / (1 + O2PAL / 0.01) * dt; c[P.DOC][v] -= d; c[P.CO2][v] += d;
             if (IsBottom(v))
             {
                 double m = 0; for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.BURIAL * dt; c[p][v] -= d; m += d; }
@@ -167,15 +167,19 @@ namespace Life
         double SumShore() { double seaA = 0, s = 0; for (int r = 0; r < NR; r++) if (kind[r] == 0) seaA += area[r]; for (int r = 0; r < NR; r++) if (live[r * Cfg.NY] && kind[r] != 2) s += area[r] / seaA * (kind[r] == 1 ? 3 : 1); return s; }
 
         // 장부: C, N, P, Fe, S의 행성 전체 양(mol) − 경계 순유입
+        // 유기물이 녹으면(세포 터짐·사체 분해) 탄소는 녹은 유기물로, 질소·인은 바로 무기염으로 간다.
+        // 녹은 유기 질소·인은 세포 밖 효소(탈아미노·인산 가수분해)로 빨리 풀리므로 녹은 유기물은 탄소만 센다(실제 바다 DOM도 C가 훨씬 많다)
+        static void ToDoc(double[][] c, int v, double x) { c[P.DOC][v] += x; c[P.NH4][v] += x * 16 / 106; c[P.PO4][v] += x / 106; }
+
         public double[] Ledger()
         {
             double C = atmCO2 + atmCH4, N = 0, Pp = 0, Fe = 0, S = 0;
             for (int v = 0; v < V; v++)
             {
                 if (!live[v]) continue;
-                double L = vol[v] * 1e-6, org = pool[P.DOC][v] + pool[P.POC0][v] + pool[P.POC1][v] + pool[P.POC2][v];
+                double L = vol[v] * 1e-6, org = pool[P.POC0][v] + pool[P.POC1][v] + pool[P.POC2][v];   // 레드필드 몫(사체·몸). 녹은 유기물은 탄소만
                 foreach (var s in Live()) org += B[s.slot * V + v];
-                C += (pool[P.CO2][v] + pool[P.CH4][v] + org) * L;
+                C += (pool[P.CO2][v] + pool[P.CH4][v] + pool[P.DOC][v] + org) * L;
                 N += (pool[P.NH4][v] + org * 16 / 106) * L; Pp += (pool[P.PO4][v] + org / 106) * L;
                 Fe += (pool[P.FE2][v] + pool[P.FE3][v]) * L; S += (pool[P.H2S][v] + pool[P.SO4][v]) * L;
             }

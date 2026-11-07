@@ -11,7 +11,8 @@ namespace Tank
     public sealed partial class Tank
     {
         Font font, fontB;
-        GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR;
+        GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap;
+        const float INFO_H = 380;
         bool showGraph = true, showTree, showEv, sortNew;
         string search = "", muText = "1";
         Vector2 listScroll; readonly HashSet<int> open = new();
@@ -31,7 +32,7 @@ namespace Tank
             sBtn = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12 };
             sOn = new GUIStyle(sBtn) { font = fontB, normal = { textColor = new Color(1, 0.85f, 0.4f), background = sBtn.active.background } };
             sField = new GUIStyle(GUI.skin.textField) { font = font, fontSize = 13 };
-            sR = new GUIStyle(sL) { richText = true }; sSR = new GUIStyle(sS) { richText = true };
+            sR = new GUIStyle(sL) { richText = true }; sSR = new GUIStyle(sS) { richText = true }; sWrap = new GUIStyle(sS) { wordWrap = true };
         }
 
         void OnGUI()
@@ -39,7 +40,7 @@ namespace Tank
             if (snap == null) return;
             Styles();
             GUI.matrix = Matrix4x4.Scale(new Vector3(Draw.ui, Draw.ui, 1));
-            Rect side = new Rect(W - panelW, topH, panelW, H - topH), info = new Rect(side.x, H - (sel >= 0 ? 340 : 0), panelW, sel >= 0 ? 340 : 0);
+            Rect side = new Rect(W - panelW, topH, panelW, H - topH), info = new Rect(side.x, H - (sel >= 0 ? INFO_H : 0), panelW, sel >= 0 ? INFO_H : 0);
             Rect graph = new Rect(0, H - graphH, W - panelW, graphH);
             if (UnityEngine.Event.current.type == EventType.Repaint)
             {
@@ -58,7 +59,7 @@ namespace Tank
             if (sel >= 0) Info(info);
             if (showGraph) GraphText(graph);
             if (showTree) TreeGui();
-            Ticker();
+            if (!showTree) Ticker();
             if (run.ffDays > 0) GUI.Label(new Rect(tank.center.x - 150, tank.center.y - 15, 300, 30), $"멈춘 동안 못 간 날 따라잡는 중 · {run.ffDays:0}일 남음", sB);
         }
 
@@ -160,13 +161,13 @@ namespace Tank
             Draw.Rect(bodyBox.x, bodyBox.y, bodyBox.width, bodyBox.height, new Color(0.04f, 0.06f, 0.1f));
             Draw.Body(Draw.ShapeOf(s.body, s.t), bodyBox.center.x, bodyBox.center.y, 50, Time.time * 0.1f, Draw.Of(s.t, s.id), 1);
             // 수입 막대
-            float bx = r.x + 10, by = r.y + 150, bw = r.width - 20; double sum = s.income.Sum();
+            float bx = r.x + 10, by = r.y + 164, bw = r.width - 20; double sum = s.income.Sum();
             Color[] ic = { new Color(0.3f, 0.8f, 0.4f), new Color(0.98f, 0.6f, 0.2f), new Color(0.95f, 0.28f, 0.3f), new Color(0.75f, 0.6f, 0.4f), new Color(0.8f, 0.8f, 0.78f) };
             float xx = bx;
             for (int q = 0; q < 5 && sum > 0; q++) { float w = (float)(s.income[q] / sum) * bw; Draw.Rect(xx, by, w, 8, ic[q]); xx += w; }
             // 단백질 배분 막대(많은 것 7개)
             var top = Enumerable.Range(0, G.NA).OrderBy(i => -s.t.phi[i]).Take(7).ToArray();
-            for (int k = 0; k < top.Length; k++) Draw.Rect(bx + 90, r.y + 222 + k * 15, (float)(s.t.phi[top[k]] / s.t.phi[top[0]]) * (bw - 150), 9, new Color(0.5f, 0.65f, 0.85f, 0.8f));
+            for (int k = 0; k < top.Length; k++) Draw.Rect(bx + 90, r.y + 238 + k * 15, (float)(s.t.phi[top[k]] / s.t.phi[top[0]]) * (bw - 150), 9, new Color(0.5f, 0.65f, 0.85f, 0.8f));
         }
         void Info(Rect r)
         {
@@ -182,17 +183,20 @@ namespace Tank
             GUI.Label(new Rect(x, y, w, 18), $"최적 {s.t.topt:0} °C (±{s.t.tw:0})", sS); y += 16;
             GUI.Label(new Rect(x, y, w, 18), $"광계 {s.t.eox:+0.00;-0.00} V{(s.t.eox > 0.85 ? " · 물을 쪼갬(산소)" : "")}", sS);
             GUI.Label(new Rect(bodyBox.x, bodyBox.yMax + 1, bodyBox.width, 16), "실제 크기 " + Size(s.body.size), sS);
-            y = r.y + 132;
+            y = r.y + 146;
             GUI.Label(new Rect(x, y, r.width - 20, 16), "탄소를 어디서: <color=#4dcc66>빛</color> · <color=#fa9933>화학</color> · <color=#f2474d>산 먹이</color> · <color=#bf9966>사체</color> · <color=#ccccc7>녹은 유기물</color>", sSR);
-            y = r.y + 164;
+            y = r.y + 178;
+            double es = s.energy.Sum();
+            if (es > 0) GUI.Label(new Rect(x, y, r.width - 20, 16), $"에너지를 어디서: 빛 {s.energy[0] / es:P0} · 화학 {s.energy[1] / es:P0} · 유기물 태우기 {s.energy[2] / es:P0}", sS);
+            y += 18;
             GUI.Label(new Rect(x, y, r.width - 20, 16), $"산소 호흡 {s.t.Sat(G.RESP, 0.02):P0} · 항산화 {s.t.Sat(G.SOD, 0.005):P0} · 세포벽 {s.t.Sat(G.WALL, 0.02):P0} · 편모 {s.t.Sat(G.MOT, 0.01):P0}", sS); y += 18;
-            GUI.Label(new Rect(x, y, r.width - 20, 16), "단백질 배분", sS);
+            GUI.Label(new Rect(x, r.y + 216, r.width - 20, 16), "단백질 배분", sS);
             var top = Enumerable.Range(0, G.NA).OrderBy(i => -s.t.phi[i]).Take(7).ToArray();
-            for (int k = 0; k < top.Length; k++) GUI.Label(new Rect(x, r.y + 218 + k * 15, 90, 16), G.Name[top[k]], sS);
+            for (int k = 0; k < top.Length; k++) GUI.Label(new Rect(x, r.y + 234 + k * 15, 90, 16), G.Name[top[k]], sS);
             // 조상(멸종한 것 포함, 계통수 창에서 더)
             var anc = new List<string>(); int a = s.parent;
             while (a >= 0 && anc.Count < 5) { anc.Add(snap.sp[a].name + (snap.sp[a].Alive ? "" : "†")); a = snap.sp[a].parent; }
-            GUI.Label(new Rect(x, r.yMax - 22, r.width - 20, 18), anc.Count > 0 ? "조상 ← " + string.Join(" ← ", anc) : "첫 조상", sS);
+            GUI.Label(new Rect(x, r.yMax - 36, r.width - 20, 32), anc.Count > 0 ? "조상 ← " + string.Join(" ← ", anc) : "첫 조상", sWrap);
         }
 
         // ── 그래프 ──
@@ -226,7 +230,7 @@ namespace Tank
             string[] nm = { "O₂ (로그 1e-8–1)", "CO₂ (로그 0.1–300)", "기온 (−30–50 °C)", "종 수" };
             for (int k = 0; k < 4; k++) { GUI.color = GCOL[k]; GUI.Label(new Rect(r.x + 6, r.y + 6 + k * 16, 60, 16), nm[k].Split(' ')[0], sS); }
             GUI.color = Color.white;
-            if (hist.Count > 0) GUI.Label(new Rect(r.x + 60, r.yMax - 16, 300, 16), $"0일 → {hist[^1].day}일 (빨간 눈금 = 큰 사건)", sS);
+            if (hist.Count > 0) GUI.Label(new Rect(r.x + 60, r.yMax - 21, 420, 18), $"0일 → {hist[^1].day}일 (빨간 눈금 = 큰 사건)", sS);
         }
 
         // ── 계통수: 가로 = 시간, 세로 = 종(부모 아래에 자식, 나온 순). 멸종한 종은 회색 ──
@@ -289,8 +293,12 @@ namespace Tank
             for (int i = news.Count - 1, k = 0; i >= 0 && k < 4; i--, k++)
             {
                 var e = news[i]; float age = (float)(snap.day - e.day); if (age > 400) break;
-                GUI.color = new Color(1, 0.85f, 0.7f, Mathf.Clamp01(1 - age / 400));
-                GUI.Label(new Rect(tank.x + 10, y, tank.width - 20, 18), $"{e.day}일 {e.kind}: {e.text}", sS); y -= 16;
+                float al = 1 - 0.5f * Mathf.Clamp01(age / 400);   // 오래된 알림도 반은 진하게
+                string t = $"{e.day}일 {e.kind}: {e.text}";
+                float tw = Mathf.Min(tank.width - 20, sS.CalcSize(new GUIContent(t)).x + 8);
+                GUI.color = new Color(0.02f, 0.03f, 0.05f, 0.85f); GUI.DrawTexture(new Rect(tank.x + 6, y, tw, 17), Texture2D.whiteTexture);
+                GUI.color = new Color(1, 0.85f, 0.7f, al);
+                GUI.Label(new Rect(tank.x + 10, y, tank.width - 20, 18), t, sS); y -= 18;
             }
             GUI.color = Color.white;
         }
