@@ -3,10 +3,10 @@
 바다 행성의 물속을 μm에서 m 크기까지 헤엄치며 생물이 진화하는 모습을 지켜보는 시뮬레이션입니다. 처음엔 단세포뿐이지만, 대륙이 자라는 동안 군체·다세포·육상 생물이 스스로 갈라져 나옵니다. 정해 둔 목표 생물군은 없습니다. 설계에서 정하는 것은 물리·화학·생태 규칙뿐이고, "절지동물 닮음" 같은 이름은 나온 결과에 붙이는 이름표입니다.
 
 <p align="center">
-  <a href="https://github.com/dhsrua555/evo-tank-unity/releases/download/v0.1.1/EvoTank-v0.1.1-Android.apk"><img alt="Android APK 내려받기" src="https://img.shields.io/badge/Android-APK%20%EB%82%B4%EB%A0%A4%EB%B0%9B%EA%B8%B0-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
-  <a href="https://github.com/dhsrua555/evo-tank-unity/releases/download/v0.1.1/EvoTank-v0.1.1-Linux.tar.gz"><img alt="Linux 내려받기" src="https://img.shields.io/badge/Linux-%EB%82%B4%EB%A0%A4%EB%B0%9B%EA%B8%B0-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="https://github.com/dhsrua555/evo-tank-unity/releases/download/v0.1.2/EvoTank-v0.1.2-Android.apk"><img alt="Android APK 내려받기" src="https://img.shields.io/badge/Android-APK%20%EB%82%B4%EB%A0%A4%EB%B0%9B%EA%B8%B0-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://github.com/dhsrua555/evo-tank-unity/releases/download/v0.1.2/EvoTank-v0.1.2-Linux.tar.gz"><img alt="Linux 내려받기" src="https://img.shields.io/badge/Linux-%EB%82%B4%EB%A0%A4%EB%B0%9B%EA%B8%B0-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
 </p>
-<p align="center"><sub>v0.1.1 사전 배포판 · Android 8.0 이상(64비트 ARM) · <a href="https://github.com/dhsrua555/evo-tank-unity/releases">모든 배포판</a></sub></p>
+<p align="center"><sub>v0.1.2 사전 배포판 · Android 8.0 이상(64비트 ARM) · <a href="https://github.com/dhsrua555/evo-tank-unity/releases">모든 배포판</a></sub></p>
 
 <p align="center"><img src="docs/screens/hero.jpg" alt="고른 개체를 따라 헤엄치는 화면. 왼쪽에 확대 카드와 개체 정보가 있다" width="820"></p>
 
@@ -30,7 +30,7 @@
 
 **Linux** (x86_64)
 ```sh
-tar xzf EvoTank-v0.1.1-Linux.tar.gz
+tar xzf EvoTank-v0.1.2-Linux.tar.gz
 ./EvoTank/EvoTank.x86_64
 ```
 
