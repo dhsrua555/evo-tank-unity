@@ -18,7 +18,7 @@ namespace Life
         void Climate()
         {
             double co2 = Math.Max(1e-3, CO2PAL), ch4 = Math.Max(0, CH4ppm);
-            Tglobal = 15 + 3 * Math.Log2(co2) + 2 * Math.Log2(1 + ch4 / 2) - 20 * (1 - Cfg.SUN) / 0.22 + dT_aer + dT_imp + dT_ice;
+            Tglobal = 20 + 3 * Math.Log(co2, 2) + 2 * Math.Log(1 + ch4 / 2, 2) - 20 * (1 - Cfg.SUN) / 0.22 + dT_aer + dT_imp + dT_ice;
             double tDeep = Math.Max(2, Tglobal - 8);
             // 그늘: 칸의 생물량이 빛을 가린다
             var shade = new double[V];
@@ -46,6 +46,7 @@ namespace Life
         {
             dT_aer *= Math.Exp(-1.0 / 10); dT_imp *= Math.Exp(-1.0 / 40); dT_ice *= Math.Exp(-1.0 / 250); dark *= Math.Exp(-1.0 / 25);
             volcMul = 1 + (volcMul - 1) * Math.Exp(-1.0 / 60);
+            for (int v = NV0; v < V; v++) if (vent[v]) ventMul[v] = 1 + (ventMul[v] - 1) * Math.Exp(-1.0 / 3000);   // 열수공 세기는 몇천 일에 걸쳐 제자리로
             if (knobs.eventRate <= 0 || rng.U() >= knobs.eventRate / 40) return;
             double m = Math.Min(30, Math.Pow(1 - rng.U(), -1 / 1.2));   // 크기 1–30, 큰 것일수록 드묾
             int kind = (int)(rng.U() * 4);
@@ -67,12 +68,14 @@ namespace Life
                 case 2:
                     dT_ice -= 0.8 * m; e.kind = "빙하기 방아쇠"; e.text = $"{0.8 * m:0.0} °C 식음(몇백 일에 걸쳐 회복)"; break;
                 default:
-                    // 판 움직임: 열수공 몇 곳이 약해지고(최대 절반) 그만큼 다른 곳에 새로 열린다
-                    int nOff = 0, nOn = 0, nv = 0; for (int v = 0; v < V; v++) if (vent[v] && ventMul[v] > 0.2) nv++;
-                    int want = Math.Max(1, Math.Min(nv / 2, (int)Math.Round(0.15 * m * nv)));
-                    for (int v = 0; v < V && nOff < want; v++) if (vent[v] && ventMul[v] > 0.2 && rng.U() < 0.5) { ventMul[v] *= 0.3; nOff++; }
-                    for (int tries = 0; tries < 50 && nOn < Math.Max(1, nOff); tries++) { int r = (int)(rng.U() * geo.NO); if (OpenVent(r) >= 0) nOn++; }
-                    e.kind = "열수공 이동"; e.text = $"열수공 {nOff}곳 약해지고 {nOn}곳 새로 열림"; break;
+                    // 판 움직임: 열수공 몇 곳이 약해지고(최대 절반) 다른 곳이 그만큼 세진다
+                    var vs = new List<int>(); for (int v = NV0; v < V; v++) if (live[v] && vent[v]) vs.Add(v);
+                    int want = Math.Max(1, Math.Min(vs.Count / 2, (int)Math.Round(0.15 * m * vs.Count))), nOff = 0, nOn = 0;
+                    for (int k = vs.Count - 1; k > 0; k--) { int j = (int)(rng.U() * (k + 1)); (vs[k], vs[j]) = (vs[j], vs[k]); }
+                    for (int k = 0; k < vs.Count; k++)
+                        if (nOff < want && ventMul[vs[k]] > 0.2) { ventMul[vs[k]] *= 0.3; nOff++; }
+                        else if (nOn < want) { ventMul[vs[k]] = Math.Min(3, ventMul[vs[k]] * 2 + 0.3); nOn++; }
+                    e.kind = "열수공 이동"; e.text = $"열수공 {nOff}곳 약해지고 {nOn}곳 세짐"; break;
             }
             // 황화수소를 넣었으면 장부에
             if (kind == 0) { double add = 0; for (int v = 0; v < V; v++) if (live[v] && zTop[v] >= 100) add += 0.5 * m * vol[v] * 1e-6; inS += add; }

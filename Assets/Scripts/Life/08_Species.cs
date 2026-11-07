@@ -67,7 +67,7 @@ namespace Life
             {
                 if (s.species < 0) { s.species = NewSpecies(-1, (float[])s.g.Clone()).id; continue; }
                 var sp = species[s.species];
-                if (Genome.Dist(s.g, sp.g0) <= Cfg.D_SP || s.total < 0.05 * sp.biomass) continue;
+                if (Genome.Dist(s.g, sp.g0) <= Cfg.D_SP || s.total < 0.03 * sp.biomass) continue;
                 Species best = null; double bd = Cfg.D_SP;
                 foreach (var o in species) { if (!o.Alive || o == sp) continue; double d = Genome.Dist(s.g, o.g0); if (d <= bd) { bd = d; best = o; } }
                 s.species = (best ?? NewSpecies(sp.id, (float[])s.g.Clone())).id;

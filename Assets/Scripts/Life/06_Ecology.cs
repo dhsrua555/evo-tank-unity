@@ -11,7 +11,11 @@ namespace Life
         public const int NINC = 8;
         public double[] inc;
         // [slot·V+v] 마지막 틱 값: 순성장률, 자원 나눔 몫, 포식 섭취 배율(Holling), 먹힘률 — 돌연변이 평가에 쓴다
-        public double[] grow, limA, eatScale, eatenRate;
+        public const int LQ = 4 + P.N;
+        // seen[풀·V + v]: 한 틱(8시간) 동안 세포가 겪는 평균 농도의 몫. 쓰는 속도가 풀보다 빠르면 틱 안에서 바닥나므로 낮춘다
+        // (적게 쓰는 공여체 하나가 바닥났다고 세포 전체 성장을 막지 않게: 세포는 그 공여체를 덜 쓰고 다른 것으로 옮긴다)
+        public double[] seen;
+        public double[] grow, limA, eatScale, eatenRate, limBio, limLast;   // limBio[(q + LQ·광합성?)·V + v]: 성장을 막은 것별 생물량(mol). q 0–3 = 에너지·리보솜·질소·인, 4 + 풀 = 칸 자원 나눔
         public double[] binB;                 // [v·125 + 수용체 칸] 숙주 밀도(바이러스)
         public double[] nfixV;                // 칸별 질소 고정 누적(mol), 매일 장부 inN으로
 
@@ -20,7 +24,9 @@ namespace Life
             public int[] slot = new int[Cfg.SMAX + 3];
             public double[] b = new double[Cfg.SMAX + 3], size = new double[Cfg.SMAX + 3], vul = new double[Cfg.SMAX + 3],
                 a = new double[Cfg.SMAX], scale = new double[Cfg.SMAX], loss = new double[Cfg.SMAX + 3], intake = new double[Cfg.SMAX],
-                prey = new double[Cfg.SMAX], det = new double[Cfg.SMAX], lim = new double[Cfg.SMAX];
+                prey = new double[Cfg.SMAX], det = new double[Cfg.SMAX], lim = new double[Cfg.SMAX],
+                lsz = new double[Cfg.SMAX + 3], eat = new double[Cfg.SMAX + 3], K = new double[Cfg.SMAX * (Cfg.SMAX + 3)];
+            public int[] act = new int[Cfg.SMAX], limK = new int[Cfg.SMAX], spc = new int[Cfg.SMAX + 3];
             public Rates[] r = new Rates[Cfg.SMAX];
             public readonly double[] cons = new double[P.N], f = new double[P.N];
         }
@@ -29,21 +35,23 @@ namespace Life
         void AllocBio()
         {
             inc = new double[NINC * Cfg.SMAX * V];
-            grow = new double[Cfg.SMAX * V]; limA = new double[Cfg.SMAX * V]; eatScale = new double[Cfg.SMAX * V]; eatenRate = new double[Cfg.SMAX * V];
+            grow = new double[Cfg.SMAX * V]; limA = new double[Cfg.SMAX * V]; eatScale = new double[Cfg.SMAX * V]; eatenRate = new double[Cfg.SMAX * V]; limBio = new double[2 * LQ * V]; limLast = new double[2 * LQ];
+            seen = new double[P.N * V]; Array.Fill(seen, 1.0);
             binB = new double[V * 125]; nfixV = new double[V];
         }
 
         public Env EnvAt(int v)
         {
-            var c = pool;
-            return new Env { T = temp[v], light = light[v], dry = dry[v], CO2 = c[P.CO2][v], O2 = c[P.O2][v], H2 = c[P.H2][v], CH4 = c[P.CH4][v],
-                H2S = c[P.H2S][v], FE2 = c[P.FE2][v], SO4 = c[P.SO4][v], NH4 = c[P.NH4][v], PO4 = c[P.PO4][v], DOC = c[P.DOC][v] };
+            var c = pool; var q = seen; int k = V;
+            return new Env { T = temp[v], light = light[v], dry = dry[v], CO2 = c[P.CO2][v] * q[P.CO2 * k + v], O2 = c[P.O2][v] * q[P.O2 * k + v], H2 = c[P.H2][v] * q[P.H2 * k + v],
+                CH4 = c[P.CH4][v] * q[P.CH4 * k + v], H2S = c[P.H2S][v] * q[P.H2S * k + v], FE2 = c[P.FE2][v] * q[P.FE2 * k + v], SO4 = c[P.SO4][v] * q[P.SO4 * k + v],
+                NH4 = c[P.NH4][v] * q[P.NH4 * k + v], PO4 = c[P.PO4][v] * q[P.PO4 * k + v], DOC = c[P.DOC][v] * q[P.DOC * k + v] };
         }
 
-        // 먹이 선호: 몸 크기의 1/10 근처(로그 정규), 자기보다 큰 것은 못 먹는다
+        // 먹이 선호: 몸 크기의 1/10 근처(로그 정규). 몸보다 조금 큰 것까지는 감싸 먹는다(와편모류처럼), 그보다 크면 못 먹는다
         static double Pref(double prey, double pred)
         {
-            if (prey >= pred) return 0;
+            if (prey > Cfg.PREY_MAX * pred) return 0;
             double x = (Math.Log10(prey / pred) + 1) / Cfg.PREY_SD;
             return x * x > 9 ? 0 : Math.Exp(-0.5 * x * x);
         }
@@ -59,7 +67,7 @@ namespace Life
             for (int i = 0; i < alive.Count; i++)
             {
                 var s = alive[i]; double bb = B[s.slot * V + v];
-                if (bb > Cfg.BMIN) { S.slot[n] = s.slot; S.b[n] = bb; S.size[n] = s.b.size; S.vul[n] = Vul(s.t); n++; }
+                if (bb > Cfg.BMIN) { S.slot[n] = s.slot; S.b[n] = bb; S.size[n] = s.b.size; S.vul[n] = Vul(s.t); S.spc[n] = s.species; n++; }
                 else if (bb != 0) { c[P.DOC][v] += bb; B[s.slot * V + v] = 0; }   // 사라진 몫은 녹은 유기물로
             }
             for (int k = 0; k < 125; k++) binB[v * 125 + k] = 0;
@@ -69,35 +77,47 @@ namespace Life
 
             // 1) 포식·청소: 먹이 = 다른 계통 + 사체 세 칸
             int np = n;
-            for (int k = 0; k < 3; k++) { S.size[np] = Cfg.POC_SIZE[k]; S.vul[np] = 1; S.b[np] = c[P.POC0 + k][v]; S.slot[np] = -1; np++; }
-            double tot = 0; for (int i = 0; i < np; i++) { tot += S.b[i]; S.loss[i] = 0; }
+            for (int k = 0; k < 3; k++) { S.size[np] = Cfg.POC_SIZE[k]; S.vul[np] = 1; S.b[np] = c[P.POC0 + k][v]; S.slot[np] = -1; S.spc[np] = -2; np++; }
+            double tot = 0; for (int i = 0; i < np; i++) { tot += S.b[i]; S.loss[i] = 0; S.lsz[i] = Math.Log10(S.size[i]); S.eat[i] = 0; }
+            // 먹는 쪽 j마다 계수 K[j,i] = 공격률 × 크기 선호 × 먹이 약함 을 한 번만 셈(아래 세 번 쓴다)
+            int na = 0;
             for (int j = 0; j < n; j++)
             {
                 var sj = strains[S.slot[j]]; S.a[j] = Attack(sj.t, sj.b); S.scale[j] = 0; S.intake[j] = 0; S.prey[j] = 0; S.det[j] = 0;
                 if (S.a[j] * tot < 1e-4) continue;
-                double E = 0;
-                for (int i = 0; i < np; i++) if (i != j) E += S.a[j] * Pref(S.size[i], S.size[j]) * S.vul[i] * S.b[i];
-                if (E <= 0) continue;
-                S.scale[j] = 1 / (1 + Cfg.HANDLE * E);
-                for (int i = 0; i < np; i++) if (i != j) S.loss[i] += S.a[j] * Pref(S.size[i], S.size[j]) * S.vul[i] * S.b[i] * S.scale[j] * S.b[j] * dt;
-            }
-            for (int i = 0; i < np; i++) S.loss[i] = S.loss[i] > 0.9 * S.b[i] ? 0.9 * S.b[i] / S.loss[i] : 1;   // 이제 loss = 먹힘 상한 배율
-            for (int j = 0; j < n; j++)
-            {
-                if (S.scale[j] <= 0) continue;
+                int row = na * np; double E = 0;
                 for (int i = 0; i < np; i++)
                 {
-                    if (i == j) continue;
-                    double fl = S.a[j] * Pref(S.size[i], S.size[j]) * S.vul[i] * S.b[i] * S.scale[j] * S.b[j] * dt * S.loss[i];
+                    double k = 0;
+                    if (i != j && (S.spc[i] != S.spc[j] || S.spc[i] < 0) && S.size[i] <= Cfg.PREY_MAX * S.size[j])   // 같은 종(친척)은 먹지 않는다
+                    {
+                        double x = (S.lsz[i] - S.lsz[j] + 1) / Cfg.PREY_SD;
+                        if (x * x <= 9) k = S.a[j] * Math.Exp(-0.5 * x * x) * S.vul[i];
+                    }
+                    S.K[row + i] = k; E += k * S.b[i];
+                }
+                if (E <= 0) continue;
+                S.act[na++] = j;
+                S.scale[j] = 1 / (1 + Cfg.HANDLE * E);
+                double sb = S.scale[j] * S.b[j] * dt;
+                for (int i = 0; i < np; i++) S.loss[i] += S.K[row + i] * S.b[i] * sb;
+            }
+            for (int i = 0; i < np; i++) S.loss[i] = S.loss[i] > 0.9 * S.b[i] ? 0.9 * S.b[i] / S.loss[i] : 1;   // 이제 loss = 먹힘 상한 배율
+            for (int q = 0; q < na; q++)
+            {
+                int j = S.act[q], row = q * np; double sb = S.scale[j] * S.b[j] * dt;
+                for (int i = 0; i < np; i++)
+                {
+                    double fl = S.K[row + i] * S.b[i] * sb * S.loss[i]; if (fl <= 0) continue;
                     if (i < n) S.prey[j] += fl; else S.det[j] += fl;
+                    S.eat[i] += fl;
                 }
                 S.intake[j] = S.prey[j] + S.det[j];
             }
             // 먹힌 양을 먹이에서 뺀다(사체는 풀에서)
             for (int i = 0; i < np; i++)
             {
-                double eaten = 0;
-                for (int j = 0; j < n; j++) if (j != i && S.scale[j] > 0) eaten += S.a[j] * Pref(S.size[i], S.size[j]) * S.vul[i] * S.b[i] * S.scale[j] * S.b[j] * dt * S.loss[i];
+                double eaten = S.eat[i];
                 if (i < n) { eatenRate[S.slot[i] * V + v] = S.b[i] > 0 ? eaten / (S.b[i] * dt) : 0; S.b[i] -= eaten; }
                 else c[P.POC0 + i - n][v] = Math.Max(0, c[P.POC0 + i - n][v] - eaten);
             }
@@ -117,14 +137,18 @@ namespace Life
             }
             // 3) 풀이 모자라면 쓰는 쪽끼리 비례로 나눈다
             for (int k = 0; k < P.N; k++) S.f[k] = S.cons[k] > 0.9 * c[k][v] ? 0.9 * c[k][v] / S.cons[k] : 1;
+            for (int k = 0; k < P.N; k++)
+            {
+                double ratio = S.cons[k] / Math.Max(1e-30, 0.9 * c[k][v]);
+                seen[k * V + v] = Math.Clamp(seen[k * V + v] * Math.Min(1.2, 0.95 / Math.Max(1e-9, ratio)), 1e-9, 1);
+            }
             for (int i = 0; i < n; i++)
             {
-                ref var r = ref S.r[i]; double l = 1;
-                if (r.dCO2 < 0) l = Math.Min(l, S.f[P.CO2]); if (r.dO2 < 0) l = Math.Min(l, S.f[P.O2]); if (r.dH2 < 0) l = Math.Min(l, S.f[P.H2]);
-                if (r.dCH4 < 0) l = Math.Min(l, S.f[P.CH4]); if (r.dH2S < 0) l = Math.Min(l, S.f[P.H2S]); if (r.dFE2 < 0) l = Math.Min(l, S.f[P.FE2]);
-                if (r.dSO4 < 0) l = Math.Min(l, S.f[P.SO4]); if (r.nh4 > 0) l = Math.Min(l, S.f[P.NH4]); if (r.po4 > 0) l = Math.Min(l, S.f[P.PO4]);
-                if (r.docUp > 0) l = Math.Min(l, S.f[P.DOC]);
-                S.lim[i] = l;
+                ref var r = ref S.r[i]; double l = 1; int k0 = -1;
+                void Lim(bool uses, int k) { if (uses && S.f[k] < l) { l = S.f[k]; k0 = k; } }
+                Lim(r.dCO2 < 0, P.CO2); Lim(r.dO2 < 0, P.O2); Lim(r.dH2 < 0, P.H2); Lim(r.dCH4 < 0, P.CH4); Lim(r.dH2S < 0, P.H2S); Lim(r.dFE2 < 0, P.FE2);
+                Lim(r.dSO4 < 0, P.SO4); Lim(r.nh4 > 0, P.NH4); Lim(r.po4 > 0, P.PO4); Lim(r.docUp > 0, P.DOC);
+                S.lim[i] = l; S.limK[i] = k0;
             }
 
             // 4) 반영
@@ -154,6 +178,8 @@ namespace Life
                 double other = Math.Max(0, r.mort - vm), rate = other + vm - gneg, lost = bi * (1 - Math.Exp(-rate * dt));
                 if (rate > 0) { c[PocClass(s.b.size)][v] += lost * other / rate; c[P.DOC][v] += lost * (vm - gneg) / rate; }
                 B[si] = bi + built * bi * dt - lost;
+                var ph = s.t.phi; bool isPh = ph[G.PHOTO] >= Math.Max(Math.Max(ph[G.CHEMO], ph[G.OSMO]), ph[G.PHAGO]);
+                limBio[((l < 0.9 ? 4 + S.limK[i] : r.lim) + (isPh ? LQ : 0)) * V + v] += bi * M;
                 grow[si] = Math.Max(0, r.g) * l; limA[si] = l; eatScale[si] = S.scale[i];   // grow = 분열 속도(돌연변이 공급)
                 // 오늘 수입(mol)
                 int o = s.slot * V + v, st = Cfg.SMAX * V;

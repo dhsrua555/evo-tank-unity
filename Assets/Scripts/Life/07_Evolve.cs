@@ -18,7 +18,7 @@ namespace Life
         // 몸 모양 지표: log2 크기, log2 세포 수, 차원, 겉 세포 비율
         public static double ShapeDist(Strain a, Traits tb, Body bb)
         {
-            double d1 = Math.Log2(bb.size / a.b.size), d2 = Math.Log2(tb.MeanCells / a.t.MeanCells), d3 = bb.dim - a.b.dim, d4 = 2 * (bb.exposed - a.b.exposed);
+            double d1 = Math.Log(bb.size / a.b.size, 2), d2 = Math.Log(tb.MeanCells / a.t.MeanCells, 2), d3 = bb.dim - a.b.dim, d4 = 2 * (bb.exposed - a.b.exposed);
             return Math.Sqrt(d1 * d1 + d2 * d2 + d3 * d3 + d4 * d4);
         }
 
@@ -34,10 +34,10 @@ namespace Life
         // 먹이 섭취(세포 C 1 mol당 /일, 똥 뺀 몫)
         double Intake(Traits t, Body b, int v, int self)
         {
-            double a = Attack(t, b), E = 0;
+            double a = Attack(t, b), E = 0; int mySp = strains[self]?.species ?? -1;
             for (int i = 0; i < alive.Count; i++)
             {
-                var s = alive[i]; if (s.slot == self) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
+                var s = alive[i]; if (s.slot == self || (s.species == mySp && mySp >= 0)) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
                 E += a * Pref(s.b.size, b.size) * Vul(s.t) * bi;
             }
             for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.size) * pool[P.POC0 + k][v];
@@ -47,10 +47,10 @@ namespace Life
         // 먹힘률(/일): 그 칸 포식자들의 지금 섭취 배율로
         double Eaten(Traits t, Body b, int v, int self)
         {
-            double vul = Vul(t), loss = 0;
+            double vul = Vul(t), loss = 0; int mySp = strains[self]?.species ?? -1;
             for (int j = 0; j < alive.Count; j++)
             {
-                var s = alive[j]; if (s.slot == self) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
+                var s = alive[j]; if (s.slot == self || (s.species == mySp && mySp >= 0)) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
                 loss += Attack(s.t, s.b) * Pref(b.size, s.b.size) * vul * eatScale[sj] * bj;
             }
             return loss;
@@ -110,7 +110,7 @@ namespace Life
                 triedToday++;
                 if (rng.U() >= Pk) continue;
                 var ch = NewStrain(g, slot, gene, t, body); if (ch == null) continue;
-                double f = B[si] * Cfg.FOUND; B[si] -= f; B[ch.slot * V + dest] += f;
+                double f = B[si] * Cfg.FOUND; B[si] -= f; B[ch.slot * V + dest] += f * vol[v] / vol[dest];   // 농도(μM)를 옮기므로 부피 비로(몰 보존)
                 ch.jump = ShapeDist(par, t, body); ch.sel = sc;
                 if (jumps.Count >= 4096) jumps.RemoveAt(0); jumps.Add(ch.jump);
                 keptToday++;

@@ -74,6 +74,16 @@ namespace Life
                 }
         }
 
+        double[] buryC, buryFe;
+        void SumBurial()
+        {
+            for (int v = 0; v < V; v++)
+            {
+                double m = buryC[v]; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m; outFe += buryFe[v];
+                buryC[v] = 0; buryFe[v] = 0;
+            }
+        }
+
         // 무생물 반응·매몰
         void Abiotic(int v)
         {
@@ -87,11 +97,13 @@ namespace Life
             d = Math.Min(Cfg.K_H2_OX * c[P.H2][v] * c[P.O2][v] * dt, Math.Min(c[P.H2][v], 2 * c[P.O2][v]) * 0.9);
             c[P.H2][v] -= d; c[P.O2][v] -= d / 2;
             for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.HYDROLYSIS * dt; c[p][v] -= d; c[P.DOC][v] += d; }
+            // 자외선: 오존이 없으면 표층의 녹은 유기물을 CO2로 깬다(산소가 1e-2 PAL쯤 되면 오존층이 막는다)
+            d = c[P.DOC][v] * Cfg.K_UV * light[v] / (1 + O2PAL / 0.01) * dt; c[P.DOC][v] -= d; c[P.CO2][v] += d; c[P.NH4][v] += d * 16 / 106; c[P.PO4][v] += d / 106;
             if (IsBottom(v))
             {
                 double m = 0; for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.BURIAL * dt; c[p][v] -= d; m += d; }
-                m *= vol[v] * 1e-6; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m;
-                d = c[P.FE3][v] * 0.01 * dt; c[P.FE3][v] -= d; outFe += d * vol[v] * 1e-6;
+                buryC[v] += m * vol[v] * 1e-6;   // 칸별로 모은 뒤 한 스레드에서 더한다(병렬 칸끼리 같은 수를 고치면 몫이 사라진다)
+                d = c[P.FE3][v] * 0.01 * dt; c[P.FE3][v] -= d; buryFe[v] += d * vol[v] * 1e-6;
             }
         }
 

@@ -1,6 +1,7 @@
 // 한 틱의 순서와 하루 기록. 순서: (하루 시작이면 사건·종·정리) → 기후 → 칸별 생태(병렬) → 섞임·가라앉음 → 무생물 반응 → 기체 교환 → 경계 → 진화.
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading.Tasks;
 
 namespace Life
@@ -18,6 +19,7 @@ namespace Life
         public float maxCells, maxSize;            // 가장 큰 덩이 세포 수, 크기(μm)
         public float drift;                        // 장부 어긋남(상대, C·N·P·Fe·S 중 최대)
         public int kept;                           // 오늘 정착한 돌연변이
+        public float limE, limR, limN, limP, limS;  // 성장을 막은 것 몫(생물량·틱 가중): 에너지·탄소, 리보솜, 질소, 인, 칸 자원 나눔
     }
 
     public sealed partial class Planet
@@ -32,18 +34,23 @@ namespace Life
         {
             lock (gate)
             {
+                long t0 = Stopwatch.GetTimestamp();
                 if (tick % Cfg.TPD == 0) Daily();
-                probe?.Invoke("daily");
-                Climate();
-                Parallel.For(0, V, po, Bio); probe?.Invoke("bio");
+                probe?.Invoke("daily"); Lap(0, ref t0);
+                Climate(); Lap(1, ref t0);
+                Parallel.For(0, V, po, Bio); probe?.Invoke("bio"); Lap(2, ref t0);
                 Transport(); probe?.Invoke("transport");
-                Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); probe?.Invoke("abiotic");
+                buryC ??= new double[V]; buryFe ??= new double[V];
+                Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");
                 Gas(); probe?.Invoke("gas");
-                Boundary(); probe?.Invoke("boundary");
-                Evolve(); probe?.Invoke("evolve");
+                Boundary(); probe?.Invoke("boundary"); Lap(3, ref t0);
+                Evolve(); probe?.Invoke("evolve"); Lap(4, ref t0);
                 tick++;
             }
         }
+
+        public readonly double[] tStage = new double[5];   // 단계별 누적 시간(초): 하루 일, 기후, 생태, 물질, 진화
+        void Lap(int k, ref long t0) { long t = Stopwatch.GetTimestamp(); tStage[k] += (t - t0) / (double)Stopwatch.Frequency; t0 = t; }
 
         void Daily()
         {
@@ -84,6 +91,12 @@ namespace Life
                 switch (sp.role) { case Role.광합성: d.rPhoto++; break; case Role.화학합성: d.rChemo++; break; case Role.포식: d.rPrey++; break; case Role.청소: d.rDet++; break; case Role.분해: d.rDoc++; break; }
             }
             d.nClade = cl.Count;
+            Array.Clear(limLast, 0, limLast.Length);
+            for (int q = 0; q < 2 * LQ; q++) for (int v = 0; v < V; v++) limLast[q] += limBio[q * V + v];
+            var lq = new double[5]; double lt = 0;
+            for (int q = 0; q < 2 * LQ; q++) { lq[Math.Min(4, q % LQ)] += limLast[q]; lt += limLast[q]; }
+            if (lt > 0) { d.limE = (float)(lq[0] / lt); d.limR = (float)(lq[1] / lt); d.limN = (float)(lq[2] / lt); d.limP = (float)(lq[3] / lt); d.limS = (float)(lq[4] / lt); }
+            Array.Clear(limBio, 0, limBio.Length);
             // 장부: 처음과 비교(경계 순유입을 뺀 값이 그대로여야 한다)
             var L = Ledger(); lastLedger = L; double drift = 0;
             for (int i = 0; i < L.Length; i++) drift = Math.Max(drift, Math.Abs(L[i] - ledger0[i]) / Math.Max(1e-30, Math.Abs(ledger0[i])));

@@ -28,7 +28,7 @@ namespace Life
 
         // 원시 지구 시작값 (Fe·SO4·PO4: 시생누대 추정 범위 안, brief 3-6)
         public const double CO2_PAL0 = 30, O2_PAL0 = 1e-7, CH4_PPM0 = 100, H2_PPM0 = 100;
-        public const double FE2_DEEP0 = 50, FE2_TOP0 = 20, SO4_0 = 50, PO4_0 = 0.2, NH4_0 = 2, DOC_0 = 2;
+        public const double FE2_DEEP0 = 50, FE2_TOP0 = 20, SO4_0 = 50, PO4_0 = 0.2, NH4_0 = 2, DOC_0 = 0.02;   // 녹은 유기물은 처음에 거의 없다: 먹는 쪽은 만드는 쪽이 생겨야 산다
         public const double SUN = 0.78;               // 태양 밝기(지금 = 1)
 
         // 대기: 실제 우리 행성 크기(지구의 8 %) 대기를 ATM배로 줄여 느린 저장고가 생태 시간 안에 움직이게 한다(지질 시간 압축).
@@ -49,6 +49,7 @@ namespace Life
         // 무생물 반응(/μM/일)
         public const double K_FE_OX = 0.5, K_HS_OX = 0.1, K_CH4_OX = 0.0005, K_H2_OX = 0.001;
         public const double HYDROLYSIS = 0.05;        // 사체 → 녹은 유기물(/일)
+        public const double K_UV = 0.5;               // 자외선이 녹은 유기물을 깨는 속도(/일, 수면 빛 1, 오존 없을 때)
         public static readonly double[] POC_SIZE = { 3, 30, 300 };    // 사체 크기 칸(μm)
         public static readonly double[] POC_SINK = { 1, 10, 100 };    // 침강(m/일)
 
@@ -77,7 +78,7 @@ namespace Life
         // 먹고 먹히기
         public const double ATTACK = 6;               // 포식 막 몫 1당 공격률(/μM C/일)
         public const double HANDLE = 0.5;             // 먹이 처리 시간(일)
-        public const double PREY_RATIO = 0.1, PREY_SD = 0.6;   // 선호 먹이 크기 = 몸의 1/10, 폭 0.6 decade
+        public const double PREY_RATIO = 0.1, PREY_SD = 0.6, PREY_MAX = 1.2;   // 선호 먹이 크기 = 몸의 1/10, 폭 0.6 decade, 몸의 1.2배까지
         public const double EGEST = 0.3;              // 먹은 것 중 똥·찌꺼기
         public const double VIRUS = 0.25, VIRUS_K = 0.3;   // 이긴 자 죽이기: 같은 수용체 칸 숙주 밀도에 비례
 
@@ -86,14 +87,15 @@ namespace Life
         public const int CELLS_MAX = 4096;            // 덩이 세포 수 상한
 
         // 진화
-        public const double STEP = 0.02;              // 돌연변이 한 걸음(유전자 범위의 2 %)
-        public const int EVAL = 48;                   // 틱마다 평가하는 돌연변이 후보 수
+        public const double STEP = 0.04;              // 돌연변이 한 걸음: 대사·배분 유전자(범위의 4 %, 몫 ×1.38)
+        public const double STEP_SHAPE = 0.02;        // 몸 모양 유전자(크기·길쭉함·가지·각·떨어지는 몫·붙음)는 더 작게: 모양이 갑자기 바뀌지 않게
+        public const int EVAL = 160;                   // 틱마다 평가하는 돌연변이 후보 수
         public const double NCAP = 100;               // 돌연변이 공급에 쓰는 계통·칸 개체 수 상한(클론 간섭 근사)
         public const double NFOUND = 100;             // 정착 확률 식의 창시 개체 수
         public const double FOUND = 1e-2;             // 새 계통 시작 생물량 = 부모의 이 비율(지역 집단에서 번진 몫)
-        public const int SMAX = 512;                  // 동시에 추적하는 계통 수
+        public const int SMAX = 320;                  // 동시에 추적하는 계통 수
         public const double BMIN = 1e-14;             // 이보다 적으면(μM C, 칸 평균) 그 칸에서 사라짐
-        public const double D_SP = 0.08;              // 종: 종 창시 유전체에서 이만큼 멀어지면 새 종
-        public const double D_CLADE = 0.45;           // 큰 갈래: 갈래 창시 종에서 이만큼 멀어지면 새 갈래
+        public const double D_SP = 0.12;              // 종: 종 창시 유전체에서 이만큼 멀어지면 새 종
+        public const double D_CLADE = 0.5;           // 큰 갈래: 갈래 창시 종에서 이만큼 멀어지면 새 갈래
     }
 }

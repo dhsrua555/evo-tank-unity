@@ -20,6 +20,7 @@ namespace Life
         public double nh4, po4, nfix;    // 흡수
         public double dCO2, dO2, dH2, dCH4, dH2S, dFE2, dSO4;   // 칸 풀 변화(+ = 내놓음)
         public double chemoATP, o2Made, fixPh;   // fixPh: 빛 에너지로 고정한 몫
+        public int lim;                  // 성장을 막은 것: 0 에너지·탄소, 1 리보솜, 2 질소, 3 인
     }
 
     public static class Cell
@@ -102,7 +103,7 @@ namespace Life
                 double nUse = Math.Max(0, Math.Min(nfix, g * 16 / 106 - nIn - (1 - bestF) * U * 16 / 106));
                 if (nUse > 0) { double g2 = (gce * Cfg.A_BIO - Cfg.A_NFIX * nUse) / Cfg.A_BIO; g = Math.Min(g, g2); }
             }
-            r.g = g;
+            r.g = g; r.lim = g == gce ? 0 : g == gRib ? 1 : g == gN ? 2 : g == gP ? 3 : 0;
 
             // 실제 흐름: 성장이 다른 한계로 막히면 그만큼 덜 먹고 덜 고정한다
             double lam = gce > 0 ? Math.Clamp(g / gce, 0, 1) : (g < 0 ? 1 : 0);
