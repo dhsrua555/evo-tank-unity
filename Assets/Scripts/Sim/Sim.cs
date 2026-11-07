@@ -508,7 +508,7 @@ namespace Evo
             var g = s.g; Morph m;
             m.perf = ThermalPerf(g, t); m.kt = Kt(t);
             float plastic = g[Gn.Plastic], ind = 1 - plastic + plastic * q;      // 유도 방어: 신호 없으면 덜 만든다
-            m.esd = s.esd0 * MathF.Cbrt(Math.Clamp(MathF.Exp(-P.TSR * (t - 15)), 0.5f, 1.6f));
+            m.esd = s.esd0 * (float)Math.Cbrt(Math.Clamp(MathF.Exp(-P.TSR * (t - 15)), 0.5f, 1.6f));
             m.spines = g[Gn.Spines] * ind;
             // 포식 신호 → 군체 (Scenedesmus + Daphnia 카이로몬). 발생하는 생물은 단계별 세포 수가 정해져 있다
             m.C = s.dev ? s.C[k] : MathF.Floor(MathF.Pow(2, MathF.Floor(g[Gn.Cells]) + MathF.Round(2 * plastic * q)));
@@ -558,7 +558,7 @@ namespace Evo
             if (m.C <= 1) rD = m.esd / 2;
             else
             {
-                float fil = 2f / 3 * m.L / (MathF.Log(MathF.Max(2, m.L / m.esd)) + 0.5f), sheet = 0.85f * m.L / 2, ball = MathF.Cbrt(vol * 6 / MathF.PI) / 2;
+                float fil = 2f / 3 * m.L / (MathF.Log(MathF.Max(2, m.L / m.esd)) + 0.5f), sheet = 0.85f * m.L / 2, ball = (float)Math.Cbrt(vol * 6 / MathF.PI) / 2;   // MathF.Cbrt는 IL2CPP(안드로이드)에 없다: MissingMethodException
                 rD = m.D < 2 ? fil + (sheet - fil) * (m.D - 1) : sheet + (ball - sheet) * (m.D - 2);
             }
             float phi = 1 + 0.25f * MathF.Abs(g[Gn.Elong]) + 1.2f * m.spines;
