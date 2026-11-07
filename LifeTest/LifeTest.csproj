@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Assets/Scripts/Life/*.cs" />
+    <Compile Include="../Assets/Scripts/Sim/Geo.cs" />
+    <Compile Include="../Assets/Scripts/Sim/Rng.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>
