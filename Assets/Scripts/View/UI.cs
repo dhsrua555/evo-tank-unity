@@ -25,7 +25,11 @@ public partial class EvoTank
 
     static readonly string[] TABS = { "환경", "개체", "종", "기록" };
     static readonly Color TXT = new(0.86f, 0.9f, 0.94f), DIM = new(0.56f, 0.64f, 0.72f), ACC = new(0.37f, 0.83f, 1f);
-    float UIScale => Mathf.Max(0.75f, Mathf.Min(Screen.height / 900f, Screen.width / 1600f));
+    const string HelpKeys = "<b>조작</b>\n끌기: 둘러보기 · WASD: 헤엄 · E/Q: 위·아래 · Shift: 빠르게 · 휠: 관찰 축척(μm ↔ m)\n클릭: 개체 고르기 · F: 맞추기 · Space: 멈춤 · 1–4: 속도\nG: 계통수 · T: 진화 경로 · M: 확대 카드 · P: 표본 쟁반 · Esc: 창 닫기/고르기 풀기";
+    const string HelpTouch = "<b>조작</b>\n끌기: 둘러보기 · 누르기: 개체 고르기 · 뒤로: 창 닫기\n두 손가락 벌리기·오므리기: 관찰 축척(μm ↔ m)\n두 손가락 함께 끌기: 헤엄(옆·위아래)";
+    // 화면 배치는 1600×900 기준(작은 창은 0.75배까지 = 1333×800). 휴대폰은 화면이 작아 그 가장 작은 배치(1333×800)를 꽉 채우게 키운다
+    float UIScale => Application.isMobilePlatform ? Mathf.Min(Screen.height / 800f, Screen.width / 1333f)
+                                                  : Mathf.Max(0.75f, Mathf.Min(Screen.height / 900f, Screen.width / 1600f));
 
     // ---------- 모양: 둥근 판·아이콘 텍스처 ----------
     static Texture2D Tex(int n) => new(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave };
@@ -170,7 +174,7 @@ public partial class EvoTank
         {
             var hr = new Rect(10, Hh - 200, 560, 136); GUI.Box(hr, GUIContent.none, sBox);
             GUI.Label(new Rect(hr.x + 16, hr.y + 12, hr.width - 32, hr.height - 20),
-                "<b>조작</b>\n끌기: 둘러보기 · WASD: 헤엄 · E/Q: 위·아래 · Shift: 빠르게 · 휠: 관찰 축척(μm ↔ m)\n클릭: 개체 고르기 · F: 맞추기 · Space: 멈춤 · 1–4: 속도\nG: 계통수 · T: 진화 경로 · M: 확대 카드 · P: 표본 쟁반 · Esc: 창 닫기/고르기 풀기", sL);
+                Application.isMobilePlatform ? HelpTouch : HelpKeys, sL);
         }
         // 오른쪽 판
         GUI.Box(panel, GUIContent.none, sBox);

@@ -12,3 +12,5 @@ Builds/
 /*.slnx
 /*.sln
 SimTest/*.log
+.utmp/
+build/

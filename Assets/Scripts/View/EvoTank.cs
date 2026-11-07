@@ -65,6 +65,7 @@ public partial class EvoTank : MonoBehaviour
     void Start()
     {
         Application.targetFrameRate = 60;
+        if (Application.isMobilePlatform) Screen.sleepTimeout = SleepTimeout.NeverSleep;   // 휴대폰: 지켜보는 앱이라 화면이 꺼지지 않게
         w = new World(Environment.TickCount & 0xffff) { o2Bio = true, autoQ = true, activity = 0.4f };   // 앱: 산소는 생물이, 사건은 자연이
         w.po.MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2);   // 화면·렌더 스레드 몫 둘을 남긴다
         Bodies.Sp = id => w.species.TryGetValue(id, out var s) ? s : null;   // 몸 그리기가 종 표지를 찾는 길
@@ -457,8 +458,10 @@ public partial class EvoTank : MonoBehaviour
         var mp = Input.mousePosition; var gp = new Vector2(mp.x, Screen.height - mp.y) / UIScale;
         overUI = win != 0 || panel.Contains(gp) || top.Contains(gp) || info.Contains(gp) || gauge.Contains(gp) || mapR.Contains(gp) || card.Contains(gp) || tray.Contains(gp) || help && gp.y > Screen.height / UIScale - 200 && gp.x < 570;
         if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1)) { m0 = mp; dragging = !overUI; }
+        if (Input.touchCount >= 2) TwoFingers();   // 휴대폰: 두 손가락이면 둘러보기 대신 축척·헤엄
         if (dragging && (Input.GetMouseButton(0) || Input.GetMouseButton(1))) { var d = Input.mousePosition - m0; m0 = Input.mousePosition; if (d.sqrMagnitude > 0) lastDrag = Time.time; yaw += d.x * 0.25f; pitch = Mathf.Clamp(pitch - d.y * 0.25f, -80, 80); }
-        if (Input.GetMouseButtonUp(0) && dragging && (Input.mousePosition - downAt).sqrMagnitude < 36) Pick(mp);
+        float tap = Application.isMobilePlatform ? 20 : 6;   // 이만큼(px) 덜 움직이고 떼면 누르기. 손가락은 더 흔들린다
+        if (Input.GetMouseButtonUp(0) && dragging && (Input.mousePosition - downAt).sqrMagnitude < tap * tap) Pick(mp);
         if (Input.GetMouseButtonDown(0)) downAt = mp;
         if (Input.GetMouseButtonUp(0) || Input.GetMouseButtonUp(1)) dragging = false;
         float sc = Input.mouseScrollDelta.y; if (!overUI && sc != 0) { Bt = Mathf.Clamp(Bt * Mathf.Exp(-sc * 0.15f), 2e-5f, 3); fit = false; }
@@ -473,13 +476,29 @@ public partial class EvoTank : MonoBehaviour
     }
     Vector3 downAt; float lastDrag = -10;
 
+    // 휴대폰 두 손가락: 벌리고 오므리기 = 관찰 축척(휠), 함께 끌기 = 헤엄(옆·위아래, 끄는 쪽으로 물이 따라온다).
+    // 한 손가락 끌기(둘러보기)·누르기(고르기)는 유니티가 마우스로 바꿔 줘서 마우스와 같다
+    void TwoFingers()
+    {
+        dragging = false;
+        if (overUI) return;
+        Touch a = Input.GetTouch(0), b = Input.GetTouch(1);
+        if (a.phase == TouchPhase.Began || b.phase == TouchPhase.Began) return;   // 처음 닿은 프레임은 움직임이 없다
+        float d0 = (a.position - a.deltaPosition - (b.position - b.deltaPosition)).magnitude, d1 = (a.position - b.position).magnitude;
+        if (d0 > 1 && d1 > 1) { Bt = Mathf.Clamp(Bt * d0 / d1, 2e-5f, 3); fit = false; }   // 벌리면(d1 > d0) 확대
+        Vector2 pan = (a.deltaPosition + b.deltaPosition) / 2 / Screen.height;   // 화면 높이만큼 끌면 관찰 상자 하나
+        if (pan.sqrMagnitude == 0) return;
+        if (sel != null) { sel = null; Unfollow(); }   // 헤엄치면 따라가기를 멈춘다
+        MoveBy(Quaternion.Euler(0, yaw, 0) * new Vector3(-pan.x, -pan.y, 0) * B);
+    }
+
     void Pick(Vector3 mp)
     {
         Av best = null; float bz = 1e9f, f = Screen.height / (2 * Mathf.Tan(cam.fieldOfView * Mathf.Deg2Rad / 2)), u = BOX / B;
         foreach (var a in avs)
         {
             var sp = cam.WorldToScreenPoint(a.p); if (sp.z <= 0) continue;
-            float r = a.L * u * 0.5f * f / sp.z + 8;
+            float r = a.L * u * 0.5f * f / sp.z + (Application.isMobilePlatform ? 24 : 8);   // 손가락은 넉넉히
             if (((Vector2)sp - (Vector2)mp).sqrMagnitude < r * r && sp.z < bz) { bz = sp.z; best = a; }
         }
         sel = best; if (sel != null) { tab = 1; Follow(sel.id); } else Unfollow();   // 고르기 = 그 혈통 따라가기. 축척은 F로

@@ -9,11 +9,15 @@
 - **진화:** 유전자 44개(세포 크기·광합성·체절·외골격·턱·마름 견디기 …)가 있습니다. 돌연변이는 침입 성장률이 0보다 클 때만 정착합니다.
 - **화면:** 관찰자가 고른 해역의 물속을 μm부터 m 크기까지 자유롭게 헤엄칩니다. 몸은 부품 유전자 조합대로 그려지고, 종마다 물려받는 형태 표지(몸 비율·무늬·색·부속지 수)가 있어 같은 몸 설계라도 종이 다르면 모양이 다릅니다. 계통수(`G`)와 진화 경로(`T`)는 큰 창으로 따로 엽니다.
 
+## 내려받기
+
+[Releases](https://github.com/dhsrua555/evo-tank-unity/releases)에 Android APK와 Linux 빌드가 있습니다. 휴대폰에서는 한 손가락으로 끌어 둘러보고, 두 손가락을 벌리거나 오므려 관찰 축척을 바꾸고, 두 손가락을 함께 끌어 헤엄칩니다.
+
 ## 실행
 
 - Unity 6000.6.6f1에서 이 폴더를 엽니다(장면: `Assets/Main.unity`).
 - 개발자용: 실행할 때 `-dev`를 붙이면(앱 메뉴 "진화 수조 (개발자용)") 수치 조정·유전자 값·계산 통계가 함께 보입니다. `EVOTANK_DEV` 정의로 빌드해도 같습니다.
-- 리눅스 빌드: `./build.sh`, 화면 점검 캡처: `./shots.sh <태그> [-gallery]`. 두 스크립트 모두 Unity 경로가 `~/Unity/Hub/Editor/6000.6.6f1`이라고 가정합니다.
+- 빌드: `./build.sh [Linux|Win|Android]`(Android는 IL2CPP·ARM64 APK), 화면 점검 캡처: `./shots.sh <태그> [-gallery]`. 두 스크립트 모두 Unity 경로가 `~/Unity/Hub/Editor/6000.6.6f1`이라고 가정합니다.
 - 시뮬레이션 코어(`Assets/Scripts/Sim`)는 Unity 없이도 돕니다: `cd SimTest && dotnet build -c Release && ./run.sh control <일수> <시드> <출력 간격>`.
 
 ## 구조
