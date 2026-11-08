@@ -20,6 +20,7 @@ namespace Tank
         public double[] income;                 // 빛·화학·산 먹이·사체·녹은 유기물(오늘)
         public double[] energy;                 // 쓴 ATP: 빛·화학·유기물 태우기(오늘)
         public int[] where; public float[] share;   // 많이 사는 칸(최대 8)과 그 몫
+        public float[] conc;                    // 칸별 생물량 농도(μM C): 물속 탐방에서 보이는 마리 수
         public bool Alive => died < 0;
     }
 
@@ -30,7 +31,7 @@ namespace Tank
         public SpView[] sp;                     // id 순, 멸종 포함
         public int[] alive;                     // 살아 있는 종 id
         public Clade[] clades;
-        public float[] vO2, vH2S, vFe2, vLight; // 칸별 화학(μM)·빛
+        public float[] vO2, vH2S, vFe2, vLight, vT, vPOC; // 칸별 화학(μM)·빛·수온(°C)·사체 입자(μM C, 바다눈)
         public float[] ice, ventMul;
     }
 
@@ -114,6 +115,7 @@ namespace Tank
                     top.Sort((x, y) => a[y].CompareTo(a[x]));
                     if (top.Count > 8) top.RemoveRange(8, top.Count - 8);
                     w.where = top.ToArray(); w.share = new float[w.where.Length];
+                    w.conc = new float[V]; for (int v = 0; v < V; v++) if (p.vol[v] > 0) w.conc[v] = (float)(a[v] / p.vol[v]);
                     for (int k = 0; k < w.where.Length; k++) w.share[k] = (float)(a[w.where[k]] / Math.Max(1e-300, tot));
                 }
                 cache[i] = w;
@@ -122,8 +124,8 @@ namespace Tank
             s.sp = new SpView[ns]; Array.Copy(cache, s.sp, ns);
             s.alive = alive.ToArray();
             s.clades = p.clades.ToArray();
-            s.vO2 = new float[V]; s.vH2S = new float[V]; s.vFe2 = new float[V]; s.vLight = new float[V];
-            for (int v = 0; v < V; v++) { s.vO2[v] = (float)p.pool[P.O2][v]; s.vH2S[v] = (float)p.pool[P.H2S][v]; s.vFe2[v] = (float)p.pool[P.FE2][v]; s.vLight[v] = (float)p.light[v]; }
+            s.vO2 = new float[V]; s.vH2S = new float[V]; s.vFe2 = new float[V]; s.vLight = new float[V]; s.vT = new float[V]; s.vPOC = new float[V];
+            for (int v = 0; v < V; v++) { s.vO2[v] = (float)p.pool[P.O2][v]; s.vH2S[v] = (float)p.pool[P.H2S][v]; s.vFe2[v] = (float)p.pool[P.FE2][v]; s.vLight[v] = (float)p.light[v]; s.vT[v] = (float)p.temp[v]; s.vPOC[v] = (float)(p.pool[P.POC0][v] + p.pool[P.POC1][v] + p.pool[P.POC2][v]); }
             s.ice = p.ice != null ? Array.ConvertAll(p.ice, x => (float)x) : new float[p.NR];
             s.ventMul = Array.ConvertAll(p.ventMul, x => (float)x);
             snap = s;

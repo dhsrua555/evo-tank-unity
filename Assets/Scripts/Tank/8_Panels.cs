@@ -1,4 +1,4 @@
-// 4단계 — 판들: 윗줄(상태·속도·돌연변이율·사건), 오른쪽 종 목록(살아 있는 종만, 큰 갈래로 접힘, 찾기, 많은 순/나온 순),
+// 8단계 — 판들(물속 화면 위에 반투명으로 뜬다): 윗줄(상태·속도·돌연변이율·사건), 오른쪽 종 목록(살아 있는 종만, 큰 갈래로 접힘, 찾기, 많은 순/나온 순),
 // 고른 종 정보(몸·하는 일·형질·조상), 아래 그래프(O₂·CO₂·기온·종 수), 계통수 창(멸종한 조상까지).
 using System;
 using System.Collections.Generic;
@@ -11,12 +11,12 @@ namespace Tank
     public sealed partial class Tank
     {
         Font font, fontB;
-        GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap;
+        GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sTiny;
         const float INFO_H = 380;
         bool showGraph = true, showTree, showEv, sortNew;
         string search = "", muText = "1";
         Vector2 listScroll; readonly HashSet<int> open = new();
-        float treeScroll;
+        float treeScroll, listWant = 9999; bool treeAll;
 
         void Fonts()
         {
@@ -32,7 +32,8 @@ namespace Tank
             sBtn = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12 };
             sOn = new GUIStyle(sBtn) { font = fontB, normal = { textColor = new Color(1, 0.85f, 0.4f), background = sBtn.active.background } };
             sField = new GUIStyle(GUI.skin.textField) { font = font, fontSize = 13 };
-            sR = new GUIStyle(sL) { richText = true }; sSR = new GUIStyle(sS) { richText = true }; sWrap = new GUIStyle(sS) { wordWrap = true };
+            sR = new GUIStyle(sL) { richText = true }; sSR = new GUIStyle(sS) { richText = true, normal = { textColor = fg } }; sWrap = new GUIStyle(sS) { wordWrap = true };
+            sSC = new GUIStyle(sS) { alignment = TextAnchor.UpperCenter }; sTiny = new GUIStyle(sBtn) { fontSize = 9, padding = new RectOffset(0, 0, 0, 0) };
         }
 
         void OnGUI()
@@ -40,27 +41,24 @@ namespace Tank
             if (snap == null) return;
             Styles();
             GUI.matrix = Matrix4x4.Scale(new Vector3(Draw.ui, Draw.ui, 1));
-            Rect side = new Rect(W - panelW, topH, panelW, H - topH), info = new Rect(side.x, H - (sel >= 0 ? INFO_H : 0), panelW, sel >= 0 ? INFO_H : 0);
-            Rect graph = new Rect(0, H - graphH, W - panelW, graphH);
             if (UnityEngine.Event.current.type == EventType.Repaint)
             {
                 Draw.Begin();
-                DrawTank();
                 if (showTree) TreeDraw();
-                Draw.Rect(0, 0, W, topH, new Color(0.08f, 0.09f, 0.11f));
-                Draw.Rect(side.x, side.y, side.width, side.height, new Color(0.07f, 0.08f, 0.1f));
-                Draw.Line(side.x, side.y, side.x, H, new Color(1, 1, 1, 0.08f));
-                if (showGraph) GraphDraw(graph);
-                if (sel >= 0) InfoDraw(info);
+                Draw.Rect(0, 0, W, topH, GLASS); Draw.Line(0, topH, W, topH, EDGE);
+                Glass(listR);
+                if (showGraph) GraphDraw(graphR);
+                if (sel >= 0) InfoDraw(infoR);
                 Draw.End();
             }
+            if (!showTree) DiveGui();
             TopBar();
-            List(new Rect(side.x, side.y, side.width, side.height - info.height));
-            if (sel >= 0) Info(info);
-            if (showGraph) GraphText(graph);
+            List(listR);
+            if (sel >= 0) Info(infoR);
+            if (showGraph) GraphText(graphR);
             if (showTree) TreeGui();
             if (!showTree) Ticker();
-            if (run.ffDays > 0) GUI.Label(new Rect(tank.center.x - 150, tank.center.y - 15, 300, 30), $"멈춘 동안 못 간 날 따라잡는 중 · {run.ffDays:0}일 남음", sB);
+            if (run.ffDays > 0) GUI.Label(new Rect(W / 2 - 150, H / 2 - 15, 300, 30), $"멈춘 동안 못 간 날 따라잡는 중 · {run.ffDays:0}일 남음", sB);
         }
 
         // ── 윗줄 ──
@@ -99,6 +97,11 @@ namespace Tank
             if (GUI.Button(new Rect(W - 170, y, 80, 19), "계통수", showTree ? sOn : sBtn)) showTree = !showTree;
             if (GUI.Button(new Rect(W - 86, y, 80, 19), "그래프", showGraph ? sOn : sBtn)) showGraph = !showGraph;
         }
+        // 반투명 판: GL(Draw)로 그리는 것과 GUI로 그리는 것 둘 다
+        static readonly Color GLASS = new(0.03f, 0.06f, 0.1f, 0.65f), EDGE = new(1, 1, 1, 0.12f);
+        static void Glass(Rect r) { Draw.Rect(r.x, r.y, r.width, r.height, GLASS); Draw.Line(r.x, r.y, r.xMax, r.y, EDGE); Draw.Line(r.x, r.yMax, r.xMax, r.yMax, EDGE); Draw.Line(r.x, r.y, r.x, r.yMax, EDGE); Draw.Line(r.xMax, r.y, r.xMax, r.yMax, EDGE); }
+        static void Fill(Rect r, Color c) { GUI.color = c; GUI.DrawTexture(r, Texture2D.whiteTexture); GUI.color = Color.white; }
+        static void Card(Rect r) { Fill(r, GLASS); Fill(new Rect(r.x, r.y, r.width, 1), EDGE); Fill(new Rect(r.x, r.yMax - 1, r.width, 1), EDGE); Fill(new Rect(r.x, r.y, 1, r.height), EDGE); Fill(new Rect(r.xMax - 1, r.y, 1, r.height), EDGE); }
         void SetMu(double m) { run.cmds.Enqueue(p => p.knobs.mu = m); run.pl.knobs.mu = m; }
         static string Size(double um) => um < 1000 ? $"{um:0.#} μm" : $"{um / 1000:0.#} mm";
         static string Sci(double x) => x <= 0 ? "0" : x >= 0.01 ? x.ToString("0.###") : x.ToString("0.0e0");
@@ -124,7 +127,7 @@ namespace Tank
                     rows.Add((0, g.Key));
                     if (open.Contains(g.Key)) foreach (int i in g.OrderBy(key)) rows.Add((1, i));
                 }
-            float rh = 21, inner = rows.Count * rh;
+            float rh = 21, inner = rows.Count * rh; listWant = y - r.y + inner + 8;
             listScroll = GUI.BeginScrollView(new Rect(r.x, y, r.width, r.yMax - y), listScroll, new Rect(0, 0, r.width - 16, inner));
             float top = listScroll.y - rh, bot = listScroll.y + (r.yMax - y);
             for (int k = 0; k < rows.Count; k++)
@@ -154,8 +157,7 @@ namespace Tank
         Rect bodyBox;
         void InfoDraw(Rect r)
         {
-            Draw.Rect(r.x, r.y, r.width, r.height, new Color(0.1f, 0.11f, 0.14f));
-            Draw.Line(r.x, r.y, r.xMax, r.y, new Color(1, 1, 1, 0.15f));
+            Glass(r);
             var s = snap.sp[sel]; if (s.t == null) return;
             bodyBox = new Rect(r.xMax - 124, r.y + 10, 114, 114);
             Draw.Rect(bodyBox.x, bodyBox.y, bodyBox.width, bodyBox.height, new Color(0.04f, 0.06f, 0.1f));
@@ -202,8 +204,7 @@ namespace Tank
         // ── 그래프 ──
         void GraphDraw(Rect r)
         {
-            Draw.Rect(r.x, r.y, r.width, r.height, new Color(0.06f, 0.07f, 0.09f));
-            Draw.Line(r.x, r.y, r.xMax, r.y, new Color(1, 1, 1, 0.1f));
+            Glass(r);
             int n = hist.Count; if (n < 2) return;
             float gx = r.x + 60, gw = r.width - 70, gy = r.y + 8, gh = r.height - 24;
             int step = Math.Max(1, n / (int)gw); int maxSp = 1; foreach (var d in hist) maxSp = Math.Max(maxSp, d.nSp);
@@ -234,32 +235,35 @@ namespace Tank
         }
 
         // ── 계통수: 가로 = 시간, 세로 = 종(부모 아래에 자식, 나온 순). 멸종한 종은 회색 ──
-        int[] treeRow; Snap treeSnap; int treeN;
+        int[] treeRow; Snap treeSnap; int treeN; bool treeAllSeen;
         void TreeLayout()
         {
-            if (treeSnap == snap) return; treeSnap = snap;
+            if (treeSnap == snap && treeAllSeen == treeAll) return; treeSnap = snap; treeAllSeen = treeAll;
             int n = snap.sp.Length; treeRow = new int[n]; treeN = 0;
+            var keep = new bool[n];   // 기본: 살아 있는 종과 그 조상만(멸종한 곁가지는 '멸종 곁가지도'로)
+            for (int i = 0; i < n; i++) if (treeAll || snap.sp[i].Alive) for (int a = i; a >= 0 && a < n && !keep[a]; a = snap.sp[a].parent) keep[a] = true;
+            for (int i = 0; i < n; i++) treeRow[i] = -1;
             var kids = new List<int>[n]; for (int i = 0; i < n; i++) kids[i] = new List<int>();
             var roots = new List<int>();
-            for (int i = 0; i < n; i++) { var s = snap.sp[i]; if (s.parent >= 0 && s.parent < n) kids[s.parent].Add(i); else roots.Add(i); }
+            for (int i = 0; i < n; i++) { if (!keep[i]) continue; var s = snap.sp[i]; if (s.parent >= 0 && s.parent < n) kids[s.parent].Add(i); else roots.Add(i); }
             var st = new Stack<int>(); for (int i = roots.Count - 1; i >= 0; i--) st.Push(roots[i]);
             while (st.Count > 0) { int i = st.Pop(); treeRow[i] = treeN++; for (int k = kids[i].Count - 1; k >= 0; k--) st.Push(kids[i][k]); }
         }
-        Rect TreeRect => new Rect(tank.x + 10, tank.y + 10, tank.width - 20, tank.height - 20);
-        float TreeRh => Mathf.Max(4, (TreeRect.height - 30) / Mathf.Max(1, treeN));
+        Rect TreeRect => new Rect(gauge.xMax + 10, topH + 10, mapR.x - gauge.xMax - 20, (showGraph ? graphR.y : H) - topH - 20);
+        const float TreeRh = 15;   // 한 줄에 종 하나(이름까지), 넘치면 휠로 내린다
         void TreeDraw()
         {
             TreeLayout(); var R = TreeRect;
-            Draw.Rect(R.x, R.y, R.width, R.height, new Color(0.05f, 0.06f, 0.08f, 0.97f));
+            Draw.Rect(R.x, R.y, R.width, R.height, new Color(0.03f, 0.05f, 0.08f, 0.88f));
             float now = (float)Math.Max(1, snap.day), x0 = R.x + 10, w = R.width - 160, y0 = R.y + 28 - treeScroll, rh = TreeRh;
             for (int i = 0; i < snap.sp.Length; i++)
             {
-                var s = snap.sp[i]; float y = y0 + treeRow[i] * rh + rh / 2;
+                var s = snap.sp[i]; if (treeRow[i] < 0) continue; float y = y0 + treeRow[i] * rh + rh / 2;
                 float xa = x0 + w * s.born / now, xb = x0 + w * (s.Alive ? 1 : s.died / now);
-                if (s.parent >= 0) { float yp = y0 + treeRow[s.parent] * rh + rh / 2; if (Mathf.Max(y, yp) > R.y && Mathf.Min(y, yp) < R.yMax) Draw.Line(xa, yp, xa, y, new Color(1, 1, 1, 0.15f)); }
+                if (s.parent >= 0 && treeRow[s.parent] >= 0) { float yp = y0 + treeRow[s.parent] * rh + rh / 2, ya = Mathf.Max(Mathf.Min(y, yp), R.y + 24), yb = Mathf.Min(Mathf.Max(y, yp), R.yMax - 2); if (yb > ya) Draw.Line(xa, ya, xa, yb, new Color(1, 1, 1, 0.18f)); }
                 if (y < R.y + 24 || y > R.yMax) continue;
                 Color c = s.Alive && s.t != null ? Draw.Of(s.t, s.id) : new Color(0.45f, 0.45f, 0.48f);
-                Draw.Rect(xa, y - Mathf.Min(rh * 0.35f, 3), Mathf.Max(1, xb - xa), Mathf.Max(1, Mathf.Min(rh * 0.7f, 6)), c);
+                Draw.Rect(xa, y - 3, Mathf.Max(1, xb - xa), 6, c);
                 if (i == sel) Draw.Rect(x0 - 6, y - 1, 4, 2, Color.white);
             }
         }
@@ -267,7 +271,8 @@ namespace Tank
         {
             TreeLayout();
             var R = TreeRect; float rh = TreeRh, y0 = R.y + 28 - treeScroll, now = (float)Math.Max(1, snap.day), x0 = R.x + 10, w = R.width - 160;
-            GUI.Label(new Rect(R.x + 10, R.y + 4, 600, 20), $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 = 멸종 · 누르면 그 종 정보", sB);
+            GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 180, 20), $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 † = 멸종 · 누르면 그 종 정보", sB);
+            if (GUI.Button(new Rect(R.xMax - 140, R.y + 4, 104, 20), "멸종 곁가지도", treeAll ? sOn : sBtn)) { treeAll = !treeAll; treeScroll = 0; }
             if (GUI.Button(new Rect(R.xMax - 30, R.y + 4, 24, 20), "×", sBtn)) showTree = false;
             var ev = UnityEngine.Event.current;
             if (ev.type == EventType.ScrollWheel && R.Contains(ev.mousePosition)) { treeScroll = Mathf.Clamp(treeScroll + ev.delta.y * 20, 0, Mathf.Max(0, treeN * rh - R.height + 40)); ev.Use(); }
@@ -277,28 +282,29 @@ namespace Tank
                 for (int i = 0; i < snap.sp.Length; i++) if (treeRow[i] == row) { sel = i; break; }
                 ev.Use();
             }
-            if (rh >= 11)
-                for (int i = 0; i < snap.sp.Length; i++)
-                {
-                    var s = snap.sp[i]; float y = y0 + treeRow[i] * rh;
-                    if (y < R.y + 24 || y > R.yMax - 12) continue;
-                    if (s.Alive || i == sel) GUI.Label(new Rect(x0 + w * (s.Alive ? 1 : s.died / now) + 4, y - 2, 150, 16), s.name, sS);
-                }
+            for (int i = 0; i < snap.sp.Length; i++)
+            {
+                var s = snap.sp[i]; if (treeRow[i] < 0) continue; float y = y0 + treeRow[i] * rh;
+                if (y < R.y + 24 || y > R.yMax - 14) continue;
+                GUI.color = s.Alive ? Color.white : new Color(0.7f, 0.7f, 0.72f);
+                GUI.Label(new Rect(x0 + w * (s.Alive ? 1 : s.died / now) + 4, y - 1, 150, 16), s.Alive ? s.name : s.name + " †", i == sel ? sL : sS);
+            }
+            GUI.color = Color.white;
         }
 
         // ── 사건 알림 ──
         void Ticker()
         {
-            float y = tank.yMax - 20;
+            float x0 = gauge.xMax + 14, wMax = mapR.x - x0 - 14, y = topH + 8;
             for (int i = news.Count - 1, k = 0; i >= 0 && k < 4; i--, k++)
             {
                 var e = news[i]; float age = (float)(snap.day - e.day); if (age > 400) break;
                 float al = 1 - 0.5f * Mathf.Clamp01(age / 400);   // 오래된 알림도 반은 진하게
                 string t = $"{e.day}일 {e.kind}: {e.text}";
-                float tw = Mathf.Min(tank.width - 20, sS.CalcSize(new GUIContent(t)).x + 8);
-                GUI.color = new Color(0.02f, 0.03f, 0.05f, 0.85f); GUI.DrawTexture(new Rect(tank.x + 6, y, tw, 17), Texture2D.whiteTexture);
+                float tw = Mathf.Min(wMax, sS.CalcSize(new GUIContent(t)).x + 12), x = x0 + (wMax - tw) / 2;
+                Fill(new Rect(x, y, tw, 18), GLASS);
                 GUI.color = new Color(1, 0.85f, 0.7f, al);
-                GUI.Label(new Rect(tank.x + 10, y, tank.width - 20, 18), t, sS); y -= 18;
+                GUI.Label(new Rect(x + 6, y + 1, tw - 8, 18), t, sS); y += 20;
             }
             GUI.color = Color.white;
         }

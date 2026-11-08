@@ -64,16 +64,30 @@ namespace Life
 
     public static class Genome
     {
-        // 원시 세포: 열수공의 H2 + CO2로 사는 1 μm 화학합성 세포(메탄 생성균과 비슷한 대사). 그 밖의 기능은 아주 조금씩만 갖고 있다
+        // 원시 세포(첫 공통 조상 무렵): 열수공 곁에서 H2 + CO2로 사는 1 μm 무산소 독립영양 세포
+        // (Wood–Ljungdahl 경로, Weiss 2016 · Moody 2024. 이 모형에선 산물을 메탄·황화수소로 단순화).
+        // 배분 유전자는 문헌 근거를 네 단계로 나눠 정한다(괄호 = 단백질 몫):
+        //   주 기능        리보솜 · 탄소 고정 · H2 화학합성
+        //   곁 기능(~1 %)  녹은 유기물 · 암모늄 · 인산 운반체 — 어느 세포나 영양을 들여와야 한다
+        //   논쟁(~0.2 %)   질소 고정(Weiss 2016 있음 ↔ Berkemer & McGlynn 2020·Moody 2024 근거 없음; 동위원소로는 3.2 Ga, Stüeken 2015),
+//                  항산화(약한 산소에 적응했다 Ślesak 2012 ↔ 말단 산화효소가 없는 무산소 세포 Moody 2024), 세포벽, 마름 견딤
+        //   없음(NONE)     광합성(최초 증거 3.4 Ga, Tice & Lowe 2004), 산소 호흡(산소 광합성 뒤, Soo 2017), 탄소 농축(시아노박테리아 카복시좀),
+        //                  포식(진핵 식세포 작용), 편모(세균 편모와 고세균 archaellum은 기원이 다름, Jarrell & Albers 2012)
+        // '없음'도 0은 아니다: 돌연변이가 넓혀 갈 출발점(다른 일을 하던 단백질을 빌려 쓰는 셈)만 남긴다.
+        const float NONE = 0.2f;   // '없음' 유전자 값: 몫 ~0.04 %
         public static float[] Primordial()
         {
             var g = new float[G.N];
-            for (int i = 0; i < G.NA; i++) g[i] = 0.6f;    // 쓰지 않는 기능도 조금씩(각 ~1 %): 첫 공통 조상은 여러 대사 유전자를 갖고 있었다
-            g[G.ADH] = 0.3f; g[G.WALL] = 0.4f; g[G.NFIX] = 0.4f; g[G.DRY] = 0.4f;
             g[G.RIB] = 1.0f; g[G.FIX] = 0.85f; g[G.CHEMO] = 0.95f;
-            g[G.EOX] = 0.45f; g[G.SPEC] = 0.2f; g[G.DNR] = 0.1f; g[G.TOPT] = 0.35f; g[G.TW] = 0.6f;
+            g[G.OSMO] = 0.6f; g[G.NUT] = 0.6f;
+            g[G.NFIX] = 0.4f; g[G.WALL] = 0.4f; g[G.DRY] = 0.4f; g[G.SOD] = 0.4f;
+            g[G.PHOTO] = NONE; g[G.RESP] = NONE; g[G.CCM] = NONE; g[G.PHAGO] = NONE; g[G.MOT] = NONE;
+            g[G.ADH] = 0.3f;   // 붙음: 첫 공통 조상엔 근거 없음, 미생물 매트는 3.48 Ga부터(Djokic 2017). 딸세포가 가끔 붙어 남는 정도(평균 1.4세포)
+            // 최적 온도 33 °C = 이 모형 처음 열수공 곁 물 온도: 초호열 아님(Catchpole & Forterre 2019), 중온~약한 호열(Boussau 2008), 시생대 바다 26–35 °C(Blake 2010)
+            g[G.EOX] = 0.45f; g[G.SPEC] = 0.2f; g[G.DNR] = 0.1f; g[G.TOPT] = 0.41f; g[G.TW] = 0.6f;
+            // 크기 1 μm·조금 길쭉: 첫 공통 조상 크기를 직접 잰 연구는 없다. 유전체 2.5 Mb·단백질 ~2,600개로 지금 원핵생물과 비슷해(Moody 2024) 그 크기를 쓴다
             g[G.SIZE] = 0.13f; g[G.ASPECT] = 0.2f; g[G.BRANCH] = 0.9f; g[G.ANGLE] = 0.2f; g[G.PROP] = 0.5f; g[G.DIFF] = 0;
-            g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f; g[G.PREY] = 0.37f;   // 먹이 크기: 자기의 1/3(작은 편모류)
+            g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f; g[G.PREY] = 0.37f;   // 포식이 생기면 쓸 먹이 크기: 자기의 1/3(작은 편모류 흔한 값, Hansen 1994)
             return g;
         }
 
