@@ -56,6 +56,7 @@ namespace Life
                 double y = aer * YAER[d] + (1 - aer) * yan; if (y <= 0) continue;
                 double w = Math.Exp(-Math.Pow((DPOS[d] - t.dnr) / 0.25, 2));
                 R[d] = phi[G.CHEMO] * Cfg.K_CHEMO * fT * w * conc[d] / (conc[d] + DK[d]);
+                if (d >= 2) { R[d] *= aer; y = YAER[d]; }   // 황화수소·철 산화는 받개가 산소뿐(이 모형엔 질산이 없다): 산소 몫만큼만 돈다
                 atpCh += R[d] * y; eCh += R[d] * DE[d] * 0.2;
             }
 
@@ -130,11 +131,14 @@ namespace Life
             // 화학합성: 필요한 만큼만 돌린다(lam)
             double chemoLam = atpCh > 0 ? Math.Clamp(lam, 0, 1) : 0;
             r.chemoATP = atpCh * chemoLam; r.photoATP = atpPh * lam; r.orgATP = OrgATP(r.catab);
+            // 고정에 쓴 공여체 전자(역전자 흐름)는 받개로 가지 않는다: 받개 쓰는 양을 그만큼 줄인다(전자 보존)
+            double eDon = 0; for (int d = 0; d < 4; d++) eDon += R[d] * chemoLam * DE[d];
+            double kA = eDon > 0 ? Math.Max(0, 1 - (eUse - ePhUse) / eDon) : 1;
             for (int d = 0; d < 4; d++)
             {
                 double x = R[d] * chemoLam; if (x <= 0) continue;
-                double xa = x * aer, xn = x - xa;
-                r.dO2 -= xa * DO2[d];
+                double xa = d >= 2 ? x : x * aer, xn = (x - xa) * kA;
+                r.dO2 -= xa * DO2[d] * kA;
                 if (d == 0) { r.dH2 -= x; r.dSO4 -= xn * 0.25 * sSO4; r.dH2S += xn * 0.25 * sSO4; r.dCO2 -= xn * 0.25 * (1 - sSO4); r.dCH4 += xn * 0.25 * (1 - sSO4); }
                 else if (d == 1) { r.dCH4 -= x; r.dCO2 += x; r.dSO4 -= xn; r.dH2S += xn; }
                 else if (d == 2) { r.dH2S -= x; r.dSO4 += x; }

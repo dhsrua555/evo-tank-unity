@@ -60,8 +60,8 @@ namespace Life
             switch (kind)
             {
                 case 0:
+                    // 깊은 바다에 황화수소를 바로 넣던 것은 뺐다(m 10이면 대기 산소 1 PAL의 17배를 한 번에 없애는 양 — 근거 없음). 무산소·황화 바다는 더워짐·생물에서 저절로 생긴다
                     volcMul += 2 * m; sulfurPulse += 2e6 * m; dT_aer -= 0.4 * m;
-                    for (int v = 0; v < V; v++) if (live[v] && zTop[v] >= 100) pool[P.H2S][v] += 0.5 * m;   // 깊은 바다로 황화수소
                     e.kind = "화산 대분출"; e.text = $"화산 활동 {1 + 2 * m:0}배, 잠깐 식은 뒤 CO₂로 더워짐"; break;
                 case 1:
                     // 어둠 지속: 가장 큰 충돌(m 30, 칙술루브급)에서 약 1년 — 그을음이 광합성을 1–2년 막음(Bardeen 2017), 황산염 냉각 수 년(Brugger 2017).
@@ -81,8 +81,6 @@ namespace Life
                         else if (nOn < want) { ventMul[vs[k]] = Math.Min(3, ventMul[vs[k]] * 2 + 0.3); nOn++; }
                     e.kind = "열수공 이동"; e.text = $"열수공 {nOff}곳 약해지고 {nOn}곳 세짐"; break;
             }
-            // 황화수소를 넣었으면 장부에
-            if (kind == 0) { double add = 0; for (int v = 0; v < V; v++) if (live[v] && zTop[v] >= 100) add += 0.5 * m * vol[v] * 1e-6; inS += add; }
             events.Add(e);
         }
     }

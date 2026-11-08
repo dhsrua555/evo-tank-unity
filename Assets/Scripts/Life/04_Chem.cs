@@ -13,6 +13,7 @@ namespace Life
         public double[] ledger0;
         public double buriedC;               // 누적 유기 탄소 매몰(mol) = 길게 보면 대기 산소의 원천
         public double weatherO2;             // 누적 산화 풍화가 쓴 산소(mol)
+        public double redB;                  // 경계로 들어온 환원력 누적(전자 mol, CO2·SO4·Fe3+·H2O 기준): 열수공·화산·풍화 +, 매몰·수소 탈출 −. 산화환원 장부(Red)와 맞춰 본다
 
         void BuildLinks()
         {
@@ -80,7 +81,7 @@ namespace Life
         {
             for (int v = 0; v < V; v++)
             {
-                double m = buryC[v]; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m; outFe += buryFe[v]; outS += buryS[v];
+                double m = buryC[v]; redB -= 4 * m + 9 * buryS[v]; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m; outFe += buryFe[v]; outS += buryS[v];
                 buryC[v] = 0; buryFe[v] = 0; buryS[v] = 0;
             }
         }
@@ -107,7 +108,9 @@ namespace Life
             }
             for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.HYDROLYSIS * dt; c[p][v] -= d; ToDoc(c, v, d); }
             // 자외선: 오존이 없으면 표층의 녹은 유기물을 CO2로 깬다(산소가 1e-2 PAL쯤 되면 오존층이 막는다)
+            // 전자는 지킨다: 산소가 있으면 산소로 태우고(광산화), 없으면 물을 깨 H2로 낸다(CH2O + H2O → CO2 + 2 H2)
             d = c[P.DOC][v] * Cfg.K_UV * light[v] / (1 + O2PAL / 0.01) * dt; c[P.DOC][v] -= d; c[P.CO2][v] += d;
+            double dO = Math.Min(d, 0.9 * c[P.O2][v]); c[P.O2][v] -= dO; c[P.H2][v] += 2 * (d - dO);
             if (IsBottom(v))
             {
                 double m = 0; for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.BURIAL * dt; c[p][v] -= d; m += d; }
@@ -150,10 +153,10 @@ namespace Life
             {
                 double L = vol[v] * 1e-6, m = ventMul[v] / nVent0 * dt;
                 pool[P.H2][v] += Cfg.VENT_H2 * m / L; pool[P.FE2][v] += Cfg.VENT_FE * m / L; pool[P.H2S][v] += Cfg.VENT_H2S * m / L; pool[P.CO2][v] += Cfg.VENT_CO2 * m / L;
-                inFe += Cfg.VENT_FE * m; inS += Cfg.VENT_H2S * m; inC += Cfg.VENT_CO2 * m;
+                inFe += Cfg.VENT_FE * m; inS += Cfg.VENT_H2S * m; inC += Cfg.VENT_CO2 * m; redB += (2 * Cfg.VENT_H2 + Cfg.VENT_FE + 8 * Cfg.VENT_H2S) * m;
             }
             double volc = volcMul * dt;
-            atmCO2 += Cfg.VOLC_CO2 * volc; inC += Cfg.VOLC_CO2 * volc; atmH2 += Cfg.VOLC_H2 * volc;
+            atmCO2 += Cfg.VOLC_CO2 * volc; inC += Cfg.VOLC_CO2 * volc; atmH2 += Cfg.VOLC_H2 * volc; redB += 2 * Cfg.VOLC_H2 * volc;
             // 황산(화산 SO2가 비로) · 풍화 인: 바다 표층에 넓이 비례로
             double seaA = 0; for (int r = 0; r < NR; r++) if (kind[r] == 0) seaA += area[r];
             double land = 0; for (int r = 0; r < NR; r++) if (kind[r] == 2) land += area[r];
@@ -164,7 +167,7 @@ namespace Life
             double fo = Math.Min(1, Math.Sqrt(Math.Max(0, O2PAL))) * land / Math.Max(1, seaA + land) / 0.29 * dt;
             double wOrg = Cfg.WEATHER_ORG * fo, wPyr = Cfg.WEATHER_PYR * fo, need = wOrg + wPyr * 15 / 8;
             if (need > atmO2 * 0.01) { double k = atmO2 * 0.01 / need; wOrg *= k; wPyr *= k; need *= k; }
-            atmO2 -= need; atmCO2 += wOrg; inC += wOrg; so4 += wPyr; weatherO2 += need;
+            atmO2 -= need; atmCO2 += wOrg; inC += wOrg; so4 += wPyr; weatherO2 += need; redB += 4 * need;
             for (int r = 0; r < NR; r++)
             {
                 int v = r * Cfg.NY; if (!live[v] || kind[r] == 2) continue;
@@ -175,8 +178,9 @@ namespace Life
             inS += so4; inP += pIn * SumShore();
             double wc = Math.Min(atmCO2 * 0.01, Cfg.WEATHER_CO2 * w * dt / knobs.phosphate); atmCO2 -= wc; outC += wc;   // 탄산염 풍화로 CO2 흡수
             // 대기: 수소 탈출, CH4 광분해·산화
-            double esc = atmH2 * Cfg.H_ESCAPE * dt; atmH2 -= esc;
-            double ox = atmCH4 * Cfg.CH4_OX * (0.05 + Math.Sqrt(Math.Max(0, O2PAL))) * dt; atmCH4 -= ox; atmCO2 += ox; atmO2 = Math.Max(0, atmO2 - 2 * ox * Math.Min(1, Math.Sqrt(Math.Max(0, O2PAL))));
+            double esc = atmH2 * Cfg.H_ESCAPE * dt; atmH2 -= esc; redB -= 2 * esc;
+            double o0 = atmO2, ox = atmCH4 * Cfg.CH4_OX * (0.05 + Math.Sqrt(Math.Max(0, O2PAL))) * dt; atmCH4 -= ox; atmCO2 += ox; atmO2 = Math.Max(0, atmO2 - 2 * ox * Math.Min(1, Math.Sqrt(Math.Max(0, O2PAL))));
+            redB += -8 * ox + 4 * (o0 - atmO2);   // 산소 없이 깨진 CH4는 수소 탈출로 셈
         }
 
         double SumShore() { double seaA = 0, s = 0; for (int r = 0; r < NR; r++) if (kind[r] == 0) seaA += area[r]; for (int r = 0; r < NR; r++) if (live[r * Cfg.NY] && kind[r] != 2) s += area[r] / seaA * (kind[r] == 1 ? 3 : 1); return s; }
@@ -185,6 +189,20 @@ namespace Life
         // 유기물이 녹으면(세포 터짐·사체 분해) 탄소는 녹은 유기물로, 질소·인은 바로 무기염으로 간다.
         // 녹은 유기 질소·인은 세포 밖 효소(탈아미노·인산 가수분해)로 빨리 풀리므로 녹은 유기물은 탄소만 센다(실제 바다 DOM도 C가 훨씬 많다)
         static void ToDoc(double[][] c, int v, double x) { c[P.DOC][v] += x; c[P.NH4][v] += x * 16 / 106; c[P.PO4][v] += x / 106; }
+
+        // 산화환원 장부: 행성 전체 환원력(전자 mol). 유기물 CH2O 4, CH4 8, H2S 8, H2 2, Fe2+ 1, O2 −4. 생물 반응이 전자를 지키면 Red − Red(0) = redB
+        public double Red()
+        {
+            double R = 8 * atmCH4 + 2 * atmH2 - 4 * atmO2;
+            for (int v = 0; v < V; v++)
+            {
+                if (!live[v]) continue;
+                double org = pool[P.POC0][v] + pool[P.POC1][v] + pool[P.POC2][v] + pool[P.DOC][v];
+                foreach (var s in Live()) org += B[s.slot * V + v];
+                R += (4 * org + 8 * (pool[P.CH4][v] + pool[P.H2S][v]) + 2 * pool[P.H2][v] + pool[P.FE2][v] - 4 * pool[P.O2][v]) * vol[v] * 1e-6;
+            }
+            return R;
+        }
 
         public double[] Ledger()
         {

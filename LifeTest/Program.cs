@@ -36,6 +36,7 @@ static class Program
         var sw = Stopwatch.StartNew(); int ev = 0;
         double landF = 0, allA = 0; for (int r = 0; r < pl.NR; r++) { allA += pl.area[r]; if (pl.kind[r] == 2) landF += pl.area[r]; }
         double pBur = 0, pS = 0, pW = 0;   // 산소 장부: 지난 보고 때 누적값
+        double pRed = pl.Red(), pRb = pl.redB, red0 = pRed, rb0 = pRb;   // 산화환원 장부: 지난 보고 때 환원력·경계 누적, 처음 값
         for (int d = 1; d <= days; d++)
         {
             for (int k = 0; k < Cfg.TPD; k++) pl.Step();
@@ -44,6 +45,10 @@ static class Program
                 double so = 0, sv = 0; for (int r = 0; r < pl.NR; r++) { int v = r * Cfg.NY; if (pl.live[v] && pl.kind[r] == 0) { so += pl.pool[P.SO4][v] * pl.vol[v]; sv += pl.vol[v]; } }
                 Console.WriteLine($"        산소 장부(mol/일): 유기 매몰 {(pl.buriedC - pBur) / every:0.0e0} · 황 매몰 {(pl.outS - pS) / every:0.0e0} · 산화 풍화 O2 {(pl.weatherO2 - pW) / every:0.0e0} | 땅 {landF / allA:P0} · 표층 SO4 {so / Math.Max(1, sv):0.0} μM");
                 pBur = pl.buriedC; pS = pl.outS; pW = pl.weatherO2;
+                double red = pl.Red(), tO2 = 0, tSO4 = 0, tHS = 0;
+                for (int v = 0; v < pl.V; v++) if (pl.live[v]) { double L = pl.vol[v] * 1e-6; tO2 += pl.pool[P.O2][v] * L; tSO4 += pl.pool[P.SO4][v] * L; tHS += pl.pool[P.H2S][v] * L; }
+                Console.WriteLine($"        산화환원(O2 당량 mol/일, + = 환원): 경계 {(pl.redB - pRb) / 4 / every:0.0e0} · 새는 몫 {((red - pRed) - (pl.redB - pRb)) / 4 / every:0.0e0} | 대기 O2 {pl.atmO2:0.0e0} · 바다 O2 {tO2:0.0e0} · SO4 {tSO4:0.0e0} · H2S {tHS:0.0e0} mol");
+                pRed = red; pRb = pl.redB;
             }
             while (ev < pl.events.Count) { var e = pl.events[ev++]; Console.WriteLine($"  ! {e.day}일 {e.kind}({e.size:0.0}): {e.text}"); }
             if (Environment.GetEnvironmentVariable("VENTS") != null && d % every == 0)
@@ -134,6 +139,7 @@ static class Program
         var j = pl.jumps.OrderBy(x => x).ToList();
         if (j.Count > 0) Say("점진성(정착 돌연변이 몸 모양 변화 95 % ≤ 0.4)", j[(int)(0.95 * (j.Count - 1))] <= 0.4, $"중앙 {j[j.Count / 2]:0.000}, 95 % {j[(int)(0.95 * (j.Count - 1))]:0.000}, 최대 {j[^1]:0.00}");
         Say("질량 보존(장부 어긋남 < 1e-6)", H.Max(h => h.drift) < 1e-6, $"최대 {H.Max(h => h.drift):0e0}");
+        { double lk = ((pl.Red() - red0) - (pl.redB - rb0)) / 4; Say("전자 보존(새는 O2 당량 < 유기 매몰의 1 %)", Math.Abs(lk) < 0.01 * Math.Max(1, pl.buriedC), $"새는 몫 {lk:0.0e0} mol O2 · 유기 매몰 {pl.buriedC:0.0e0} mol C"); }
         { var L = pl.Ledger(); L[1] -= pl.nfixV.Sum(); string[] en = { "C", "N", "P", "Fe", "S" }; Console.WriteLine("장부 원소별 어긋남: " + string.Join(" ", Enumerable.Range(0, 5).Select(k => $"{en[k]} {(L[k] - pl.ledger0[k]) / Math.Abs(pl.ledger0[k]):+0.0e0;-0.0e0}"))); }
         { var hg = new int[G.N]; foreach (var st in pl.alive) if (st.gene >= 0) hg[st.gene]++; Console.WriteLine("살아 있는 계통의 창시 돌연변이 유전자: " + string.Join(" ", Enumerable.Range(0, G.N).Select(i => $"{G.Name[i]} {hg[i]}")));
           Console.WriteLine("g[EOX] 분포: " + string.Join(" ", pl.alive.Select(st => st.g[G.EOX]).Distinct().Take(12).Select(x => x.ToString("0.000")))); }
