@@ -12,6 +12,7 @@ namespace Life
         public double Tglobal;                    // 평균 표층 기온(°C)
         public double volcMul = 1, sulfurPulse;   // 화산 활동 배율, 오늘 황 비
         public double dT_aer, dT_imp, dT_ice, dark = 0;   // 사건 기온 변화(°C), 어둠(0 = 평소, 1 = 캄캄)
+        public double darkTau = 25;               // 충돌 어둠·식음이 줄어드는 시간(일, e-fold). 충돌 크기에 따라 정한다
         public readonly List<Event> events = new();
         public double[] ice;                      // 해역 얼음 덮인 몫
 
@@ -44,7 +45,7 @@ namespace Life
         // 하루 한 번: 사건이 일어나는지, 지난 사건의 효과가 얼마나 남았는지
         void Events()
         {
-            dT_aer *= Math.Exp(-1.0 / 10); dT_imp *= Math.Exp(-1.0 / 40); dT_ice *= Math.Exp(-1.0 / 250); dark *= Math.Exp(-1.0 / 25);
+            dT_aer *= Math.Exp(-1.0 / 10); dT_imp *= Math.Exp(-1.0 / Math.Max(40, darkTau)); dT_ice *= Math.Exp(-1.0 / 250); dark *= Math.Exp(-1.0 / darkTau);
             volcMul = 1 + (volcMul - 1) * Math.Exp(-1.0 / 60);
             for (int v = NV0; v < V; v++) if (vent[v]) ventMul[v] = 1 + (ventMul[v] - 1) * Math.Exp(-1.0 / 3000);   // 열수공 세기는 몇천 일에 걸쳐 제자리로
             if (knobs.eventRate <= 0 || rng.U() >= knobs.eventRate / 40) return;
@@ -63,8 +64,11 @@ namespace Life
                     for (int v = 0; v < V; v++) if (live[v] && zTop[v] >= 100) pool[P.H2S][v] += 0.5 * m;   // 깊은 바다로 황화수소
                     e.kind = "화산 대분출"; e.text = $"화산 활동 {1 + 2 * m:0}배, 잠깐 식은 뒤 CO₂로 더워짐"; break;
                 case 1:
+                    // 어둠 지속: 가장 큰 충돌(m 30, 칙술루브급)에서 약 1년 — 그을음이 광합성을 1–2년 막음(Bardeen 2017), 황산염 냉각 수 년(Brugger 2017).
+                    // 작은 충돌의 지속은 문헌 값을 못 찾아 크기에 비례한다고 두고 25일을 바닥으로 한다(가정). 겹치면 긴 쪽을 따른다
+                    darkTau = Math.Max(Math.Max(25, 12 * m), dark > 0.05 ? darkTau : 0);
                     dark = Math.Min(0.999, dark + 1 - Math.Exp(-0.25 * m)); dT_imp -= 1.2 * m;
-                    e.kind = "소행성 충돌"; e.text = $"햇빛 {100 * dark:0}% 가림, {1.2 * m:0.0} °C 식음"; break;
+                    e.kind = "소행성 충돌"; e.text = $"햇빛 {100 * dark:0}% 가림, {1.2 * m:0.0} °C 식음(약 {darkTau:0}일마다 1/e로 걷힘)"; break;
                 case 2:
                     dT_ice -= 0.8 * m; e.kind = "빙하기 방아쇠"; e.text = $"{0.8 * m:0.0} °C 식음(몇백 일에 걸쳐 회복)"; break;
                 default:
