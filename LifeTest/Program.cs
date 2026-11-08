@@ -34,9 +34,17 @@ static class Program
                 Console.WriteLine($"칸 {v} T {e.T:0.0} 빛 {e.light:0.000} H2 {e.H2:0.00} CO2 {e.CO2:0} DOC {e.DOC:0.0} NH4 {e.NH4:0.0} PO4 {e.PO4:0.00} | g {r.g:0.000} mort {r.mort:0.000} fix {r.fix:0.000} assim {r.assim:0.000} catab {r.catab:0.000} chemoATP {r.chemoATP:0.00} nh4 {r.nh4:0.0000} po4 {r.po4:0.00000} | φ " + string.Join(" ", st.t.phi.Select(x => x.ToString("0.000"))));
             }
         var sw = Stopwatch.StartNew(); int ev = 0;
+        double landF = 0, allA = 0; for (int r = 0; r < pl.NR; r++) { allA += pl.area[r]; if (pl.kind[r] == 2) landF += pl.area[r]; }
+        double pBur = 0, pS = 0, pW = 0;   // 산소 장부: 지난 보고 때 누적값
         for (int d = 1; d <= days; d++)
         {
             for (int k = 0; k < Cfg.TPD; k++) pl.Step();
+            if (d % every == 0)
+            {
+                double so = 0, sv = 0; for (int r = 0; r < pl.NR; r++) { int v = r * Cfg.NY; if (pl.live[v] && pl.kind[r] == 0) { so += pl.pool[P.SO4][v] * pl.vol[v]; sv += pl.vol[v]; } }
+                Console.WriteLine($"        산소 장부(mol/일): 유기 매몰 {(pl.buriedC - pBur) / every:0.0e0} · 황 매몰 {(pl.outS - pS) / every:0.0e0} · 산화 풍화 O2 {(pl.weatherO2 - pW) / every:0.0e0} | 땅 {landF / allA:P0} · 표층 SO4 {so / Math.Max(1, sv):0.0} μM");
+                pBur = pl.buriedC; pS = pl.outS; pW = pl.weatherO2;
+            }
             while (ev < pl.events.Count) { var e = pl.events[ev++]; Console.WriteLine($"  ! {e.day}일 {e.kind}({e.size:0.0}): {e.text}"); }
             if (Environment.GetEnvironmentVariable("VENTS") != null && d % every == 0)
                 for (int i = 0; i < Cfg.NVENT; i++)
@@ -68,6 +76,7 @@ static class Program
             if (Environment.GetEnvironmentVariable("LAND") != null && d % every == 0) Land(pl);
             if (Environment.GetEnvironmentVariable("AER") != null && d % every == 0) Aer(pl);
             if (Environment.GetEnvironmentVariable("PHOTO") != null && d % every == 0) Photo(pl);
+            if (Environment.GetEnvironmentVariable("DOM") != null && d % every == 0) Dom(pl);
             if (d % every == 0 && pl.history.Count > 0)
             {
                 var h = pl.history[^1];
@@ -195,6 +204,20 @@ static class Program
                     sb2.Append($" {G.Name[gi]}{(dd > 0 ? "+" : "−")} {pl.Fit(t2, Body.Of(g2, t2), v, s.slot, lim) - r0:+0.000;-0.000}");
                 }
             Console.WriteLine(sb2);
+        }
+    }
+    // 독점 탐침: 생물량 상위 계통 여섯 — 몫·덩이 세포 수·크기·수용체 칸, 가장 빽빽한 칸에서 숙주 밀도·바이러스 죽음·분열·먹힘·자원 몫·주 수입
+    static void Dom(Planet pl)
+    {
+        double W = pl.alive.Sum(s => s.total), M = pl.alive.Where(s => s.t.MeanCells >= 8).Sum(s => s.total);
+        var top = pl.alive.OrderByDescending(s => s.total).Take(6).ToList();
+        Console.WriteLine($"    독점: 덩이 {M / Math.Max(1e-30, W):P0} · 덩이 종 {pl.alive.Where(s => s.t.MeanCells >= 8).Select(s => s.species).Distinct().Count()} · 덩이 수용체 칸 {pl.alive.Where(s => s.t.MeanCells >= 8).Select(s => s.t.vbin).Distinct().Count()}");
+        foreach (var s in top)
+        {
+            int vb = 0; double bb = -1; for (int v = 0; v < pl.V; v++) if (pl.live[v] && pl.B[s.slot * pl.V + v] > bb) { bb = pl.B[s.slot * pl.V + v]; vb = v; }
+            int o = s.slot * pl.V + vb; double hb = pl.binB[vb * 125 + s.t.vbin], vm = Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K);
+            double ci = s.cFix + s.cPrey + s.cDet + s.cDoc; string role = ci <= 0 ? "-" : new[] { ("고정", s.cFix), ("포식", s.cPrey), ("청소", s.cDet), ("분해", s.cDoc) }.OrderByDescending(x => x.Item2).First().Item1;
+            Console.WriteLine($"      종 {s.species} 몫 {s.total / W:P0} 세포 {s.t.MeanCells:0.0} 몸 {s.b.size:0} μm 칸 {vb}{(vb >= pl.NV0 ? "(열수공)" : $"(층{vb % Cfg.NY})")} 밀도 {bb:0.00} 수용체 {s.t.vbin} 숙주 {hb:0.00} → 바이러스 {vm:0.000} · 분열 {pl.grow[o]:0.000} 먹힘 {pl.eatenRate[o]:0.000} 자원몫 {pl.limA[o]:0.00} · {role}");
         }
     }
     // 광합성 탐침: 층마다 물의 공여체(H2·H2S·Fe2+)와 영양염, 빛 고정이 많은 계통 다섯의 광계 산화력·쓰는 공여체 몫·한 걸음 선택

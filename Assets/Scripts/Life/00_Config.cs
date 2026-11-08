@@ -43,6 +43,8 @@ namespace Life
         public const double VENT_H2 = 4e8, VENT_FE = 2e8, VENT_H2S = 5e7, VENT_CO2 = 1e8;
         public const double VOLC_CO2 = 1.5e9, VOLC_H2 = 3e7, VOLC_SO4 = 2e7;
         public const double WEATHER_P = 1.5e6, WEATHER_CO2 = 1.5e9;   // 풍화: 인 유입, CO2 흡수(땅 넓이·기온 비례)
+        // 산화 풍화(1 PAL, 땅 29 %일 때): 땅에 드러난 옛 퇴적암의 유기 탄소·황철석이 산소에 녹아 나온다. 지구 값 × 행성 크기 0.08 / 365일
+        public const double WEATHER_ORG = 1.3e9, WEATHER_PYR = 2.9e8;   // 유기 탄소 ~5.7e12 mol C/년(Zondervan 2023), 황철석 황 ~1.3e12 mol S/년(Burke 2018)
         public const double BURIAL = 0.003;           // 바닥에 닿은 사체가 하루에 묻히는 비율
         public const double FE3_SINK = 1.0;           // 철 산화물 입자 침강(m/일)
 

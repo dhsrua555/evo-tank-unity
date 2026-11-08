@@ -12,6 +12,7 @@ namespace Life
         public double inC, outC, inN, outN, inP, outP, inFe, outFe, inS, outS;   // 경계 장부(mol)
         public double[] ledger0;
         public double buriedC;               // 누적 유기 탄소 매몰(mol) = 길게 보면 대기 산소의 원천
+        public double weatherO2;             // 누적 산화 풍화가 쓴 산소(mol)
 
         void BuildLinks()
         {
@@ -158,6 +159,12 @@ namespace Life
             double land = 0; for (int r = 0; r < NR; r++) if (kind[r] == 2) land += area[r];
             double w = land / Math.Max(1, seaA + land) / 0.05 * Math.Exp((Tglobal - 15) / 13) * Math.Sqrt(Math.Max(0.01, CO2PAL)) * knobs.phosphate;
             double pIn = Cfg.WEATHER_P * w * dt, so4 = Cfg.VOLC_SO4 * volc + sulfurPulse; sulfurPulse = 0;
+            // 산화 풍화: 속도 ∝ O2^0.5(황철석 Williamson & Rimstidt 1994 [DO]^0.5). 1 PAL이면 드러난 만큼 다 녹는다(침식 한계, 유기 탄소는 O2가 낮을 때만 O2 율속 — Bolton 2006).
+            // 탄소는 CO2로 대기에, 황은 황산으로 바다에, 철은 산화철로 땅에 남는다. 산소: C 하나에 O2 1, 황철석 S 하나에 O2 15/8
+            double fo = Math.Min(1, Math.Sqrt(Math.Max(0, O2PAL))) * land / Math.Max(1, seaA + land) / 0.29 * dt;
+            double wOrg = Cfg.WEATHER_ORG * fo, wPyr = Cfg.WEATHER_PYR * fo, need = wOrg + wPyr * 15 / 8;
+            if (need > atmO2 * 0.01) { double k = atmO2 * 0.01 / need; wOrg *= k; wPyr *= k; need *= k; }
+            atmO2 -= need; atmCO2 += wOrg; inC += wOrg; so4 += wPyr; weatherO2 += need;
             for (int r = 0; r < NR; r++)
             {
                 int v = r * Cfg.NY; if (!live[v] || kind[r] == 2) continue;
