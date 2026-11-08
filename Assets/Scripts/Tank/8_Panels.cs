@@ -12,8 +12,8 @@ namespace Tank
     {
         Font font, fontB;
         GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sTiny;
-        const float INFO_H = 380;
-        bool showGraph = true, showTree, showEv, sortNew;
+        const float INFO_H = 380, INFO_S = 236;   // 정보 판: 자세히(단백질 배분·조상) / 기본(접힘) — 기본이 작아야 좁은 화면에서 종 목록이 눌리지 않는다
+        bool showGraph = true, showTree, showEv, sortNew, infoMore;
         string search = "", muText = "1";
         Vector2 listScroll; readonly HashSet<int> open = new();
         float treeScroll, listWant = 9999; bool treeAll;
@@ -68,8 +68,7 @@ namespace Tank
         {
             var s = snap; double yr = s.day / 365;
             string t = $"{s.day:0}일 ({(yr < 10 ? yr.ToString("0.0") : yr.ToString("0"))}년) · 산소 {Sci(s.O2)} PAL · CO₂ {s.CO2:0.0} PAL · 메탄 {s.CH4:0} ppm · 기온 {s.T:0.0} °C · 종 {s.nSp} · {s.rate:0}일/초";
-            GUI.Label(new Rect(10, 3, W - 20, 20), t, sB);
-            float x = 10, y = 24;
+            float x = 10, y = 24, tight = Mathf.Clamp01((1000 - W) / 150);   // 좁은 화면(태블릿 ≈ 930): 막대를 줄여 오른쪽 단추와 안 겹치게
             for (int i = 0; i < SPEEDS.Length; i++)
             {
                 bool on = SPEEDS[i] < 0 ? run.paused : !run.paused && run.speed == SPEEDS[i];
@@ -78,13 +77,13 @@ namespace Tank
             }
             x += 14;
             GUI.Label(new Rect(x, y, 66, 20), "돌연변이율", sL); x += 66;
-            double mu = run.pl.knobs.mu; float lg = GUI.HorizontalSlider(new Rect(x, y + 5, 110, 12), (float)Math.Log10(mu), -4, 0); x += 116;
+            double mu = run.pl.knobs.mu; float lg = GUI.HorizontalSlider(new Rect(x, y + 5, 110 - 50 * tight, 12), (float)Math.Log10(mu), -4, 0); x += 116 - 50 * tight;
             if (Math.Abs(lg - Math.Log10(mu)) > 1e-4) { mu = Math.Pow(10, lg); SetMu(mu); muText = mu.ToString("0.####"); }
             string nt = GUI.TextField(new Rect(x, y, 56, 19), muText, sField); x += 62;
             if (nt != muText) { muText = nt; if (double.TryParse(nt, out double m) && m > 0) SetMu(Math.Min(1, m)); }
             x += 10;
             GUI.Label(new Rect(x, y, 52, 20), "사건 빈도", sL); x += 56;
-            float er = GUI.HorizontalSlider(new Rect(x, y + 5, 80, 12), (float)run.pl.knobs.eventRate, 0, 5); x += 84;
+            float er = GUI.HorizontalSlider(new Rect(x, y + 5, 80 - 30 * tight, 12), (float)run.pl.knobs.eventRate, 0, 5); x += 84 - 30 * tight;
             if (Math.Abs(er - run.pl.knobs.eventRate) > 1e-3) { double e2 = Math.Round(er, 1); run.cmds.Enqueue(p => p.knobs.eventRate = e2); }
             GUI.Label(new Rect(x, y, 34, 20), $"×{run.pl.knobs.eventRate:0.0}", sS); x += 36;
             if (GUI.Button(new Rect(x, y, 64, 19), "사건 ▾", showEv ? sOn : sBtn)) showEv = !showEv; x += 70;
@@ -94,8 +93,12 @@ namespace Tank
                 for (int k = 0; k < 4; k++)
                     if (GUI.Button(new Rect(x - 70, topH + 4 + k * 22, 100, 20), ev[k], sBtn)) { int kk = k; run.cmds.Enqueue(p => p.Trigger(kk, 10)); showEv = false; }
             }
-            if (GUI.Button(new Rect(W - 170, y, 80, 19), "계통수", showTree ? sOn : sBtn)) showTree = !showTree;
-            if (GUI.Button(new Rect(W - 86, y, 80, 19), "그래프", showGraph ? sOn : sBtn)) showGraph = !showGraph;
+            // 오른쪽 끝에 붙이되 사건 단추를 덮지 않는다. 그래도 넘치면(세로 화면·휴대폰) 윗줄 오른쪽으로 올리고 상태 글자를 그만큼 줄인다
+            bool up = Mathf.Max(x, W - 170) + 164 > W - 4;
+            float xr = up ? W - 174 : Mathf.Max(x, W - 170), yb = up ? 2 : y;
+            if (GUI.Button(new Rect(xr, yb, 80, 19), "계통수", showTree ? sOn : sBtn)) showTree = !showTree;
+            if (GUI.Button(new Rect(xr + 84, yb, 80, 19), "그래프", showGraph ? sOn : sBtn)) showGraph = !showGraph;
+            GUI.Label(new Rect(10, 3, (up ? xr - 6 : W - 10) - 10, 20), t, sB);
         }
         // 반투명 판: GL(Draw)로 그리는 것과 GUI로 그리는 것 둘 다
         static readonly Color GLASS = new(0.03f, 0.06f, 0.1f, 0.65f), EDGE = new(1, 1, 1, 0.12f);
@@ -169,7 +172,7 @@ namespace Tank
             for (int q = 0; q < 5 && sum > 0; q++) { float w = (float)(s.income[q] / sum) * bw; Draw.Rect(xx, by, w, 8, ic[q]); xx += w; }
             // 단백질 배분 막대(많은 것 7개)
             var top = Enumerable.Range(0, G.NA).OrderBy(i => -s.t.phi[i]).Take(7).ToArray();
-            for (int k = 0; k < top.Length; k++) Draw.Rect(bx + 90, r.y + 238 + k * 15, (float)(s.t.phi[top[k]] / s.t.phi[top[0]]) * (bw - 150), 9, new Color(0.5f, 0.65f, 0.85f, 0.8f));
+            for (int k = 0; k < top.Length && infoMore; k++) Draw.Rect(bx + 90, r.y + 238 + k * 15, (float)(s.t.phi[top[k]] / s.t.phi[top[0]]) * (bw - 150), 9, new Color(0.5f, 0.65f, 0.85f, 0.8f));
         }
         void Info(Rect r)
         {
@@ -192,6 +195,8 @@ namespace Tank
             if (es > 0) GUI.Label(new Rect(x, y, r.width - 20, 16), $"에너지를 어디서: 빛 {s.energy[0] / es:P0} · 화학 {s.energy[1] / es:P0} · 유기물 태우기 {s.energy[2] / es:P0}", sS);
             y += 18;
             GUI.Label(new Rect(x, y, r.width - 20, 16), $"산소 호흡 {s.t.Sat(G.RESP, 0.02):P0} · 항산화 {s.t.Sat(G.SOD, 0.005):P0} · 세포벽 {s.t.Sat(G.WALL, 0.02):P0} · 편모 {s.t.Sat(G.MOT, 0.01):P0}", sS); y += 18;
+            if (GUI.Button(new Rect(r.xMax - 74, r.y + 214, 64, 18), infoMore ? "접기 ▴" : "자세히 ▾", sBtn)) infoMore = !infoMore;
+            if (!infoMore) return;
             GUI.Label(new Rect(x, r.y + 216, r.width - 20, 16), "단백질 배분", sS);
             var top = Enumerable.Range(0, G.NA).OrderBy(i => -s.t.phi[i]).Take(7).ToArray();
             for (int k = 0; k < top.Length; k++) GUI.Label(new Rect(x, r.y + 234 + k * 15, 90, 16), G.Name[top[k]], sS);
@@ -271,7 +276,7 @@ namespace Tank
         {
             TreeLayout();
             var R = TreeRect; float rh = TreeRh, y0 = R.y + 28 - treeScroll, now = (float)Math.Max(1, snap.day), x0 = R.x + 10, w = R.width - 160;
-            GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 180, 20), $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 † = 멸종 · 누르면 그 종 정보", sB);
+            GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 180, 20), R.width < 560 ? $"계통수 · 종 {snap.sp.Length} · 살아 있음 {snap.alive.Length}" : $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 † = 멸종 · 누르면 그 종 정보", sB);   // 좁으면 짧게
             if (GUI.Button(new Rect(R.xMax - 140, R.y + 4, 104, 20), "멸종 곁가지도", treeAll ? sOn : sBtn)) { treeAll = !treeAll; treeScroll = 0; }
             if (GUI.Button(new Rect(R.xMax - 30, R.y + 4, 24, 20), "×", sBtn)) showTree = false;
             var ev = UnityEngine.Event.current;

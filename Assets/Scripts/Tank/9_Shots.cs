@@ -21,7 +21,7 @@ namespace Tank
             while (snap == null || snap.day < days) { yield return new WaitForSeconds(1); if (Time.realtimeSinceStartup - t0 > 1800) break; }
             run.paused = true; yield return new WaitForSeconds(1.5f);
             Debug.Log($"[EvoTank] {snap.day:0}일까지 {Time.realtimeSinceStartup - t0:0}초, 종 {snap.nSp}, 계통 {snap.nStrain}, O2 {snap.O2:0.0e0} PAL, 기온 {snap.T:0.0}");
-            reg = -1;   // 앱을 막 켠 것처럼: 지금 가장 많은 종이 있는 곳에서 시작(처음 0일에 고른 곳은 그 사이 비었을 수 있다)
+            StartSpot();   // 앱을 막 켠 것처럼: 지금 가장 많은 종이 있는 곳에서 시작(처음 0일에 고른 곳은 그 사이 비었을 수 있다)
             yield return new WaitForSeconds(2); yield return Shot(dir, "1_처음");
             if (snap.alive.Length > 0)
             {

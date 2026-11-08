@@ -75,7 +75,8 @@ namespace Tank
         {
             float x = W - panelW - 10;
             mapR = new Rect(x, topH + 8, panelW, 132);
-            infoR = new Rect(x, H - 8 - (sel >= 0 ? INFO_H : 0), panelW, sel >= 0 ? INFO_H : 0);
+            float ih = sel < 0 ? 0 : infoMore ? INFO_H : INFO_S;
+            infoR = new Rect(x, H - 8 - ih, panelW, ih);
             listR = new Rect(x, mapR.yMax + 8, panelW, Mathf.Min(listWant, infoR.y - mapR.yMax - (sel >= 0 ? 16 : 8)));   // 목록이 짧으면 판도 짧게
             graphR = new Rect(10, H - graphH - 8, x - 20, graphH);
             gauge = new Rect(10, topH + 8, 46, Mathf.Max(140, (showGraph ? graphR.y : H) - 80 - topH - 8));
