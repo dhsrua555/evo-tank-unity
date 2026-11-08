@@ -13,6 +13,7 @@ static class Program
         int days = a.Length > 0 ? int.Parse(a[0]) : 100, seed = a.Length > 1 ? int.Parse(a[1]) : 1, every = a.Length > 2 ? int.Parse(a[2]) : 10;
         var pl = new Planet(seed);
         if (a.Length > 3) pl.knobs.mu = double.Parse(a[3]);
+        if (Environment.GetEnvironmentVariable("THREADS") is string th) pl.po.MaxDegreeOfParallelism = int.Parse(th);   // 여러 시드를 한꺼번에 돌릴 때 실행마다 스레드 수를 묶는다
         string csv = a.Length > 4 ? a[4] : null;
         int nv = 0, nvent = 0; for (int v = 0; v < pl.V; v++) { if (pl.live[v]) nv++; if (pl.vent[v]) nvent++; }
         Console.WriteLine($"시드 {seed}: 해역 {pl.NR}, 칸 {nv}, 열수공 {nvent}, μ {pl.knobs.mu}");
@@ -64,6 +65,9 @@ static class Program
                     Console.WriteLine(sb);
                 }
             }
+            if (Environment.GetEnvironmentVariable("LAND") != null && d % every == 0) Land(pl);
+            if (Environment.GetEnvironmentVariable("AER") != null && d % every == 0) Aer(pl);
+            if (Environment.GetEnvironmentVariable("PHOTO") != null && d % every == 0) Photo(pl);
             if (d % every == 0 && pl.history.Count > 0)
             {
                 var h = pl.history[^1];
@@ -96,8 +100,8 @@ static class Program
         }
         var H = pl.history;
         if (csv != null)
-            File.WriteAllLines(csv, new[] { "day,O2,CO2,CH4,T,bio,nSp,nStrain,nClade,oxy,multi,aer,sod,rPhoto,rChemo,rPrey,rDet,rDoc,photoSh,chemoSh,preySh,detSh,docSh,maxCells,maxSize,drift,kept" }
-                .Concat(H.Select(h => $"{h.day},{h.O2:g4},{h.CO2:g4},{h.CH4:g4},{h.T:0.00},{h.bio:g4},{h.nSp},{h.nStrain},{h.nClade},{h.oxyShare:0.0000},{h.multi:0.0000},{h.aer:0.0000},{h.sod:0.0000},{h.rPhoto},{h.rChemo},{h.rPrey},{h.rDet},{h.rDoc},{h.photoSh:0.000},{h.chemoSh:0.000},{h.preySh:0.000},{h.detSh:0.000},{h.docSh:0.000},{h.maxCells:0.0},{h.maxSize:0.0},{h.drift:g3},{h.kept}")));
+            File.WriteAllLines(csv, new[] { "day,O2,CO2,CH4,T,bio,nSp,nStrain,nClade,oxy,multi,aer,sod,rPhoto,rChemo,rPrey,rDet,rDoc,photoSh,chemoSh,preySh,detSh,docSh,maxCells,maxSize,drift,kept,resp,aerOx" }
+                .Concat(H.Select(h => $"{h.day},{h.O2:g4},{h.CO2:g4},{h.CH4:g4},{h.T:0.00},{h.bio:g4},{h.nSp},{h.nStrain},{h.nClade},{h.oxyShare:0.0000},{h.multi:0.0000},{h.aer:0.0000},{h.sod:0.0000},{h.rPhoto},{h.rChemo},{h.rPrey},{h.rDet},{h.rDoc},{h.photoSh:0.000},{h.chemoSh:0.000},{h.preySh:0.000},{h.detSh:0.000},{h.docSh:0.000},{h.maxCells:0.0},{h.maxSize:0.0},{h.drift:g3},{h.kept},{h.resp:0.0000},{h.aerOx:0.0000}")));
 
         // 판정
         Console.WriteLine("── 판정 ──");
@@ -112,6 +116,8 @@ static class Program
             double aer0 = H.Take(hi).Average(h => h.aer), sod0 = H.Take(hi).Average(h => h.sod);
             var after = H.Skip(hi).ToList(); double aer1 = after.Average(h => h.aer), sod1 = after.Average(h => h.sod);
             Say("산소 적응(산소 호흡·항산화 몫 증가)", aer1 > aer0 + 0.1 && sod1 > sod0, $"호흡 {aer0:P0}→{aer1:P0}, 항산화 {sod0:P0}→{sod1:P0}");
+            double rs0 = H.Take(hi).Average(h => h.resp), rs1 = after.Average(h => h.resp), ox1 = after.Average(h => h.aerOx);
+            Say("유전 적응(호흡·항산화 단백질 몫 증가)", rs1 > rs0 + 0.1 && sod1 > sod0, $"호흡 단백질 {rs0:P0}→{rs1:P0}, 항산화 {sod0:P0}→{sod1:P0}, 산소 있는 물의 호흡 몫 {ox1:P0}");
         }
         int me = -1, rec = -1;
         for (int i = 30; i < H.Count && me < 0; i++) { int mx = H.Skip(i - 30).Take(30).Max(h => h.nSp); if (mx >= 6 && H[i].nSp <= mx / 2) { me = i; int target = (int)Math.Ceiling(0.9 * mx); rec = H.FindIndex(i, h => h.nSp >= target); } }
@@ -125,6 +131,106 @@ static class Program
         Console.WriteLine($"단계 시간(초): 하루 {pl.tStage[0]:0.0} · 기후 {pl.tStage[1]:0.0} · 생태 {pl.tStage[2]:0.0} · 물질 {pl.tStage[3]:0.0} · 진화 {pl.tStage[4]:0.0}");
         Console.WriteLine($"속도 {days / sw.Elapsed.TotalSeconds:0.0} 일/초, 종 {pl.species.Count}개 생김(살아 있음 {pl.nAliveSp}), 갈래 {pl.clades.Count}");
         return 0;
+    }
+    // 다세포 지형: 역할마다 가장 많은 종의 대표 계통을 그 계통이 가장 진한 칸에 두고, 붙음 유전자만 바꿔 덩이 세포 수를 1·2·4·…로 했을 때
+    // 순증가율(먹이 섭취·먹힘·바이러스 포함, Fit 그대로)이 얼마나 바뀌는지. 가라앉는 속도(Fit 밖)도 같이 적는다.
+    static void Land(Planet pl)
+    {
+        foreach (Role role in new[] { Role.광합성, Role.분해, Role.포식, Role.청소, Role.화학합성 })
+        {
+            Species sp = null; foreach (var s in pl.species) if (s.Alive && s.role == role && s.rep >= 0 && (sp == null || s.biomass > sp.biomass)) sp = s;
+            if (sp == null) continue; var st = pl.strains[sp.rep]; if (st == null) continue;
+            int v = 0; for (int u = 0; u < pl.V; u++) if (pl.B[st.slot * pl.V + u] > pl.B[st.slot * pl.V + v]) v = u;
+            int si = st.slot * pl.V + v; double lim = pl.limA[si] > 0 ? pl.limA[si] : 1;
+            var sb = new System.Text.StringBuilder($"    지형 {role} {sp.name} 칸 {v}{(v >= pl.NV0 ? "(열수공)" : $"(층 {v % Cfg.NY})")} 크기 {st.b.size:0.0} μm 세포 {st.t.MeanCells:0.0} 먹힘 {pl.Eaten(st.t, st.b, v, st.slot):0.000} |");
+            double r0 = double.NaN;
+            foreach (double nA in new[] { 1.0, 2, 4, 8, 32, 128 })
+            {
+                var g = (float[])st.g.Clone(); double others = 0;
+                for (int i = 0; i < G.NA; i++) if (i != G.ADH) others += Math.Exp(Cfg.KAPPA * g[i]);
+                double p = nA <= 1 ? Math.Min(st.t.phi[G.ADH], Cfg.ADH0 * 0.99) : Cfg.ADH0 * Math.Pow(nA, 1 / Cfg.ADH_EXP);
+                double x = p * others / (1 - Cfg.PHI_Q - p), gv = Math.Log(x) / Cfg.KAPPA; if (gv > 1) break;
+                g[G.ADH] = (float)Math.Max(0, gv); var t = Traits.Of(g); var b = Body.Of(g, t);
+                double r = pl.Fit(t, b, v, st.slot, lim), eat = pl.Eaten(t, b, v, st.slot);
+                double w = 2.0 / 9 * 50 * 9.81 * Math.Pow(b.size / 2 * 1e-6, 2) / 1e-3 * 86400 * (1 - t.Sat(G.MOT, 0.01)) * (t.nA > 1 ? 0.5 : 1);
+                if (double.IsNaN(r0)) r0 = r;
+                sb.Append($" {t.MeanCells:0}세포 {b.size:0}μm 겉 {b.exposed:0.00} Δr {r - r0:+0.000;-0.000} 먹힘 {eat:0.000} 침강 {w:0.0}m/일 |");
+            }
+            var g9 = (float[])st.g.Clone(); g9[G.ADH] = Math.Min(1, g9[G.ADH] + (float)Cfg.STEP_SHAPE); var t9 = Traits.Of(g9);
+            var b9 = Body.Of(g9, t9); var e9 = pl.EnvAt(v); var q0 = Cell.Grow(st.t, st.b, e9, pl.Intake(st.t, st.b, v, st.slot), 0); var q1 = Cell.Grow(t9, b9, e9, pl.Intake(t9, b9, v, st.slot), 0);
+            sb.Append($" 붙음 g {st.g[G.ADH]:0.000} φ {st.t.phi[G.ADH]:0.0000} 한 걸음 Δr {pl.Fit(t9, b9, v, st.slot, lim) - pl.Fit(st.t, st.b, v, st.slot, lim):+0.0000;-0.0000} (Δg {q1.g - q0.g:+0.0000;-0.0000} Δ죽음 {q1.mort - q0.mort:+0.0000;-0.0000} Δ먹힘 {pl.Eaten(t9, b9, v, st.slot) - pl.Eaten(st.t, st.b, v, st.slot):+0.0000;-0.0000} 세포 {st.t.MeanCells:0.00}→{t9.MeanCells:0.00} 크기 {st.b.size:0.00}→{b9.size:0.00})");
+            Console.WriteLine(sb);
+        }
+        var a = pl.adhDbg; Console.WriteLine($"    붙음 돌연변이: 평가 {a[0]} 위로 {a[1]}(정착 {a[2]}, 평균 sc {(a[1] > 0 ? a[5] / a[1] : 0):+0.000;-0.000}) 아래로 {a[3]}(정착 {a[4]})"); System.Array.Clear(a);
+        double tot = pl.alive.Sum(s => s.total), adhM = pl.alive.Where(s => Math.Abs(s.g[G.ADH] - 0.3f) > 1e-4).Sum(s => s.total), respM = pl.alive.Where(s => Math.Abs(s.g[G.RESP] - 0.6f) > 1e-4).Sum(s => s.total);
+        var pd = pl.pruneDbg; Console.WriteLine($"    지운 계통 나이: 0일 {pd[0]} 1–9일 {pd[1]} 10일+ {pd[2]} | 산 계통 나이 중앙 {pl.alive.Select(s => (int)pl.Day - s.born).OrderBy(x => x).ElementAt(pl.alive.Count / 2)}일 | 붙음 바뀐 계통 생물량 {adhM / tot:P1} 호흡 바뀐 {respM / tot:P1}"); System.Array.Clear(pd);
+        var ed = pl.evoDbg; Console.WriteLine($"    정착 {ed[0]} 중 r≤0 {ed[1]} | 지운 어린 계통 {ed[3]} 중 느는 중 {ed[2]}"); System.Array.Clear(ed);
+    }
+    // 산소 적응 탐침: 층마다 O2와 오늘 탄소 흐름(고정·녹은 유기물 흡수·태움·그중 산소 호흡), 가장 많이 태우는 계통 다섯의 호흡·항산화 한 걸음 선택
+    static void Aer(Planet pl)
+    {
+        int st = Cfg.SMAX * pl.V; var sb = new System.Text.StringBuilder("    산소 층:");
+        for (int k = 0; k <= Cfg.NY; k++)
+        {
+            double o2 = 0, w = 0, fix = 0, doc = 0, cat = 0, aer = 0;
+            for (int v = 0; v < pl.V; v++)
+            {
+                if (!pl.live[v] || (k < Cfg.NY ? v >= pl.NV0 || v % Cfg.NY != k : v < pl.NV0)) continue;
+                o2 += pl.pool[P.O2][v] * pl.vol[v]; w += pl.vol[v];
+                foreach (var s in pl.alive) { int o = s.slot * pl.V + v; fix += pl.inc[o] + pl.inc[st + o]; doc += pl.inc[4 * st + o]; cat += pl.inc[7 * st + o]; aer += pl.inc[6 * st + o]; }
+            }
+            sb.Append($" [{(k < Cfg.NY ? "층" + k : "열수공")} O2 {o2 / Math.Max(1, w):0.00}μM 고정 {fix:0.0e0} 흡수 {doc:0.0e0} 태움 {cat:0.0e0} 호흡 {(cat > 0 ? aer / cat : 0):P0}]");
+        }
+        Console.WriteLine(sb);
+        foreach (var s in pl.alive.OrderByDescending(s => Enumerable.Range(0, pl.V).Sum(v => pl.inc[7 * st + s.slot * pl.V + v])).Take(5))
+        {
+            int v = 0; for (int u = 0; u < pl.V; u++) if (pl.inc[7 * st + s.slot * pl.V + u] > pl.inc[7 * st + s.slot * pl.V + v]) v = u;
+            int si = s.slot * pl.V + v; double lim = pl.limA[si] > 0 ? pl.limA[si] : 1, r0 = pl.Fit(s.t, s.b, v, s.slot, lim);
+            var e = pl.EnvAt(v); var rr = Cell.Grow(s.t, s.b, e, pl.Intake(s.t, s.b, v, s.slot), 0);
+            var sb2 = new System.Text.StringBuilder($"    태움 {pl.species[s.species].name}({pl.species[s.species].role}) 칸 {v} O2 {e.O2:0.00} H2S {e.H2S:0.0} | 호흡 φ {s.t.phi[G.RESP]:0.000} 항산 φ {s.t.phi[G.SOD]:0.000} aer {rr.aerFrac:0.00} 태움 {rr.catab:0.000} 동화 {rr.assim:0.000} g {rr.g:0.000} 죽음 {rr.mort:0.000} r {r0:0.000} |");
+            foreach (int gi in new[] { G.RESP, G.SOD, G.OSMO, G.PHOTO })
+                foreach (double dd in new[] { Cfg.STEP, -Cfg.STEP })
+                {
+                    var g2 = (float[])s.g.Clone(); g2[gi] = (float)Math.Clamp(g2[gi] + dd, 0, 1); var t2 = Traits.Of(g2);
+                    sb2.Append($" {G.Name[gi]}{(dd > 0 ? "+" : "−")} {pl.Fit(t2, Body.Of(g2, t2), v, s.slot, lim) - r0:+0.000;-0.000}");
+                }
+            Console.WriteLine(sb2);
+        }
+    }
+    // 광합성 탐침: 층마다 물의 공여체(H2·H2S·Fe2+)와 영양염, 빛 고정이 많은 계통 다섯의 광계 산화력·쓰는 공여체 몫·한 걸음 선택
+    static void Photo(Planet pl)
+    {
+        int st = Cfg.SMAX * pl.V; var sb = new System.Text.StringBuilder("    광 층:");
+        for (int k = 0; k < Cfg.NY; k++)
+        {
+            double w = 0, h2 = 0, hs = 0, fe = 0, po = 0, nh = 0, fx = 0, ox = 0, so = 0;
+            for (int v = 0; v < pl.NV0; v++)
+            {
+                if (!pl.live[v] || v % Cfg.NY != k) continue; double vv = pl.vol[v]; w += vv;
+                h2 += pl.pool[P.H2][v] * vv; hs += pl.pool[P.H2S][v] * vv; fe += pl.pool[P.FE2][v] * vv; po += pl.pool[P.PO4][v] * vv; nh += pl.pool[P.NH4][v] * vv; so += pl.pool[P.SO4][v] * vv;
+                foreach (var s in pl.alive) { int o = s.slot * pl.V + v; fx += pl.inc[o]; ox += pl.inc[5 * st + o]; }
+            }
+            w = Math.Max(w, 1e-30);
+            sb.Append($" [층{k} H2 {h2 / w:0.000} H2S {hs / w:0.00} Fe2+ {fe / w:0.00} SO4 {so / w:0} PO4 {po / w:0.000} NH4 {nh / w:0.00} 빛고정 {fx:0.0e0} 산소몫 {(fx > 0 ? ox / fx : 0):P0}]");
+        }
+        Console.WriteLine(sb);
+        double[] E = { -0.41, -0.24, 0.20, 0.82 };
+        foreach (var s in pl.alive.OrderByDescending(s => Enumerable.Range(0, pl.V).Sum(v => pl.inc[s.slot * pl.V + v])).Take(5))
+        {
+            int v = 0; for (int u = 0; u < pl.V; u++) if (pl.inc[s.slot * pl.V + u] > pl.inc[s.slot * pl.V + v]) v = u;
+            int si = s.slot * pl.V + v; double lim = pl.limA[si] > 0 ? pl.limA[si] : 1, r0 = pl.Fit(s.t, s.b, v, s.slot, lim);
+            var e = pl.EnvAt(v); double[] c = { e.H2, e.H2S, e.FE2, 1 }, K = { 0.1, 1, 5, 1 }; var a = new double[4]; double sum = 0;
+            for (int q = 0; q < 4; q++) { a[q] = 1 / (1 + Math.Exp(-(s.t.eox - E[q] - 0.1) / 0.15)) * c[q] / (c[q] + K[q]); sum += a[q]; }
+            sum = Math.Max(sum, 1e-12);
+            var sb2 = new System.Text.StringBuilder($"    광 {pl.species[s.species].name}({pl.species[s.species].role}) 칸 {v} 크기 {s.b.size:0.0} 세포 {s.t.MeanCells:0.0} 산화력 {s.t.eox:0.00} V 공여체 H2 {a[0] / sum:P0} H2S {a[1] / sum:P0} Fe {a[2] / sum:P0} 물 {a[3] / sum:P0} | 광계 φ {s.t.phi[G.PHOTO]:0.000} r {r0:0.000} |");
+            foreach (int gi in new[] { G.EOX, G.PHOTO, G.NUT, G.SOD })
+                foreach (double dd in new[] { Cfg.STEP, -Cfg.STEP })
+                {
+                    var g2 = (float[])s.g.Clone(); g2[gi] = (float)Math.Clamp(g2[gi] + dd, 0, 1); var t2 = Traits.Of(g2);
+                    sb2.Append($" {G.Name[gi]}{(dd > 0 ? "+" : "−")} {pl.Fit(t2, Body.Of(g2, t2), v, s.slot, lim) - r0:+0.000;-0.000}");
+                }
+            Console.WriteLine(sb2);
+        }
     }
     static void Say(string what, bool ok, string detail) => Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what} — {detail}");
 }

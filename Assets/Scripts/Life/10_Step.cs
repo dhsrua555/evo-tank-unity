@@ -14,6 +14,7 @@ namespace Life
         public float oxyShare;                     // 고정한 탄소 중 산소 광합성 몫
         public float multi;                        // 덩이(평균 세포 수 ≥ 8) 생물량 몫
         public float aer, sod;                     // 태운 유기물 중 산소 호흡 몫, 생물량 가중 항산화 포화도
+        public float resp, aerOx;                  // 생물량 가중 호흡 단백질 포화도, 산소 있는 물(O2 ≥ K_AER)에서 태운 것 중 산소 호흡 몫
         public float photoSh, chemoSh, preySh, detSh, docSh;   // 전체 탄소 수입 몫
         public int rPhoto, rChemo, rPrey, rDet, rDoc;          // 그 역할이 수입의 절반 넘는 종 수
         public float maxCells, maxSize;            // 가장 큰 덩이 세포 수, 크기(μm)
@@ -40,7 +41,7 @@ namespace Life
                 Climate(); Lap(1, ref t0);
                 Parallel.For(0, V, po, Bio); probe?.Invoke("bio"); Lap(2, ref t0);
                 Transport(); probe?.Invoke("transport");
-                buryC ??= new double[V]; buryFe ??= new double[V];
+                buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V];
                 Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");
                 Gas(); probe?.Invoke("gas");
                 Boundary(); probe?.Invoke("boundary"); Lap(3, ref t0);
@@ -66,22 +67,23 @@ namespace Life
         void Record()
         {
             var d = new DayStat { day = (int)Day, nStrain = alive.Count, nSp = nAliveSp, O2 = (float)O2PAL, CO2 = (float)CO2PAL, CH4 = (float)CH4ppm, T = (float)Tglobal, kept = keptToday };
-            double bio = 0, multi = 0, sod = 0, inc5 = 0; var sh = new double[5]; double o2 = 0, aerC = 0, catC = 0;
+            double bio = 0, multi = 0, sod = 0, inc5 = 0; var sh = new double[5]; double o2 = 0, aerC = 0, catC = 0, resp = 0, aerOx = 0, catOx = 0;
             int st = Cfg.SMAX * V;
             foreach (var s in alive)
             {
-                bio += s.total; if (s.t.MeanCells >= 8) multi += s.total; sod += s.total * s.t.Sat(G.SOD, 0.005);
+                bio += s.total; if (s.t.MeanCells >= 8) multi += s.total; sod += s.total * s.t.Sat(G.SOD, 0.005); resp += s.total * s.t.Sat(G.RESP, 0.02);
                 d.maxCells = Math.Max(d.maxCells, (float)s.t.MeanCells); d.maxSize = Math.Max(d.maxSize, (float)s.b.size);
                 for (int v = 0; v < V; v++)
                 {
                     int o = s.slot * V + v;
                     for (int q = 0; q < 5; q++) sh[q] += inc[q * st + o];
                     o2 += inc[5 * st + o]; aerC += inc[6 * st + o]; catC += inc[7 * st + o];
+                    if (pool[P.O2][v] >= Cfg.K_AER) { aerOx += inc[6 * st + o]; catOx += inc[7 * st + o]; }
                 }
             }
             for (int q = 0; q < 5; q++) inc5 += sh[q];
             d.bio = (float)bio; d.multi = bio > 0 ? (float)(multi / bio) : 0; d.sod = bio > 0 ? (float)(sod / bio) : 0;
-            d.aer = catC > 0 ? (float)(aerC / catC) : 0;
+            d.aer = catC > 0 ? (float)(aerC / catC) : 0; d.aerOx = catOx > 0 ? (float)(aerOx / catOx) : 0; d.resp = bio > 0 ? (float)(resp / bio) : 0;
             double fix = sh[0] + sh[1]; d.oxyShare = fix > 0 ? (float)(o2 / fix) : 0;
             if (inc5 > 0) { d.photoSh = (float)(sh[0] / inc5); d.chemoSh = (float)(sh[1] / inc5); d.preySh = (float)(sh[2] / inc5); d.detSh = (float)(sh[3] / inc5); d.docSh = (float)(sh[4] / inc5); }
             int nc = 0; var cl = new HashSet<int>();

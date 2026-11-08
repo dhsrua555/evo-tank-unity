@@ -25,7 +25,7 @@ namespace Life
             public double[] b = new double[Cfg.SMAX + 3], size = new double[Cfg.SMAX + 3], vul = new double[Cfg.SMAX + 3],
                 a = new double[Cfg.SMAX], scale = new double[Cfg.SMAX], loss = new double[Cfg.SMAX + 3], intake = new double[Cfg.SMAX],
                 prey = new double[Cfg.SMAX], det = new double[Cfg.SMAX], lim = new double[Cfg.SMAX],
-                lsz = new double[Cfg.SMAX + 3], eat = new double[Cfg.SMAX + 3], K = new double[Cfg.SMAX * (Cfg.SMAX + 3)];
+                lsz = new double[Cfg.SMAX + 3], fsz = new double[Cfg.SMAX], lr = new double[Cfg.SMAX], eat = new double[Cfg.SMAX + 3], K = new double[Cfg.SMAX * (Cfg.SMAX + 3)];
             public int[] act = new int[Cfg.SMAX], limK = new int[Cfg.SMAX], spc = new int[Cfg.SMAX + 3];
             public Rates[] r = new Rates[Cfg.SMAX];
             public readonly double[] cons = new double[P.N], f = new double[P.N];
@@ -48,14 +48,15 @@ namespace Life
                 NH4 = c[P.NH4][v] * q[P.NH4 * k + v], PO4 = c[P.PO4][v] * q[P.PO4 * k + v], DOC = c[P.DOC][v] * q[P.DOC * k + v] };
         }
 
-        // 먹이 선호: 몸 크기의 1/10 근처(로그 정규). 몸보다 조금 큰 것까지는 감싸 먹는다(와편모류처럼), 그보다 크면 못 먹는다
-        static double Pref(double prey, double pred)
+        // 먹이 선호: 먹는 크기의 10^−lr 근처(로그 정규, lr은 유전자). 먹는 크기보다 조금 큰 것까지는 감싸 먹는다(와편모류처럼), 그보다 크면 못 먹는다
+        public static double Pref(double prey, double feed, double lr)
         {
-            if (prey > Cfg.PREY_MAX * pred) return 0;
-            double x = (Math.Log10(prey / pred) + 1) / Cfg.PREY_SD;
+            if (prey > Cfg.PREY_MAX * feed) return 0;
+            double x = (Math.Log10(prey / feed) + lr) / Cfg.PREY_SD;
             return x * x > 9 ? 0 : Math.Exp(-0.5 * x * x);
         }
-        public static double Attack(Traits t, Body b) => Cfg.ATTACK * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);
+        public static double Allo(Body b) => Math.Min(1, Math.Pow(b.feed / Cfg.FEED_REF, -Cfg.FEED_EXP));   // 큰 포식자일수록 몸 탄소당 덜 걸러 먹고 덜 삼킨다
+        public static double Attack(Traits t, Body b) => Cfg.ATTACK * Allo(b) * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);
         public static double Vul(Traits t) => 1 - 0.8 * t.Sat(G.WALL, 0.02);
         static int PocClass(double size) => size < 3 ? P.POC0 : size < 30 ? P.POC1 : P.POC2;
 
@@ -83,22 +84,22 @@ namespace Life
             int na = 0;
             for (int j = 0; j < n; j++)
             {
-                var sj = strains[S.slot[j]]; S.a[j] = Attack(sj.t, sj.b); S.scale[j] = 0; S.intake[j] = 0; S.prey[j] = 0; S.det[j] = 0;
+                var sj = strains[S.slot[j]]; S.a[j] = Attack(sj.t, sj.b); S.scale[j] = 0; double fsz = Math.Log10(sj.b.feed), lr = sj.t.lr; S.intake[j] = 0; S.prey[j] = 0; S.det[j] = 0;
                 if (S.a[j] * tot < 1e-4) continue;
                 int row = na * np; double E = 0;
                 for (int i = 0; i < np; i++)
                 {
                     double k = 0;
-                    if (i != j && (S.spc[i] != S.spc[j] || S.spc[i] < 0) && S.size[i] <= Cfg.PREY_MAX * S.size[j])   // 같은 종(친척)은 먹지 않는다
+                    if (i != j && (S.spc[i] != S.spc[j] || S.spc[i] < 0) && S.size[i] <= Cfg.PREY_MAX * sj.b.feed)   // 같은 종(친척)은 먹지 않는다
                     {
-                        double x = (S.lsz[i] - S.lsz[j] + 1) / Cfg.PREY_SD;
+                        double x = (S.lsz[i] - fsz + lr) / Cfg.PREY_SD;
                         if (x * x <= 9) k = S.a[j] * Math.Exp(-0.5 * x * x) * S.vul[i];
                     }
                     S.K[row + i] = k; E += k * S.b[i];
                 }
                 if (E <= 0) continue;
                 S.act[na++] = j;
-                S.scale[j] = 1 / (1 + Cfg.HANDLE * E);
+                S.scale[j] = 1 / (1 + Cfg.HANDLE / Allo(sj.b) * E);
                 double sb = S.scale[j] * S.b[j] * dt;
                 for (int i = 0; i < np; i++) S.loss[i] += S.K[row + i] * S.b[i] * sb;
             }

@@ -19,6 +19,7 @@ namespace Life
         public int id, parent, slot, species = -1, born, gene = -1;   // gene: 부모와 다른 유전자(창시 돌연변이)
         public float[] g; public Traits t; public Body b;
         public double total;                                          // 행성 전체 생물량(mol C)
+        public double prev, rate = double.NaN;                        // 지난 정리 때 생물량, 생물권보다 빨리 느는 속도(/일, 지수 평균)
         public double cFix, cPrey, cDet, cDoc, cChemo;                // 오늘 탄소·에너지 수입(mol C): 고정, 산 먹이, 사체, 녹은 유기물 · 화학합성 ATP
         public double o2Made, aerobic, catab;                         // 오늘 만든 O2, 산소 호흡으로 태운 C / 전체 태운 C
         public double jump, sel;                                      // 부모와의 몸 모양 거리(점진성 지표), 정착 때 선택 계수

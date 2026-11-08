@@ -15,11 +15,12 @@ namespace Life
         public double size;                      // 몸 크기(μm): 평균 덩이의 지름
         public double exposed;                   // 겉에 드러난 세포 비율(빛·영양을 바로 받는 몫)
         public double dim;                       // 배치의 프랙털 차원(1 실 · 2 판 · 3 덩이)
+        public double feed;                      // 먹을 때의 크기(μm): 분화 없는 덩이는 세포 하나씩 삼키고(세포 크기), 분화할수록 몸 전체로 잡는다(입·소화 공간)
 
         public static Body Of(float[] g, Traits t)
         {
             var b = new Body();
-            int n = (int)Math.Clamp(Math.Round(t.MeanCells), 1, NDRAW);
+            int n = (int)Math.Clamp(Math.Ceiling(t.MeanCells), 1, NDRAW);   // 평균 덩이를 사이에 끼울 만큼(크기를 세포 수 사이에서 이어 붙이려고)
             int nd = (int)Math.Clamp(Math.Round(t.nA), 1, NDRAW);
             b.cells = Layout(g, t, Math.Max(n, nd));
             double R(int m)   // 앞 m개 세포의 회전 반지름
@@ -33,10 +34,13 @@ namespace Life
             b.dim = N >= 8 ? Math.Clamp(Math.Log(N / (N / 4.0)) / Math.Log(Math.Max(1.01, R(N) / Math.Max(1e-3, R(Math.Max(2, N / 4))))), 1, 3) : 3;
             double mean = t.MeanCells, r0 = t.dCell * Math.Cbrt(t.aspect) / 2;
             // 평균 덩이 크기: 계산한 배치 안이면 그 회전 반지름, 넘으면 차원 법칙으로 늘린다
-            double rg = mean <= N ? R(Math.Max(1, (int)Math.Round(mean))) : R(N) * Math.Pow(mean / N, 1 / b.dim);
+            // 세포 수가 정수 사이일 때는 이웃 정수의 회전 반지름 사이를 잇는다: 붙음을 조금 늘리면 몸도 조금 커진다(계단 없음)
+            int m0 = Math.Clamp((int)Math.Floor(mean), 1, N), m1 = Math.Min(N, m0 + 1);
+            double rg = mean <= N ? R(m0) + (R(m1) - R(m0)) * Math.Clamp(mean - m0, 0, 1) : R(N) * Math.Pow(mean / N, 1 / b.dim);
             b.size = Math.Max(t.dCell * Math.Cbrt(t.aspect), 2 * (rg + r0));
             int outer = 0; foreach (var c in b.cells) if (c.outer > 0.5f) outer++;
             double exN = (double)outer / N;
+            double cl = t.dCell * Math.Cbrt(t.aspect); b.feed = cl * Math.Pow(b.size / cl, t.diff);
             b.exposed = mean <= N ? exN : Math.Min(1, exN * Math.Pow(N / mean, 1 - 1 / b.dim));   // 큰 덩이일수록 속 세포가 많다(실은 그대로)
             return b;
         }

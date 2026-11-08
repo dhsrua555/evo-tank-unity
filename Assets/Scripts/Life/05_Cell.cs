@@ -40,14 +40,15 @@ namespace Life
             double ex = 0.3 + 0.7 * b.exposed, sav = Math.Min(1, Math.Sqrt(1.0 / t.dCell));   // 덩이 속 세포는 빛·영양을 덜 받고, 큰 세포는 겉넓이가 모자란다
 
             // 빛 에너지와 광합성 전자 공여체
-            double P = phi[G.PHOTO] * Cfg.K_PHOTO * e.light / (e.light + Cfg.K_LIGHT) * ex * fT;
+            double rho = Cfg.A_CM * t.dCell, pack = rho < 1e-3 ? 1 : 1.5 / rho * (1 + 2 * Math.Exp(-rho) / rho + 2 * (Math.Exp(-rho) - 1) / (rho * rho));   // 묶음 효과 3Q*/(2ρ′): 10 μm 0.83, 100 μm 0.28
+            double P = phi[G.PHOTO] * Cfg.K_PHOTO * e.light / (e.light + Cfg.K_LIGHT) * ex * fT * pack;
             double uH2 = Sig((t.eox - E[0] - 0.1) / 0.15), uHS = Sig((t.eox - E[1] - 0.1) / 0.15), uFe = Sig((t.eox - E[2] - 0.1) / 0.15), uW = Sig((t.eox - E[3] - 0.1) / 0.15);
             double aH2 = uH2 * e.H2 / (e.H2 + 0.1), aHS = uHS * e.H2S / (e.H2S + 1), aFe = uFe * e.FE2 / (e.FE2 + 5), aW = uW;
             double D = Math.Min(1, aH2 + aHS + aFe + aW), dsum = Math.Max(1e-12, aH2 + aHS + aFe + aW);
             double atpPh = P * (0.3 + 0.7 * D), ePh = 0.5 * P * D;
 
             // 화학합성: 공여체를 산화해 ATP(산소가 있으면 산소로, 없으면 황산·CO2로)
-            double resp = t.Sat(G.RESP, 0.02), aer = resp * e.O2 / (e.O2 + 1), sSO4 = e.SO4 / (e.SO4 + 20);
+            double resp = t.Sat(G.RESP, 0.02), oAer = e.O2 / (e.O2 + Cfg.K_AER), aer = resp * oAer, sSO4 = e.SO4 / (e.SO4 + 20);
             double[] conc = { e.H2, e.CH4, e.H2S, e.FE2 }; var R = new double[4]; double atpCh = 0, eCh = 0;
             for (int d = 0; d < 4; d++)
             {
@@ -67,10 +68,13 @@ namespace Life
             // 유기물: 녹은 유기물 흡수 + 먹은 것(포식·청소)
             double docUp = phi[G.OSMO] * Cfg.K_OSMO * fT * e.DOC / (e.DOC + Cfg.K_DOC) * ex * sav;
             double U = docUp + phago;
-            double yOrg = aer * Cfg.Y_AER + (1 - aer) * Cfg.Y_FERM / (1 + e.H2);   // 발효는 H2가 쌓이면 잘 안 된다(열역학)
+            // 태우기: 산소 호흡은 호흡 단백질 몫에 비례하는 속도까지만, 넘치는 몫은 발효(넘침 대사, Basan 2015). 해당 과정은 살림 단백질에 든다.
+            // 발효는 H2가 쌓이면 잘 안 된다(열역학)
+            double capAer = Cfg.K_RESP * phi[G.RESP] * oAer * fT, yF = Cfg.Y_FERM / (1 + e.H2);
+            double OrgATP(double c) { double a = Math.Min(c, capAer); return a * Cfg.Y_AER + (c - a) * yF; }
 
             // 질소·인
-            double tr = (0.03 + phi[G.OSMO]) * ex * sav * fT;
+            double tr = (0.03 + phi[G.NUT]) * ex * sav * fT;   // 암모늄·인산 운반체는 유기물 운반체와 다른 단백질(AMT·Pst)
             double nIn = 3 * tr * e.NH4 / (e.NH4 + 0.5), pIn = 0.2 * tr * e.PO4 / (e.PO4 + 0.05);
             double o2Own = uW / dsum * Math.Min(fixMax, ePh / 4);             // 산소 광합성으로 세포 안에서 생기는 O2
             double seg = t.diff * (1 - b.exposed);                            // 분화: 속 세포가 산소에서 떨어져 질소를 고정한다(이형세포처럼)
@@ -84,7 +88,7 @@ namespace Life
             double bestF = 0, bestC = 0;
             double Gce(double f, out double cfix)
             {
-                double a = (1 - f) * U, bb = atpIn + f * U * yOrg - M;
+                double a = (1 - f) * U, bb = atpIn + OrgATP(f * U) - M;
                 cfix = Math.Clamp((bb - Cfg.A_BIO * a) / (Cfg.A_BIO + aFix), 0, fixMax);
                 return Math.Min(a + cfix, (bb - aFix * cfix) / Cfg.A_BIO);
             }
@@ -113,7 +117,7 @@ namespace Life
             r.fix = g > 0 ? bestC * lam : 0;
             r.docUp = docUp * lam; r.phagoUsed = phago * lam;
             double Uu = r.docUp + r.phagoUsed;
-            r.catab = bestF * Uu; r.assim = (1 - bestF) * Uu; r.aerFrac = aer;
+            r.catab = bestF * Uu; r.assim = (1 - bestF) * Uu; r.aerFrac = r.catab > 0 ? Math.Min(1, capAer / r.catab) : 0;
             r.catabNP = bestF * r.phagoUsed; r.assimNP = (1 - bestF) * r.phagoUsed;
             double needN = Math.Max(0, g) * 16 / 106 - r.assimNP * 16 / 106; needN = Math.Max(0, needN);
             r.nh4 = Math.Min(nIn, needN); r.nfix = Math.Max(0, needN - r.nh4);
@@ -125,7 +129,7 @@ namespace Life
             r.dCO2 -= r.fix; r.fixPh = ePh + eCh > 0 ? r.fix * ePh / (ePh + eCh) : 0;
             // 화학합성: 필요한 만큼만 돌린다(lam)
             double chemoLam = atpCh > 0 ? Math.Clamp(lam, 0, 1) : 0;
-            r.chemoATP = atpCh * chemoLam; r.photoATP = atpPh * lam; r.orgATP = r.catab * yOrg;
+            r.chemoATP = atpCh * chemoLam; r.photoATP = atpPh * lam; r.orgATP = OrgATP(r.catab);
             for (int d = 0; d < 4; d++)
             {
                 double x = R[d] * chemoLam; if (x <= 0) continue;
@@ -137,7 +141,7 @@ namespace Life
                 else { r.dFE2 -= x; }
             }
             // 태운 유기물: 산소 호흡 → CO2(O2 소비), 발효 → CO2 + 2 H2
-            r.dCO2 += r.catab; r.dO2 -= r.catab * aer; r.dH2 += r.catab * (1 - aer) * 2;
+            r.dCO2 += r.catab; r.dO2 -= r.catab * r.aerFrac; r.dH2 += r.catab * (1 - r.aerFrac) * 2;
 
             // 죽음: 온도, 산소 독성(세포 안 O2 포함, 항산화가 막음), 황화수소(산소 호흡 세포), 마름, 바이러스, 바탕
             double o2eff = e.O2 + Cfg.OWN_O2 * o2Own;

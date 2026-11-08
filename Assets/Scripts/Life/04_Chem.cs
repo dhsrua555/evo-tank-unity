@@ -74,13 +74,13 @@ namespace Life
                 }
         }
 
-        double[] buryC, buryFe;
+        double[] buryC, buryFe, buryS;
         void SumBurial()
         {
             for (int v = 0; v < V; v++)
             {
-                double m = buryC[v]; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m; outFe += buryFe[v];
-                buryC[v] = 0; buryFe[v] = 0;
+                double m = buryC[v]; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m; outFe += buryFe[v]; outS += buryS[v];
+                buryC[v] = 0; buryFe[v] = 0; buryS[v] = 0;
             }
         }
 
@@ -96,6 +96,14 @@ namespace Life
             c[P.CH4][v] -= d; c[P.CO2][v] += d; c[P.O2][v] -= 2 * d;
             d = Math.Min(Cfg.K_H2_OX * c[P.H2][v] * c[P.O2][v] * dt, Math.Min(c[P.H2][v], 2 * c[P.O2][v]) * 0.9);
             c[P.H2][v] -= d; c[P.O2][v] -= d / 2;
+            // 황화철: Fe2+ × 황화물이 용해도곱을 넘으면 넘는 만큼 FeS로 가라앉아 묻힌다(황철석 매몰 = 황의 주 출구, Berner 1984)
+            // ponytail: 바로 매몰(가라앉는 동안 다시 산화되는 몫은 뺌). 바닷물 철·황은 이것 말고 나갈 곳이 없어 깊은 물에 황화수소가 끝없이 쌓였다
+            double fe = c[P.FE2][v], hs = c[P.H2S][v];
+            if (fe * hs > Cfg.KSP_FES)
+            {
+                d = 0.5 * (fe + hs - Math.Sqrt((fe - hs) * (fe - hs) + 4 * Cfg.KSP_FES));   // (fe−d)(hs−d) = Ksp
+                c[P.FE2][v] -= d; c[P.H2S][v] -= d; d *= vol[v] * 1e-6; buryFe[v] += d; buryS[v] += d;
+            }
             for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.HYDROLYSIS * dt; c[p][v] -= d; ToDoc(c, v, d); }
             // 자외선: 오존이 없으면 표층의 녹은 유기물을 CO2로 깬다(산소가 1e-2 PAL쯤 되면 오존층이 막는다)
             d = c[P.DOC][v] * Cfg.K_UV * light[v] / (1 + O2PAL / 0.01) * dt; c[P.DOC][v] -= d; c[P.CO2][v] += d;

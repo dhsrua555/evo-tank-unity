@@ -7,14 +7,14 @@ namespace Life
     public static class G
     {
         // 단백질 배분 유전자(몫은 e^(κ·a)를 정규화)
-        public const int RIB = 0, PHOTO = 1, FIX = 2, CCM = 3, CHEMO = 4, OSMO = 5, PHAGO = 6, RESP = 7, SOD = 8, MOT = 9, ADH = 10, WALL = 11, NFIX = 12, DRY = 13;
-        public const int NA = 14;
+        public const int RIB = 0, PHOTO = 1, FIX = 2, CCM = 3, CHEMO = 4, OSMO = 5, PHAGO = 6, RESP = 7, SOD = 8, MOT = 9, ADH = 10, WALL = 11, NFIX = 12, DRY = 13, NUT = 14;
+        public const int NA = 15;
         // 연속 매개변수
-        public const int EOX = 14, SPEC = 15, DNR = 16, TOPT = 17, TW = 18, SIZE = 19, ASPECT = 20, BRANCH = 21, ANGLE = 22, PROP = 23, DIFF = 24, R1 = 25, R2 = 26, R3 = 27;
-        public const int N = 28;
+        public const int EOX = 15, SPEC = 16, DNR = 17, TOPT = 18, TW = 19, SIZE = 20, ASPECT = 21, BRANCH = 22, ANGLE = 23, PROP = 24, DIFF = 25, R1 = 26, R2 = 27, R3 = 28, PREY = 29;
+        public const int N = 30;
         public static readonly string[] Name = {
-            "리보솜", "광계", "탄소 고정", "탄소 농축", "화학합성", "흡수 운반체", "포식 막", "산소 호흡", "항산화", "편모", "붙음", "세포벽", "질소 고정", "마름 견딤",
-            "광계 산화력", "고정 효소 특이성", "공여체 선호", "최적 온도", "온도 폭", "세포 크기", "세포 길쭉함", "가지치기", "분열 각", "떨어지는 몫", "분화", "수용체 1", "수용체 2", "수용체 3" };
+            "리보솜", "광계", "탄소 고정", "탄소 농축", "화학합성", "흡수 운반체", "포식 막", "산소 호흡", "항산화", "편모", "붙음", "세포벽", "질소 고정", "마름 견딤", "영양염 운반체",
+            "광계 산화력", "고정 효소 특이성", "공여체 선호", "최적 온도", "온도 폭", "세포 크기", "세포 길쭉함", "가지치기", "분열 각", "떨어지는 몫", "분화", "수용체 1", "수용체 2", "수용체 3", "먹이 크기" };
     }
 
     // 유전체에서 바로 나오는 세포 형질(덩이 모양은 Body)
@@ -32,6 +32,7 @@ namespace Life
         public double n0;       // 떨어져 나가는 번식체 세포 수
         public double diff;     // 분화 정도
         public int vbin;        // 바이러스 수용체 칸(5×5×5)
+        public double lr;       // 먹이 크기 선호: log10(먹는 쪽 ÷ 먹이). 0 = 자기만 한 먹이(와편모류), 0.5 = 1/3(작은 편모류), 1.3 = 1/20(걸러 먹기). Hansen 1994
 
         public static Traits Of(float[] g)
         {
@@ -47,10 +48,12 @@ namespace Life
             t.aspect = Math.Pow(8, g[G.ASPECT]);
             double vol = Math.PI / 6 * t.dCell * t.dCell * t.dCell;
             t.cellC = 0.216e-12 * Math.Pow(vol, 0.939) / 12;                  // Menden-Deuer & Lessard 2000
-            // 붙음: 덩이가 갈라지기 전 세포 수 = (φ/φ0)^지수. 한 걸음(φ ×1.17)에 세포 수 ×1.23만 변한다(갑자기 커지지 않음)
-            t.nA = Math.Clamp(Math.Pow(Math.Max(1, t.phi[G.ADH] / Cfg.ADH0), Cfg.ADH_EXP), 1, Cfg.CELLS_MAX);
+            // 붙음: 분열한 딸세포가 붙어 남을 확률 p = φ/(φ+φ0) → 갈라지기 전 덩이 ≈ 1/(1−p) = 1 + φ/φ0, 거기에 지수.
+            // 문턱이 없어 붙음 단백질을 조금만 늘려도 덩이가 조금 커진다. 한 걸음(φ ×1.17)에 세포 수 ×1.23 이하
+            t.nA = Math.Clamp(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), 1, Cfg.CELLS_MAX);
             t.n0 = Math.Max(1, t.nA * 0.5 * g[G.PROP]);
             t.diff = g[G.DIFF];
+            t.lr = 1.3 * g[G.PREY];
             t.vbin = (int)(g[G.R1] * 4.999) * 25 + (int)(g[G.R2] * 4.999) * 5 + (int)(g[G.R3] * 4.999);
             return t;
         }
@@ -70,7 +73,7 @@ namespace Life
             g[G.RIB] = 1.0f; g[G.FIX] = 0.85f; g[G.CHEMO] = 0.95f;
             g[G.EOX] = 0.45f; g[G.SPEC] = 0.2f; g[G.DNR] = 0.1f; g[G.TOPT] = 0.35f; g[G.TW] = 0.6f;
             g[G.SIZE] = 0.13f; g[G.ASPECT] = 0.2f; g[G.BRANCH] = 0.9f; g[G.ANGLE] = 0.2f; g[G.PROP] = 0.5f; g[G.DIFF] = 0;
-            g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f;
+            g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f; g[G.PREY] = 0.37f;   // 먹이 크기: 자기의 1/3(작은 편모류)
             return g;
         }
 

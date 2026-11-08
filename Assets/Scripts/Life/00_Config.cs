@@ -47,6 +47,7 @@ namespace Life
         public const double FE3_SINK = 1.0;           // 철 산화물 입자 침강(m/일)
 
         // 무생물 반응(/μM/일)
+        public const double KSP_FES = 10;            // 황화철 용해도곱(μM², Fe2+ × 전체 황화물): 매키나와이트 log K* −3.5(Rickard 2006), pH 7.5
         public const double K_FE_OX = 0.5, K_HS_OX = 0.1, K_CH4_OX = 0.0005, K_H2_OX = 0.001;
         public const double HYDROLYSIS = 0.05;        // 사체 → 녹은 유기물(/일)
         public const double K_UV = 0.5;               // 자외선이 녹은 유기물을 깨는 속도(/일, 수면 빛 1, 오존 없을 때)
@@ -61,6 +62,7 @@ namespace Life
         public const double A_FIX = 8.0;              // CO2 1 mol 고정하는 ATP 당량(ATP 3 + 환원력)
         public const double K_PHOTO = 120;             // 광계 몫 1당 ATP(/일, 빛 포화)
         public const double K_LIGHT = 0.15;           // 빛 반포화(수면 빛 대비)
+        public const double A_CM = 0.05;              // 세포 안 색소 흡광 계수(/μm, 빛 띠 평균): 큰 세포는 색소끼리 가려 빛을 덜 쓴다(묶음 효과, Morel & Bricaud 1981)
         public const double K_FIX = 40;               // 고정 효소 몫 1당 최대 고정(/일, S=20 기준)
         public const double K_CO2 = 30;               // 고정 효소 CO2 반포화(μM)
         public const double K_CHEMO = 200;            // 화학합성 효소 몫 1당 전자 공여체 산화(/일)
@@ -69,6 +71,10 @@ namespace Life
         public const double K_NFIX = 4, A_NFIX = 8;   // 질소 고정: 몫 1당 N(/일), N 하나에 ATP
         public const double M0 = 0.3;                 // 유지 ATP(/일, 20 °C)
         public const double MORT0 = 0.02;             // 바탕 사망(/일)
+        public const double K_AER = 0.1;              // 산소 호흡 반포화 O2(μM): 해양 군집 실측 10–200 nM(Tiano 2014), 대장균 120 nM(Stolper 2010)
+        // 산소 호흡 용량: 호흡 단백질 몫 1당 태울 수 있는 유기 C(/일). 대장균 ε_r 390 mM ATP/OD/h(Basan 2015) ≈ 600 ATP/C/일 ÷ 5 ATP/C = 120 /일.
+        // 이 모형 화학합성 효소(K_CHEMO 200 H2 = 전자 400/일 → 유기 C 100/일)와도 맞는다. 리보솜 속도 비로 줄인 6.8은 산소 있는 물에서도 발효가 남아(65–87 %) 실측(nM O2까지 산소 호흡, Tiano 2014)과 어긋남
+        public const double K_RESP = 120;
         public const double Y_AER = 5, Y_FERM = 0.7;  // 유기물 C 하나에서 얻는 ATP: 산소 호흡, 발효(H2 쌓이면 줄어듦)
         public const double ROS = 0.6, ROS_K = 60;    // 산소 독성(/일), 반포화 O2(μM)
         public const double OWN_O2 = 80;              // 산소 광합성 세포 안 O2(μM 당량, 고정 1/일당)
@@ -78,7 +84,8 @@ namespace Life
         // 먹고 먹히기
         public const double ATTACK = 6;               // 포식 막 몫 1당 공격률(/μM C/일)
         public const double HANDLE = 0.5;             // 먹이 처리 시간(일)
-        public const double PREY_RATIO = 0.1, PREY_SD = 0.6, PREY_MAX = 1.2;   // 선호 먹이 크기 = 몸의 1/10, 폭 0.6 decade, 몸의 1.2배까지
+        public const double FEED_REF = 5, FEED_EXP = 0.69;   // 몸 탄소당 청소·최대 섭취 ∝ (먹는 크기/5 μm)^−0.69 = 부피^−0.23 (Hansen 1997, 2–2000 μm). 5 μm 밑은 그대로
+        public const double PREY_SD = 0.6, PREY_MAX = 1.2;   // 먹이 크기 폭 0.6 decade, 먹는 크기의 1.2배까지(선호 크기 비는 유전자 G.PREY)
         public const double EGEST = 0.3;              // 먹은 것 중 똥·찌꺼기
         public const double VIRUS = 0.25, VIRUS_K = 0.3;   // 이긴 자 죽이기: 같은 수용체 칸 숙주 밀도에 비례
 
@@ -93,7 +100,7 @@ namespace Life
         public const double NCAP = 100;               // 돌연변이 공급에 쓰는 계통·칸 개체 수 상한(클론 간섭 근사)
         public const double NFOUND = 100;             // 정착 확률 식의 창시 개체 수
         public const double RARE = 1e-12;             // 계통이 생물권 전체의 이 몫 밑으로 떨어지면 멸종
-        public const double FOUND = 3e-2;             // 새 계통 시작 생물량 = 부모의 이 비율(지역 집단에서 번진 몫)
+        public const double FOUND = 0.3;             // 새 계통 시작 생물량 = 부모의 이 비율(지역 집단에서 번진 몫)
         public const int SMAX = 320;                  // 동시에 추적하는 계통 수
         public const double BMIN = 1e-14;             // 이보다 적으면(μM C, 칸 평균) 그 칸에서 사라짐
         public const double D_SP = 0.12;              // 종: 종 창시 유전체에서 이만큼 멀어지면 새 종
