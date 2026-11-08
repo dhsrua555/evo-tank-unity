@@ -250,7 +250,7 @@ namespace Tank
             while (st.Count > 0) { int i = st.Pop(); treeRow[i] = treeN++; for (int k = kids[i].Count - 1; k >= 0; k--) st.Push(kids[i][k]); }
         }
         Rect TreeRect => new Rect(gauge.xMax + 10, topH + 10, mapR.x - gauge.xMax - 20, (showGraph ? graphR.y : H) - topH - 20);
-        const float TreeRh = 15;   // 한 줄에 종 하나(이름까지), 넘치면 휠로 내린다
+        const float TreeRh = 18;   // 한 줄에 종 하나(이름까지), 넘치면 휠로 내린다
         void TreeDraw()
         {
             TreeLayout(); var R = TreeRect;
@@ -286,8 +286,8 @@ namespace Tank
             {
                 var s = snap.sp[i]; if (treeRow[i] < 0) continue; float y = y0 + treeRow[i] * rh;
                 if (y < R.y + 24 || y > R.yMax - 14) continue;
-                GUI.color = s.Alive ? Color.white : new Color(0.7f, 0.7f, 0.72f);
-                GUI.Label(new Rect(x0 + w * (s.Alive ? 1 : s.died / now) + 4, y - 1, 150, 16), s.Alive ? s.name : s.name + " †", i == sel ? sL : sS);
+                GUI.color = s.Alive || i == sel ? Color.white : new Color(0.92f, 0.92f, 0.95f);   // 멸종 이름도 어두운 판에서 읽히게(sS 회색 × 0.92)
+                GUI.Label(new Rect(x0 + w * (s.Alive ? 1 : s.died / now) + 4, y - 2, 170, rh + 4), s.Alive ? s.name : s.name + " †", s.Alive || i == sel ? sL : sS);
             }
             GUI.color = Color.white;
         }
