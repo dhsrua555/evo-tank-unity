@@ -366,13 +366,14 @@ static class Program
         return 0;
     }
 
-    // 몸 꼴 손익(SHAPE): 생물량 큰 덩이 종 셋을 제 칸에서 가지·각 유전자만 바꿔 다시 잰다. 실이 아닌 꼴이 왜 지는지(나눔·가라앉기·바이러스·먹힘)
+    // 몸 꼴 손익(SHAPE, =pred면 포식 덩이만): 생물량 큰 덩이 종 셋을 제 칸에서 가지·각 유전자만 바꿔 다시 잰다. 실이 아닌 꼴이 왜 지는지(나눔·가라앉기·바이러스·먹힘)
     static void Shapes(Planet pl)
     {
-        foreach (var st in pl.alive.Where(s => s.t.MeanCells >= 2).OrderByDescending(s => s.total).Take(3))
+        bool pred = Environment.GetEnvironmentVariable("SHAPE") == "pred";   // pred = 포식 막 몫 0.1 넘는 덩이만(동물형 몸이 왜 실인지)
+        foreach (var st in pl.alive.Where(s => s.t.MeanCells >= 2 && (!pred || s.t.phi[G.PHAGO] >= 0.1)).OrderByDescending(s => s.total).Take(3))
         {
             int vb = Enumerable.Range(0, pl.V).OrderByDescending(v => pl.B[st.slot * pl.V + v]).First(), si = st.slot * pl.V + vb; double lim = pl.limA[si] > 0 ? pl.limA[si] : 1;
-            Console.WriteLine($"꼴 손익: 종 {st.species} 칸 {vb} 세포 {st.t.MeanCells:0.0} 가지 {st.g[G.BRANCH]:0.00} 각 {st.g[G.ANGLE]:0.00} 자원몫 {lim:0.00}");
+            Console.WriteLine($"꼴 손익: 종 {st.species} 칸 {vb} 세포 {st.t.MeanCells:0.0} 가지 {st.g[G.BRANCH]:0.00} 각 {st.g[G.ANGLE]:0.00} 자원몫 {lim:0.00} 분화 {st.t.diff:0.00} 포식막 {st.t.phi[G.PHAGO]:0.00} 편모 {st.t.phi[G.MOT]:0.00} 크기 {st.b.size:0} μm");
             foreach (float br in new[] { 0.3f, 0.6f, 0.9f, 1f }) foreach (float an in new[] { 0.05f, 0.2f, 0.5f })
             {
                 var g = (float[])st.g.Clone(); g[G.BRANCH] = br; g[G.ANGLE] = an; var t = Traits.Of(g); var b = Body.Of(g, t);
