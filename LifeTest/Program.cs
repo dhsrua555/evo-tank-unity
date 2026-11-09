@@ -441,7 +441,7 @@ static class Program
     static (List<Strain>, double[]) Trophic(Planet pl)
     {
         var A = pl.alive.Where(s => s.total > 0).ToList(); int n = A.Count; if (n == 0) return (null, null);
-        var auto = new double[n]; var dead = new double[n]; var F = new double[n, n];
+        var auto = new double[n]; var dead = new double[n]; var F = new double[n, n]; var loc = new List<(int j, int v, double mj, double au, double de, double eat, double[] w, double tot)>();   // 칸별 영양 단계(산소 줄)
         for (int j = 0; j < n; j++)
         {
             var sj = A[j]; double a = Planet.Attack(sj.t, sj.b), lf = Math.Log10(sj.b.feed);
@@ -449,7 +449,7 @@ static class Program
             {
                 double bj = pl.B[sj.slot * pl.V + v]; if (bj <= Cfg.BMIN) continue; double mj = bj * pl.vol[v];   // 칸 몫은 mol로(칸 부피가 다르다)
                 var r = Cell.Grow(sj.t, sj.b, pl.EnvAt(v), pl.Intake(sj.t, sj.b, v, sj.slot), pl.VirusMort(sj.t, sj.b, v));
-                auto[j] += r.fix * mj; dead[j] += r.docUp * mj; if (r.phagoUsed <= 0 || a <= 0) continue;
+                auto[j] += r.fix * mj; dead[j] += r.docUp * mj; if (r.phagoUsed <= 0 || a <= 0) { loc.Add((j, v, mj, r.fix * mj, r.docUp * mj, 0, null, 1)); continue; }
                 var w = new double[n]; double wd = 0, tot = 0;
                 for (int i = 0; i < n; i++)
                 {
@@ -457,8 +457,9 @@ static class Program
                     double x = (si.lsz - lf + sj.t.lr) / Cfg.PREY_SD; if (x * x <= 9) tot += w[i] = Math.Exp(-0.5 * x * x) * si.vul * pl.B[si.slot * pl.V + v];
                 }
                 for (int k = 0; k < 3; k++) tot += Planet.Pref(Cfg.POC_SIZE[k], sj.b.feed, sj.t.lr) * pl.pool[P.POC0 + k][v];
-                if (tot <= 0) continue; wd = tot; for (int i = 0; i < n; i++) wd -= w[i];
+                if (tot <= 0) { loc.Add((j, v, mj, r.fix * mj, r.docUp * mj, 0, null, 1)); continue; } wd = tot; for (int i = 0; i < n; i++) wd -= w[i];
                 double eat = r.phagoUsed * mj; dead[j] += eat * wd / tot; for (int i = 0; i < n; i++) F[j, i] += eat * w[i] / tot;
+                loc.Add((j, v, mj, r.fix * mj, r.docUp * mj + eat * wd / tot, eat, w, tot));
             }
         }
         var TL = Enumerable.Repeat(1.0, n).ToArray();
@@ -481,6 +482,20 @@ static class Program
             sb.Append($" {Math.Pow(10, lo):0.#}–{Math.Pow(10, lo + 0.5):0.#}: {bb / bt:P0} {ix.Sum(j => A[j].total * TL[j]) / bb:0.00} {au / bb:P0} ·");
         }
         Console.WriteLine(sb.ToString().TrimEnd('·', ' '));
+        // 산소와 먹이 사슬: 칸 O2 구간마다 그 칸에서 먹은 것으로 잰 영양 단계. 무산소 먹이 사슬은 짧고(성장 효율 낮음, Fenchel & Finlay 1990),
+        // 저산소에선 육식이 준다(Sperling 2013 PNAS 110:13446 — 산소 최소층 다모류). 남의 것 먹는 생물량(TL ≥ 1.5) 중 TL 2.5 넘는 몫 = 육식 몫
+        var ob = new System.Text.StringBuilder("산소와 먹이 사슬(칸 O2 μM: 생물량 몫 · 평균 단계 · 소비자 단계 · 육식 몫 · 최고):"); double[] edge = { 0, 1, 10, 50, 1e9 }; double btot = loc.Sum(x => x.mj);
+        for (int c = 0; c < 4; c++)
+        {
+            var L = loc.Where(x => pl.pool[P.O2][x.v] >= edge[c] && pl.pool[P.O2][x.v] < edge[c + 1]).Select(x =>
+            {
+                double inc = x.au + x.de + (x.w == null ? 0 : x.eat * (1 - (x.tot - x.w.Sum()) / x.tot)), fed = x.de; if (x.w != null) for (int i = 0; i < n; i++) fed += x.eat * x.w[i] / x.tot * TL[i];
+                return (m: x.mj, tl: inc > 0 ? 1 + fed / inc : 1);
+            }).ToList();
+            double m = L.Sum(x => x.m); if (m <= 0) continue; var het = L.Where(x => x.tl >= 1.5).ToList(); double mh = het.Sum(x => x.m);
+            ob.Append($" {edge[c]:0}–{(c == 3 ? "" : edge[c + 1].ToString("0"))}: {m / btot:P0} · {L.Sum(x => x.m * x.tl) / m:0.00} · {(mh > 0 ? (het.Sum(x => x.m * x.tl) / mh).ToString("0.00") : "-")} · {(mh > 0 ? het.Where(x => x.tl >= 2.5).Sum(x => x.m) / mh : 0):P0} · {L.Max(x => x.tl):0.00} |");
+        }
+        Console.WriteLine(ob.ToString().TrimEnd('|', ' '));
         return (A, TL);
     }
 
@@ -498,7 +513,7 @@ static class Program
                 {
                     var g2 = (float[])pr.g.Clone(); g2[G.SIZE] = (float)Math.Clamp(g2[G.SIZE] + ds * Cfg.STEP, 0, 1); g2[G.PREY] = (float)Math.Clamp(g2[G.PREY] + dl * Cfg.STEP, 0, 1);
                     g2[G.DIFF] = (float)Math.Clamp(g2[G.DIFF] + dd * Cfg.STEP, 0, 1); g2[G.ADH] = (float)Math.Clamp(g2[G.ADH] + da * Cfg.STEP, 0, 1);
-                    var t = Traits.Of(g2); var b = Body.Of(g2, t, false); double I = pl.Intake(t, b, v, pr.slot); var r = Cell.Grow(t, b, pl.EnvAt(v), I, pl.VirusMort(t, b, v));
+                    var t = Traits.Of(g2); var b = Body.Of(g2, t, false); double I = pl.Intake(t, b, v, pr.slot); double vm = pl.VirusMort(t, b, v), ea = pl.Eaten(t, b, v, pr.slot); var r = Cell.Grow(t, b, pl.EnvAt(v), I, vm);
                     double lf = Math.Log10(b.feed), wp = 0, tot = 0;
                     foreach (var si in A)
                     {
@@ -506,8 +521,8 @@ static class Program
                         double x = (si.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x > 9) continue; double w = Math.Exp(-0.5 * x * x) * si.vul * pl.B[si.slot * pl.V + v]; tot += w; if (hi.Contains(si)) wp += w;
                     }
                     for (int k = 0; k < 3; k++) tot += Planet.Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * pl.pool[P.POC0 + k][v];
-                    res.Add((r.g - r.mort - pl.Eaten(t, b, v, pr.slot), tot > 0 && I * wp / tot >= 0.02 ? wp / tot : 0,   // 포식자 몫은 포식자에서 하루 몸의 2 % 넘게 먹을 때만 센다(섭취 0인데 무게만 큰 변이를 빼려고)
-                         $"크기{ds:+0} 먹이비{dl:+0;-0} 분화{dd:+0} 붙음{da:+0} → 몸 {b.size:0} μm·먹는 {b.feed:0} μm·섭취 {I:0.00}"));
+                    res.Add((r.g - r.mort - ea, tot > 0 && I * wp / tot >= 0.02 ? wp / tot : 0,   // 포식자 몫은 포식자에서 하루 몸의 2 % 넘게 먹을 때만 센다(섭취 0인데 무게만 큰 변이를 빼려고)
+                         $"크기{ds:+0} 먹이비{dl:+0;-0} 분화{dd:+0} 붙음{da:+0} → 몸 {b.size:0} μm·먹는 {b.feed:0} μm·섭취 {I:0.00}(최대의 {I * Cfg.HANDLE / Planet.Allo(t, b) / (1 - Cfg.EGEST):0.00})·g {r.g:0.000} m {r.mort:0.000}(바이러스 {vm:0.000}) e {ea:0.000}"));
                 }
                 if (Environment.GetEnvironmentVariable("TOPPROBE") == "2") foreach (var x in res.Where(x => x.nm.Contains("먹이비+0 분화+0 붙음+0") || x.nm.Contains("먹이비+0 분화+4 붙음+0"))) Console.WriteLine($"    f {x.f:+0.000;-0.000} 몫 {x.sh:P0} {x.nm}");
                 var eatP = res.Where(x => x.sh >= 0.5).OrderByDescending(x => x.f).Take(2).ToList();
