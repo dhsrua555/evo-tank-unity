@@ -1,4 +1,4 @@
-// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE O2HOLD
+// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE O2HOLD PO4X
 // 매 간격 상태 한 줄, 사건은 일어날 때, 끝에 '됐다' 기준 판정(PASS/FAIL).
 using System;
 using System.Collections.Generic;
@@ -15,7 +15,8 @@ static class Program
         var pl = Environment.GetEnvironmentVariable("LOAD") is string ld ? Save.Read(ld, out _) : new Planet(seed);   // LOAD=파일: 저장한 지구에서 이어서(속도 재기 등)
         if (a.Length > 3) pl.knobs.mu = double.Parse(a[3]);
         if (Environment.GetEnvironmentVariable("THREADS") is string th) pl.po.MaxDegreeOfParallelism = int.Parse(th);   // 여러 시드를 한꺼번에 돌릴 때 실행마다 스레드 수를 묶는다
-        if (Environment.GetEnvironmentVariable("EVENTS") is string er) pl.knobs.eventRate = double.Parse(er);   // 사건 빈도 배율(0 = 사건 없음)
+        if (Environment.GetEnvironmentVariable("EVENTS") is string er) pl.knobs.eventRate = double.Parse(er);
+        if (Environment.GetEnvironmentVariable("PO4X") is string px) { for (int v = 0; v < pl.V; v++) pl.pool[P.PO4][v] *= double.Parse(px); pl.ledger0 = pl.Ledger(); }   // PO4X: 처음 바다 인을 이 배수로(원생누대의 낮은 인 → 신원생대 인 증가 가설 시험)   // 사건 빈도 배율(0 = 사건 없음)
         if (Environment.GetEnvironmentVariable("PHOS") is string phx) pl.knobs.phosphate = double.Parse(phx);   // 인 공급 배율
         if (Environment.GetEnvironmentVariable("VENT") is string vt) for (int v = pl.NV0; v < pl.V; v++) pl.ventMul[v] *= double.Parse(vt);   // 열수공 세기 배율
         if (Environment.GetEnvironmentVariable("NODRIFT") != null) pl.drift = false;   // 중립 표류 끔(대조)
