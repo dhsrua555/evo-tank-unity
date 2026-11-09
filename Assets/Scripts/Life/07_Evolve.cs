@@ -47,7 +47,7 @@ namespace Life
                 double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * bi;   // = Pref(s.b.size, b.feed, t.lr), 로그는 계통에 둔 값
             }
             for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * pool[P.POC0 + k][v];
-            return (1 - Cfg.EGEST) * E / (1 + Cfg.HANDLE / Allo(b) * E);
+            return (1 - Cfg.EGEST) * E / (1 + Cfg.HANDLE / Allo(t, b) * E);
         }
 
         // 먹힘률(/일): 그 칸 포식자들의 지금 섭취 배율로

@@ -154,7 +154,7 @@ namespace Life
         public void SetGenome(Strain s, float[] g, Traits t = null, Body b = null)
         {
             s.g = g; s.t = t ?? Traits.Of(g); s.b = b ?? Body.Of(g, s.t);
-            s.att = Attack(s.t, s.b); s.vul = Vul(s.t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.b);
+            s.att = Attack(s.t, s.b); s.vul = Vul(s.t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.t, s.b);
             if (kOwn != null && s.slot >= 0) kOwn[s.slot] = null;
         }
     }

@@ -525,7 +525,8 @@ static class Program
         double disp = 0; for (int k = 0; k < 4; k++) { double m = X.Average(x => x[k]); disp += X.Average(x => (x[k] - m) * (x[k] - m)); }
         double sMax = L.Max(sp => pl.strains[sp.rep].b.size), sMin = L.Min(sp => pl.strains[sp.rep].b.size);
         var roles = L.GroupBy(sp => sp.role).Where(g => g.Sum(sp => sp.biomass) > 0.01 * tot).Select(g => g.Key.ToString()).ToList();
-        Console.WriteLine($"다양성: 종 {L.Count} · 실효 종 수 {Math.Exp(H):0.0} · 형태 불일치(분산 합) {disp:0.00} · 크기 폭 {Math.Log10(sMax / sMin):0.0}자리({sMin:0.#}–{sMax:0.#} μm) · 하는 일 {roles.Count}가지({string.Join("·", roles)}) · 표류 {pl.driftN}(몸 꼴 {pl.driftShape})");
+        Console.WriteLine($"다양성: 종 {L.Count} · 실효 종 수 {Math.Exp(H):0.0} · 형태 불일치(분산 합) {disp:0.00} · 크기 폭 {Math.Log10(sMax / sMin):0.0}자리({sMin:0.#}–{sMax:0.#} μm) · 하는 일 {roles.Count}가지({string.Join("·", roles)}) · 표류 {pl.driftN}(몸 꼴 {pl.driftShape}) · 분화 평균 {Dif(L)}(포식 {Dif(L.Where(sp => sp.role == Role.포식).ToList())})");
+        string Dif(List<Species> S) { double w = S.Sum(sp => sp.biomass); return w > 0 ? $"{S.Sum(sp => sp.biomass * pl.strains[sp.rep].t.diff) / w:0.00}" : "-"; }   // 생물량 가중
     }
 
     static void Bench(Planet pl)
