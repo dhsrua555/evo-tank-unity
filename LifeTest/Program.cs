@@ -1,4 +1,4 @@
-// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE
+// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE O2HOLD
 // 매 간격 상태 한 줄, 사건은 일어날 때, 끝에 '됐다' 기준 판정(PASS/FAIL).
 using System;
 using System.Collections.Generic;
@@ -55,9 +55,11 @@ static class Program
         double landF = 0, allA = 0; for (int r = 0; r < pl.NR; r++) { allA += pl.area[r]; if (pl.kind[r] == 2) landF += pl.area[r]; }
         double pBur = 0, pS = 0, pW = 0, pC = pl.inC, pO = pl.outC, pBc = pl.buriedC;   // 산소 장부: 지난 보고 때 누적값
         double pRed = pl.Red(), pRb = pl.redB, red0 = pRed, rb0 = pRb;   // 산화환원 장부: 지난 보고 때 환원력·경계 누적, 처음 값
+        double o2Hold = Environment.GetEnvironmentVariable("O2HOLD") is string oh ? double.Parse(oh) : 0;
         for (int d = 1; d <= days; d++)
         {
             for (int k = 0; k < Cfg.TPD; k++) pl.Step();
+            if (o2Hold > 0 && pl.O2PAL > 0.01 && pl.O2PAL < o2Hold) { double add = (o2Hold - pl.O2PAL) * Cfg.O2_PAL_MOL; pl.atmO2 += add; pl.redB -= 4 * add; }   // O2HOLD: 산소 대사건 뒤 대기 산소를 이 PAL로 받친다(밖에서 넣은 O2는 경계 산화력으로 장부에 적음)
             if (Environment.GetEnvironmentVariable("SAVE") is string svD && d == int.Parse(svD)) return SaveCheck(pl, (csv ?? "save") + ".sav");
             if (Environment.GetEnvironmentVariable("RESP") is string rsD && d == int.Parse(rsD.Split(':')[0])) return Response(pl, (csv ?? "resp") + ".sav", double.Parse(rsD.Split(':')[1]));
             if (d % every == 0)
