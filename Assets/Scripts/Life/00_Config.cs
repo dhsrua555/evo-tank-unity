@@ -131,7 +131,7 @@ namespace Life
         public const double NFOUND = 100;             // 정착 확률 식의 창시 개체 수
         public const double RARE = 1e-12;             // 계통이 생물권 전체의 이 몫 밑으로 떨어지면 멸종
         public const double FOUND = 0.3;             // 새 계통 시작 생물량 = 부모의 이 비율(지역 집단에서 번진 몫)
-        public const int SMAX = 320;                  // 동시에 추적하는 계통 수
+        public const int SMAX = 640;                  // 동시에 추적하는 계통 수. 종 수가 이 칸 수를 그대로 따른다(320 → 640: 20000일 실효 종 109→182, 계산 4배)
         public const double BMIN = 1e-14;             // 이보다 적으면(μM C, 칸 평균) 그 칸에서 사라짐
         public const double D_SP = 0.12;              // 종: 종 창시 유전체에서 이만큼 멀어지면 새 종
         public const double D_CLADE = 0.5;           // 큰 갈래: 갈래 창시 종에서 이만큼 멀어지면 새 갈래

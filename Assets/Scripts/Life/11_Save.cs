@@ -39,8 +39,21 @@ namespace Life
             h = new Head { seed = r.ReadInt32(), day = r.ReadDouble(), rate = r.ReadDouble(), at = new DateTime(r.ReadInt64(), DateTimeKind.Utc) };
             var pl = new Planet(h.seed);
             new In(r).Root(pl, ver >= 2);
+            if (pl.pool[0].Length == pl.V && pl.B.Length % pl.V == 0 && pl.B.Length / pl.V < Cfg.SMAX) Widen(pl, pl.B.Length / pl.V);
             if (pl.B.Length != Cfg.SMAX * pl.V || pl.pool[0].Length != pl.V) throw new InvalidDataException("저장 파일의 칸 수가 지금 설정과 다름");
             return pl;
+        }
+
+        // 계통 칸을 늘린 업데이트(320 → 640)에서 옛 지구를 잇는다: 칸 번호(slot)는 그대로, 새 칸은 빈 채로
+        static void Widen(Planet pl, int os)
+        {
+            int V = pl.V, S = Cfg.SMAX;
+            double[] Pad(double[] a) { var b = new double[S * V]; Array.Copy(a, b, a.Length); return b; }   // [slot·V + v]
+            var st = new Strain[S]; Array.Copy(pl.strains, st, os); pl.strains = st;
+            pl.B = Pad(pl.B); pl.grow = Pad(pl.grow); pl.limA = Pad(pl.limA); pl.eatScale = Pad(pl.eatScale); pl.eatenRate = Pad(pl.eatenRate);
+            int nq = pl.inc.Length / (os * V); var inc = new double[nq * S * V];
+            for (int q = 0; q < nq; q++) Array.Copy(pl.inc, q * os * V, inc, q * S * V, os * V);   // [(q·SMAX + slot)·V + v]
+            pl.inc = inc;
         }
 
         static readonly Dictionary<Type, FieldInfo[]> fieldCache = new();

@@ -50,7 +50,7 @@ namespace Life
         public double H2ppm => atmH2 / Cfg.PPM_MOL;
 
         // 생물: 계통 칸 × 칸
-        public readonly Strain[] strains = new Strain[Cfg.SMAX];
+        public Strain[] strains = new Strain[Cfg.SMAX];
         public double[] B;                      // [slot·V + v] μM C
         public int nextId;
         public long tick; public double Day => tick * Cfg.DT;
