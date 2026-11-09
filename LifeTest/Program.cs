@@ -405,7 +405,7 @@ static class Program
             foreach (double o2 in new[] { o0, Cfg.O2_SAT })
             {
                 pl.pool[P.O2][v] = o2; var z = Of(st.g);
-                var sb = new System.Text.StringBuilder($"  계통 {st.id} {(st.species >= 0 ? pl.species[st.species].role.ToString() : "?")} 세포 {z.n:0.#} 크기 {z.sz:0} μm · 칸 {v} O2 {o2:0.0} μM | g {z.g:0.000} m {z.m:0.000} e {z.e:0.000} f {z.f:0.000} w {z.w:0.000} (m 중 바이러스 {pl.VirusMort(st.t, st.b, v):0.000} · 시계 {Cell.Clock(st.t, st.b):0.00} · 분화 {st.t.diff:0.00} · 섭취/최대 {pl.Intake(st.t, st.b, v, st.slot) * Cfg.HANDLE / Planet.Allo(st.t, st.b) / (1 - Cfg.EGEST):0.00})");
+                var sb = new System.Text.StringBuilder($"  계통 {st.id} {(st.species >= 0 ? pl.species[st.species].role.ToString() : "?")} 세포 {z.n:0.#} 크기 {z.sz:0} μm · 칸 {v} O2 {o2:0.0} μM | g {z.g:0.000} m {z.m:0.000} e {z.e:0.000} f {z.f:0.000} w {z.w:0.000} (m 중 바이러스 {pl.VirusMort(st.t, st.b, v):0.000}[수용체 칸 숙주 중 같은 종 {pl.alive.Where(a => a.t.vbin == st.t.vbin && a.species == st.species).Sum(a => pl.B[a.slot * pl.V + v]) / Math.Max(1e-30, pl.binB[v * 125 + st.t.vbin]):P0}] · 시계 {Cell.Clock(st.t, st.b):0.00} · 분화 {st.t.diff:0.00} · 섭취/최대 {pl.Intake(st.t, st.b, v, st.slot) * Cfg.HANDLE / Planet.Allo(st.t, st.b) / (1 - Cfg.EGEST):0.00})");
                 foreach (var (nm, gi, k) in vars)
                 {
                     var g2 = (float[])st.g.Clone(); g2[gi] = (float)Math.Clamp(g2[gi] + k * Cfg.STEP, 0, 1); var y = Of(g2);
