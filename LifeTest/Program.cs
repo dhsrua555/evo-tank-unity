@@ -1,4 +1,4 @@
-// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE
+// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE
 // 매 간격 상태 한 줄, 사건은 일어날 때, 끝에 '됐다' 기준 판정(PASS/FAIL).
 using System;
 using System.Collections.Generic;
@@ -178,6 +178,12 @@ static class Program
         Forms(pl); if (Environment.GetEnvironmentVariable("SHAPE") != null) Shapes(pl);
         if (Environment.GetEnvironmentVariable("SIZEPROBE") != null) SizeProbe(pl);
         Diversity(pl); var (tA, tTL) = Trophic(pl); if (Environment.GetEnvironmentVariable("TOPPROBE") != null && tA != null) TopProbe(pl, tA, tTL);
+        if (Environment.GetEnvironmentVariable("ATKPROBE") != null)   // 청소율 높이: 포식 계통마다 '청소 몸탄소(μg C/개체) 최대청소율(ml/mg C/h) 최대섭취(/일) 생물량 몸(μm)' — Kiørboe & Hirst 2014와 견줌
+        {
+            double all = pl.alive.Sum(o => o.total);
+            foreach (var s in pl.alive.Where(s => s.t.phi[G.PHAGO] > 0.02 && s.total > 1e-6 * all))
+                Console.WriteLine($"청소 {s.t.cellC * s.t.MeanCells * 12e6:0.000e0} {Planet.Attack(s.t, s.b) * 1000 / 12e-3 / 24:0.0} {Planet.Allo(s.t, s.b) / Cfg.HANDLE:0.00} {s.total / all:0.0e0} {s.b.size:0} | 막 {s.t.phi[G.PHAGO]:0.00} 운동 {s.t.Sat(G.MOT, 0.01):0.00} 노출 {s.b.exposed:0.00} 벽 {s.t.Sat(G.WALL, 0.02):0.00} 먹는 {s.b.feed:0} 세포 {s.t.MeanCells:0}");
+        }
         if (Environment.GetEnvironmentVariable("EATCHK") != null)   // 진화가 쓰는 먹힘 예측(Eaten)과 틱에서 실제 먹힌 비율(eatenRate)이 같은지
         {
             var q = new List<double>();
