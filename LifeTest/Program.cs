@@ -57,9 +57,16 @@ static class Program
         double pIn0 = pl.inP, pOut0 = pl.outP; double pBur = 0, pS = 0, pW = 0, pC = pl.inC, pO = pl.outC, pBc = pl.buriedC;   // 산소 장부: 지난 보고 때 누적값
         double pRed = pl.Red(), pRb = pl.redB, red0 = pRed, rb0 = pRb;   // 산화환원 장부: 지난 보고 때 환원력·경계 누적, 처음 값
         double o2Hold = Environment.GetEnvironmentVariable("O2HOLD") is string oh ? double.Parse(oh) : 0;
+        using var bigW = Environment.GetEnvironmentVariable("BIGTRACK") != null ? new StreamWriter((csv ?? "big") + ".big") : null;
+        bigW?.WriteLine("day,id,species,size,cells,dCell,diff,share,role");
         for (int d = 1; d <= days; d++)
         {
             for (int k = 0; k < Cfg.TPD; k++) pl.Step();
+            if (bigW != null && d % 10 == 0)   // BIGTRACK: 10일마다 가장 큰 몸 계통(누가 천장을 지키나 · 얼마나 오래 사나)
+            {
+                var s = pl.alive.MaxBy(a => a.b.size); double bt = pl.alive.Sum(a => a.total);
+                bigW.WriteLine($"{(int)pl.Day},{s.id},{s.species},{s.b.size:0},{s.t.MeanCells:0.#},{s.t.dCell:0.0},{s.t.diff:0.00},{s.total / bt:g3},{(s.species >= 0 ? pl.species[s.species].role.ToString() : "?")}");
+            }
             if (o2Hold > 0 && pl.O2PAL > 0.01 && pl.O2PAL < o2Hold) { double add = (o2Hold - pl.O2PAL) * Cfg.O2_PAL_MOL; pl.atmO2 += add; pl.redB -= 4 * add; }   // O2HOLD: 산소 대사건 뒤 대기 산소를 이 PAL로 받친다(밖에서 넣은 O2는 경계 산화력으로 장부에 적음)
             if (Environment.GetEnvironmentVariable("SAVE") is string svD && d == int.Parse(svD)) return SaveCheck(pl, (csv ?? "save") + ".sav");
             if (Environment.GetEnvironmentVariable("RESP") is string rsD && d == int.Parse(rsD.Split(':')[0])) return Response(pl, (csv ?? "resp") + ".sav", double.Parse(rsD.Split(':')[1]));
