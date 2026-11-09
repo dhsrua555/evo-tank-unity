@@ -178,6 +178,12 @@ static class Program
         Forms(pl); if (Environment.GetEnvironmentVariable("SHAPE") != null) Shapes(pl);
         if (Environment.GetEnvironmentVariable("SIZEPROBE") != null) SizeProbe(pl);
         Diversity(pl); var (tA, tTL) = Trophic(pl); if (Environment.GetEnvironmentVariable("TOPPROBE") != null && tA != null) TopProbe(pl, tA, tTL);
+        if (Environment.GetEnvironmentVariable("EATCHK") != null)   // 진화가 쓰는 먹힘 예측(Eaten)과 틱에서 실제 먹힌 비율(eatenRate)이 같은지
+        {
+            var q = new List<double>();
+            foreach (var s in pl.alive) for (int v = 0; v < pl.NV0; v++) { int o = s.slot * pl.V + v; if (pl.B[o] > 1e-6 && pl.eatenRate[o] > 1e-3) q.Add(pl.Eaten(s.t, s.b, v, s.slot) / pl.eatenRate[o]); }
+            q.Sort(); if (q.Count > 0) Console.WriteLine($"먹힘 검사: {q.Count}칸 · 예측/실제 중앙 {q[q.Count / 2]:0.000} · 5–95 % {q[q.Count / 20]:0.000}–{q[q.Count * 19 / 20]:0.000}");
+        }
         if (Environment.GetEnvironmentVariable("ENDSAVE") != null && csv != null) Save.Write(pl, csv + ".end.sav", 0);   // 끝 상태를 남겨 탐침을 다시 돌릴 때 처음부터 안 돌린다
         Console.WriteLine($"단계 시간(초): 하루 {pl.tStage[0]:0.0} · 기후 {pl.tStage[1]:0.0} · 생태 {pl.tStage[2]:0.0} · 물질 {pl.tStage[3]:0.0} · 진화 {pl.tStage[4]:0.0}");
         Console.WriteLine($"속도 {days / sw.Elapsed.TotalSeconds:0.0} 일/초, 종 {pl.species.Count}개 생김(살아 있음 {pl.nAliveSp}), 갈래 {pl.clades.Count}");
