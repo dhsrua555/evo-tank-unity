@@ -379,7 +379,7 @@ static class Program
                 var g = (float[])st.g.Clone(); g[G.BRANCH] = br; g[G.ANGLE] = an; var t = Traits.Of(g); var b = Body.Of(g, t);
                 var e = pl.EnvAt(vb); double vm = pl.VirusMort(t, b, vb); var r = Cell.Grow(t, b, e, pl.Intake(t, b, vb, st.slot), vm);
                 double rr = t.dCell / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * rr * rr / 1e-3 * 86400 / (t.elong * b.share) * (1 - t.Sat(G.MOT, 0.01));
-                Console.WriteLine($"   가지 {br:0.0} 각 {an:0.00} | 차원 {b.dim:0.0} 나눔 {b.share:0.00} 바깥 {b.exposed:0.00} 크기 {b.size:0} μm | 가라앉기 {w:0.00} m/일 | 자람 {r.g:+0.000;-0.000} 죽음 {r.mort:0.000}(바이러스 {vm:0.000}) 먹힘 {pl.Eaten(t, b, vb, st.slot):0.000} → 적합 {pl.Fit(t, b, vb, st.slot, lim):+0.000;-0.000}");
+                Console.WriteLine($"   가지 {br:0.0} 각 {an:0.00} | 차원 {b.dim:0.0} 나눔 {b.share:0.00} 바깥 {b.exposed:0.00} 크기 {b.size:0} μm 먹는 {b.feed:0} | 가라앉기 {w:0.00} m/일 | 자람 {r.g:+0.000;-0.000} 죽음 {r.mort:0.000}(바이러스 {vm:0.000}) 먹힘 {pl.Eaten(t, b, vb, st.slot):0.000} → 적합 {pl.Fit(t, b, vb, st.slot, lim):+0.000;-0.000}");
             }
         }
     }
