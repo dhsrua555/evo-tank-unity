@@ -1,4 +1,4 @@
-// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE O2HOLD PO4X
+// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS PHOS VENT NODRIFT LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE BENCH OXCAL SIZEPROBE ENDSAVE TOPPROBE ATKPROBE O2HOLD PO4X NANO
 // 매 간격 상태 한 줄, 사건은 일어날 때, 끝에 '됐다' 기준 판정(PASS/FAIL).
 using System;
 using System.Collections.Generic;
@@ -184,6 +184,7 @@ static class Program
           Console.WriteLine("g[EOX] 분포: " + string.Join(" ", pl.alive.Select(st => st.g[G.EOX]).Distinct().Take(12).Select(x => x.ToString("0.000")))); }
         Forms(pl); if (Environment.GetEnvironmentVariable("SHAPE") != null) Shapes(pl);
         if (Environment.GetEnvironmentVariable("SIZEPROBE") != null) SizeProbe(pl);
+        if (Environment.GetEnvironmentVariable("NANO") != null) NanoProbe(pl);
         Diversity(pl); var (tA, tTL) = Trophic(pl); if (Environment.GetEnvironmentVariable("TOPPROBE") != null && tA != null) TopProbe(pl, tA, tTL);
         if (Environment.GetEnvironmentVariable("ATKPROBE") != null)   // 청소율 높이: 포식 계통마다 '청소 몸탄소(μg C/개체) 최대청소율(ml/mg C/h) 최대섭취(/일) 생물량 몸(μm)' — Kiørboe & Hirst 2014와 견줌
         {
@@ -402,6 +403,26 @@ static class Program
     // 분산 합(Foote 1993·Wills 1994의 '분산 합'), 크기 폭(log10 최대/최소), 하는 일 가짓수(생물량 1 % 넘는 역할). 8세포 밑은 차원을 1로 둔다(그 밑 차원은 이름표일 뿐)
     // 몸 크기 탐침: 생물량 많은 계통 6개가 가장 많은 칸에서 붙음·세포 크기 유전자를 몇 걸음 바꾼 몸이 얼마나 더(덜) 사는가.
     // 적합도(/일) = 성장 − 죽음 − 먹힘(진화가 견주는 값). 가라앉음(/일) = Stokes 속도 ÷ 칸 두께(04와 같은 식). 그 칸 산소 그대로와 1 PAL로 따로
+    // 나노 탐침(NANO=1): 생물량 많은 광합성·분해 계통을 홀세포로 두고 세포 지름만 0.7–12 μm로 바꿔 g·m(바이러스)·e·f를 잰다(1–10 μm 몸이 왜 없는가)
+    static void NanoProbe(Planet pl)
+    {
+        Console.WriteLine("나노 탐침: 홀세포 지름별 g 성장 · m 죽음(바이러스) · e 먹힘 · f 적합도(/일)");
+        foreach (var role in new[] { Role.광합성, Role.분해 })
+            foreach (var st in pl.alive.Where(s => s.species >= 0 && pl.species[s.species].role == role).OrderByDescending(s => s.total).Take(2))
+            {
+                int v = Enumerable.Range(0, pl.NV0).OrderByDescending(x => pl.B[st.slot * pl.V + x]).First();
+                var sb = new System.Text.StringBuilder($"  {role} 계통 {st.id} 세포 {st.t.MeanCells:0.#}개 {st.t.dCell:0.0} μm 칸 {v}");
+                foreach (double d in new[] { 0.7, 1.5, 3, 6, 12 })
+                {
+                    var g2 = (float[])st.g.Clone(); g2[G.ADH] = 0; g2[G.SIZE] = (float)(Math.Log(d / 0.5) / Math.Log(200));
+                    var t = Traits.Of(g2); var b = Body.Of(g2, t, false); double vm = pl.VirusMort(t, b, v), e = pl.Eaten(t, b, v, st.slot);
+                    var r = Cell.Grow(t, b, pl.EnvAt(v), pl.Intake(t, b, v, st.slot), vm);
+                    sb.Append($" | {d} μm g {r.g:0.000} m {r.mort:0.000}({vm:0.000}) e {e:0.000} f {r.g - r.mort - e:+0.000;-0.000}");
+                }
+                Console.WriteLine(sb);
+            }
+    }
+
     static void SizeProbe(Planet pl)
     {
         Console.WriteLine("몸 크기 탐침(Δ = 바꾼 몸 − 지금 몸, /일): g 성장 · m 죽음 · e 먹힘 · f 적합도 · w 가라앉음");
