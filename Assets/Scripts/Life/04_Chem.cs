@@ -78,8 +78,10 @@ namespace Life
         }
 
         double[] buryC, buryFe, buryS, buryP;
+        [NonSerialized] double pTick;   // 이 틱 인 순 유입(풍화 − 매몰·철 흡착, mol)
         void SumBurial()
         {
+            pTick = 0; for (int v = 0; v < V; v++) pTick -= buryP[v];
             for (int v = 0; v < V; v++)
             {
                 double m = buryC[v]; redB -= 4 * m + 9 * buryS[v]; outC += m; outN += m * 16 / 106; outP += buryP[v]; buriedC += m; outFe += buryFe[v]; outS += buryS[v];
@@ -112,6 +114,8 @@ namespace Life
             // 전자는 지킨다: 산소가 있으면 산소로 태우고(광산화), 없으면 물을 깨 H2로 낸다(CH2O + H2O → CO2 + 2 H2)
             d = c[P.DOC][v] * Cfg.K_UV * light[v] / (1 + O2PAL / 0.01) * dt; c[P.DOC][v] -= d; c[P.CO2][v] += d;
             double dO = Math.Min(d, 0.9 * c[P.O2][v]); c[P.O2][v] -= dO; c[P.H2][v] += 2 * (d - dO);
+            // 철 많은 물: 녹은 철이 산화물·인산철로 빠지며 인을 붙잡아 가라앉아 묻힌다(ponytail: 가라앉는 동안 다시 풀리는 몫은 뺌)
+            d = Math.Min(Cfg.K_FEP * c[P.FE2][v] * dt, 0.5) * c[P.PO4][v]; c[P.PO4][v] -= d; buryP[v] += d * vol[v] * 1e-6;
             if (IsBottom(v))
             {
                 double m = 0; for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.BURIAL * dt; c[p][v] -= d; m += d; }
@@ -180,12 +184,22 @@ namespace Life
                 if (kind[r] == 0) pool[P.SO4][v] += so4 * share / L;
                 pool[P.PO4][v] += pIn * (kind[r] == 1 ? 3 : 1) * share / L;
             }
-            inS += so4; inP += pIn * SumShore();
+            inS += so4; inP += pIn * SumShore(); pTick += pIn * SumShore();
             double wc = Math.Min(atmCO2 * 0.01, Cfg.WEATHER_CO2 * w * dt / knobs.phosphate); atmCO2 -= wc; outC += wc;   // 탄산염 풍화로 CO2 흡수
             // 대기: 수소 탈출, CH4 광분해·산화
             double esc = atmH2 * Cfg.H_ESCAPE * dt; atmH2 -= esc; redB -= 2 * esc;
             double o0 = atmO2, ox = atmCH4 * Cfg.CH4_OX * (0.05 + Math.Sqrt(Math.Max(0, O2PAL))) * dt; atmCH4 -= ox; atmCO2 += ox; atmO2 = Math.Max(0, atmO2 - 2 * ox * Math.Min(1, Math.Sqrt(Math.Max(0, O2PAL))));
             redB += -8 * ox + 4 * (o0 - atmO2);   // 산소 없이 깨진 CH4는 수소 탈출로 셈
+        }
+
+        // 인 저장고 시간 압축: 바다 인은 들고 남으로 ~2e5일에 한 번 바뀌어 한 판 안에서 안 움직인다(인 공급 손잡이도 안 듣는다) →
+        // 이 틱의 순 들고 남을 (P_FAST − 1)배 더 모든 칸 인에 같은 비율로 얹는다. 대기 ATM처럼 느린 저장고만 빠르게: 칸의 생물이 보는 유입·매몰은 실제 속도 그대로
+        void SpeedP()
+        {
+            double tot = 0; for (int v = 0; v < V; v++) if (live[v]) tot += pool[P.PO4][v] * vol[v] * 1e-6;
+            double x = Math.Clamp((Cfg.P_FAST - 1) * pTick / Math.Max(1e-30, tot), -0.5, 1);
+            for (int v = 0; v < V; v++) if (live[v]) pool[P.PO4][v] *= 1 + x;
+            x *= tot; if (x > 0) inP += x; else outP -= x;
         }
 
         double SumShore() { double seaA = 0, s = 0; for (int r = 0; r < NR; r++) if (kind[r] == 0) seaA += area[r]; for (int r = 0; r < NR; r++) if (live[r * Cfg.NY] && kind[r] != 2) s += area[r] / seaA * (kind[r] == 1 ? 3 : 1); return s; }

@@ -51,7 +51,7 @@ namespace Life
                 buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V]; buryP ??= new double[V];
                 Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");
                 Gas(); probe?.Invoke("gas");
-                Boundary(); probe?.Invoke("boundary"); Lap(3, ref t0);
+                Boundary(); SpeedP(); probe?.Invoke("boundary"); Lap(3, ref t0);
                 Evolve(); probe?.Invoke("evolve"); Lap(4, ref t0);
                 tick++;
             }

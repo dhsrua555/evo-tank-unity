@@ -54,7 +54,7 @@ static class Program
         }
         var sw = Stopwatch.StartNew(); int ev = 0;
         double landF = 0, allA = 0; for (int r = 0; r < pl.NR; r++) { allA += pl.area[r]; if (pl.kind[r] == 2) landF += pl.area[r]; }
-        double pBur = 0, pS = 0, pW = 0, pC = pl.inC, pO = pl.outC, pBc = pl.buriedC;   // 산소 장부: 지난 보고 때 누적값
+        double pIn0 = pl.inP, pOut0 = pl.outP; double pBur = 0, pS = 0, pW = 0, pC = pl.inC, pO = pl.outC, pBc = pl.buriedC;   // 산소 장부: 지난 보고 때 누적값
         double pRed = pl.Red(), pRb = pl.redB, red0 = pRed, rb0 = pRb;   // 산화환원 장부: 지난 보고 때 환원력·경계 누적, 처음 값
         double o2Hold = Environment.GetEnvironmentVariable("O2HOLD") is string oh ? double.Parse(oh) : 0;
         for (int d = 1; d <= days; d++)
@@ -67,6 +67,10 @@ static class Program
             {
                 double so = 0, sv = 0; for (int r = 0; r < pl.NR; r++) { int v = r * Cfg.NY; if (pl.live[v] && pl.kind[r] == 0) { so += pl.pool[P.SO4][v] * pl.vol[v]; sv += pl.vol[v]; } }
                 Console.WriteLine($"        산소 장부(mol/일): 유기 매몰 {(pl.buriedC - pBur) / every:0.0e0} · 황 매몰 {(pl.outS - pS) / every:0.0e0} · 산화 풍화 O2 {(pl.weatherO2 - pW) / every:0.0e0} | 땅 {landF / allA:P0} · 표층 SO4 {so / Math.Max(1, sv):0.0} μM");
+                double tP = 0, tPv = 0; for (int v = 0; v < pl.V; v++) if (pl.live[v]) { tP += pl.pool[P.PO4][v] * pl.vol[v] * 1e-6; tPv += pl.vol[v] * 1e-6; }
+                double pBurD = (pl.outP - pOut0) / every;
+                Console.WriteLine($"        인 장부: 풍화 유입 {(pl.inP - pIn0) / every:0.00e0} · 매몰 {pBurD:0.00e0} mol/일 | 바다 인 {tP:0.00e0} mol(평균 {tP / tPv:0.000} μM) · 매몰로 비는 시간 {tP / Math.Max(1e-30, pBurD):0.0e0}일");
+                pIn0 = pl.inP; pOut0 = pl.outP;
                 pBur = pl.buriedC; pS = pl.outS; pW = pl.weatherO2;
                 double red = pl.Red(), tO2 = 0, tSO4 = 0, tHS = 0;
                 for (int v = 0; v < pl.V; v++) if (pl.live[v]) { double L = pl.vol[v] * 1e-6; tO2 += pl.pool[P.O2][v] * L; tSO4 += pl.pool[P.SO4][v] * L; tHS += pl.pool[P.H2S][v] * L; }

@@ -42,7 +42,16 @@ namespace Life
         // 경계 유입(행성 전체, mol/일): 열수공·화산·풍화
         public const double VENT_H2 = 4e8, VENT_FE = 2e8, VENT_H2S = 5e7, VENT_CO2 = 1e8;
         public const double VOLC_CO2 = 1.5e9, VOLC_H2 = 3e7, VOLC_SO4 = 2e7;
-        public const double WEATHER_P = 1.5e6, WEATHER_CO2 = 1.5e9;   // 풍화: 인 유입, CO2 흡수(땅 넓이·기온 비례)
+        public const double WEATHER_CO2 = 1.5e9;   // 풍화 CO2 흡수(땅 넓이·기온 비례)
+        // 풍화 인 유입(땅 넓이·기온 비례). 모형 바다는 같은 인에서 지구보다 훨씬 많이 묻으므로(인 1.9 μM에서 하루 ~1e9 mol) 철 없는 바다의 정상 상태 인이
+        // 현재 바다(~2 μM, 현생누대 — Reinhard 2017)쯤 되게 맞춤. 예전 1.5e6이면 정상 상태가 ~0.05 μM(묻힘이 유입의 3–5배)
+        public const double WEATHER_P = 7.5e7;
+        // 인 저장고 시간 압축(04 SpeedP): 바다 인 전체의 순 변화만 이 배수로 빠르게(대기 ATM과 같은 지질 시간 압축, 정상 상태는 그대로).
+        // 들고 남 자체를 키우면 늘어난 풍화 인이 표층 생물을 바로 먹여 산소가 2000일 안에 0.9 PAL로 뛰었다(4시드 시험)
+        public const double P_FAST = 100;
+        // 철 많은 물이 인을 붙잡아 묻는 속도(/μM Fe2+/일): 철 산화물 흡착·인산철·그린 러스트. 철 바다의 인을 현재의 10–25 %로 낮춘다
+        // (Bjerrum & Canfield 2002; Reinhard 2017: 철이 빠지며 신원생대 인 증가). 계수 자료가 없어 원생누대 인 ~0.2 μM에 맞춤
+        public const double K_FEP = 3e-6;
         // 산화 풍화(1 PAL, 땅 29 %일 때): 땅에 드러난 옛 퇴적암의 유기 탄소·황철석이 산소에 녹아 나온다. 지구 값 × 행성 크기 0.08 / 365일
         public const double WEATHER_ORG = 1.3e9, WEATHER_PYR = 2.9e8;   // 유기 탄소 ~5.7e12 mol C/년(Zondervan 2023), 황철석 황 ~1.3e12 mol S/년(Burke 2018)
         public const double BURIAL = 0.003;           // 바닥에 닿은 사체가 하루에 묻히는 비율
