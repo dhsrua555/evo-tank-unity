@@ -1,6 +1,7 @@
 // 저장·불러오기: 행성 상태 전체를 파일 하나(gzip)로. 지도(Geo)는 시드로 다시 만들고, [NonSerialized] 필드(잠금·병렬 설정·스레드 임시 공간)는 건너뛴다.
 // 필드를 리플렉션으로 훑으므로 상태 필드를 새로 더해도 이 파일을 고칠 필요가 없다. 같은 객체를 두 곳에서 가리키면(계통 칸 ↔ 살아 있는 목록) 번호로 한 번만 쓴다.
-// 형식이 바뀐 옛 파일(필드 이름·형이 다름)은 읽다가 멈추고 예외를 낸다: 앱은 그 파일을 옆으로 치우고 새 지구로 시작한다.
+// 필드가 바뀐 옛 파일은 이름으로 맞춰 읽는다: 새로 생긴 필드는 처음 값 그대로, 없어진 수 필드는 읽고 버린다(업데이트해도 지구가 이어짐).
+// 그 밖(형이 바뀜·없어진 객체 필드)은 읽다가 멈추고 예외를 낸다: 앱은 그 파일을 옆으로 치우고 새 지구로 시작한다.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -14,7 +15,7 @@ namespace Life
 {
     public static class Save
     {
-        const int MAGIC = 0x544F5645, VER = 1;   // "EVOT"
+        const int MAGIC = 0x544F5645, VER = 2;   // "EVOT". 2: 맨 위 Planet 형 서명도 적음(1은 없음)
         const BindingFlags F = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
         public sealed class Head { public int seed; public double day, rate; public DateTime at; }   // rate: 저장할 때 속도(일/초), 멈춘 동안 따라잡기에 쓴다
@@ -25,7 +26,7 @@ namespace Life
             using (var w = new BinaryWriter(new GZipStream(File.Create(tmp), CompressionLevel.Fastest)))
             {
                 w.Write(MAGIC); w.Write(VER); w.Write(pl.seed); w.Write(pl.Day); w.Write(rate); w.Write(DateTime.UtcNow.Ticks);
-                new Out(w).Fields(pl);
+                new Out(w).Root(pl);
             }
             if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);   // 다 쓴 뒤에 바꿔 끼운다: 쓰다 꺼져도 옛 파일은 멀쩡
         }
@@ -33,10 +34,11 @@ namespace Life
         public static Planet Read(string path, out Head h)
         {
             using var r = new BinaryReader(new GZipStream(File.OpenRead(path), CompressionMode.Decompress));
-            if (r.ReadInt32() != MAGIC || r.ReadInt32() != VER) throw new InvalidDataException("저장 파일 형식이 다름");
+            int ver = r.ReadInt32() == MAGIC ? r.ReadInt32() : -1;
+            if (ver != 1 && ver != VER) throw new InvalidDataException("저장 파일 형식이 다름");
             h = new Head { seed = r.ReadInt32(), day = r.ReadDouble(), rate = r.ReadDouble(), at = new DateTime(r.ReadInt64(), DateTimeKind.Utc) };
             var pl = new Planet(h.seed);
-            new In(r).Fields(pl);
+            new In(r).Root(pl, ver >= 2);
             if (pl.B.Length != Cfg.SMAX * pl.V || pl.pool[0].Length != pl.V) throw new InvalidDataException("저장 파일의 칸 수가 지금 설정과 다름");
             return pl;
         }
@@ -61,6 +63,7 @@ namespace Life
         {
             readonly BinaryWriter w; readonly Dictionary<object, int> ids = new(RefEq.I); readonly HashSet<Type> seen = new();
             public Out(BinaryWriter w) => this.w = w;
+            public void Root(object o) { Struct(o.GetType()); Fields(o); }
             public void Fields(object o) { foreach (var f in Save.Fields(o.GetType())) Value(f.FieldType, f.GetValue(o)); }
 
             void Value(Type t, object v)
@@ -102,16 +105,44 @@ namespace Life
         sealed class In
         {
             readonly BinaryReader r; readonly List<object> objs = new(); readonly HashSet<Type> seen = new();
+            readonly Dictionary<Type, (FieldInfo f, Type skip)[]> old = new();   // 서명이 지금과 다른 형: 옛 파일의 필드 차례
             public In(BinaryReader r) => this.r = r;
+            // 판 1 파일(v0.2.3)엔 Planet 서명이 없다: 지금 필드에서 그 뒤에 생긴 것만 빼고 읽는다(새 필드는 처음 값 그대로)
+            static readonly HashSet<string> AFTER_V1 = new() { "driftN", "driftShape", "buryP" };
+            public void Root(object o, bool sig)
+            {
+                var t = o.GetType();
+                if (sig) Struct(t);
+                else { var L = new List<(FieldInfo, Type)>(); foreach (var f in Save.Fields(t)) if (!AFTER_V1.Contains(f.Name)) L.Add((f, null)); old[t] = L.ToArray(); seen.Add(t); }
+                Fields(o);
+            }
 
             // 읽은 값을 필드에 넣는다. readonly 참조 필드(목록·배열)는 이미 있는 것을 채워 쓴다
             public void Fields(object o)
             {
-                foreach (var f in Save.Fields(o.GetType()))
+                if (!old.TryGetValue(o.GetType(), out var L)) { foreach (var f in Save.Fields(o.GetType())) Put(o, f); return; }
+                foreach (var (f, skip) in L) if (f != null) Put(o, f); else Prim(skip);
+            }
+            void Put(object o, FieldInfo f)
+            {
+                object cur = f.GetValue(o), v = Value(f.FieldType, f.IsInitOnly ? cur : null);
+                if (!ReferenceEquals(v, cur) && !Equals(v, cur)) f.SetValue(o, v);
+            }
+            // 옛 서명("형이름 수형:필드 …")을 지금 필드에 이름으로 잇는다. 지금 없는 수 필드는 버릴 형만 적는다
+            static (FieldInfo, Type)[] Map(Type t, string s)
+            {
+                var p = s.Split(' '); var now = new Dictionary<string, FieldInfo>(); foreach (var f in Save.Fields(t)) now[f.Name] = f;
+                if (p[0] != t.FullName) throw new InvalidDataException($"저장 파일 순서가 다름({t.Name})");
+                var L = new (FieldInfo, Type)[p.Length - 1];
+                for (int i = 1; i < p.Length; i++)
                 {
-                    object cur = f.GetValue(o), v = Value(f.FieldType, f.IsInitOnly ? cur : null);
-                    if (!ReferenceEquals(v, cur) && !Equals(v, cur)) f.SetValue(o, v);
+                    int k = p[i].IndexOf(':'); string tn = p[i][..k], nm = p[i][(k + 1)..];
+                    var pt = Type.GetType("System." + tn);
+                    if (now.TryGetValue(nm, out var f) && f.FieldType.Name == tn) L[i - 1] = (f, null);
+                    else if (!now.ContainsKey(nm) && pt != null && pt.IsPrimitive) L[i - 1] = (null, pt);
+                    else throw new InvalidDataException($"저장 파일의 {t.Name}.{nm} 형식이 지금과 다름");
                 }
+                return L;
             }
 
             object Value(Type t, object reuse)
@@ -153,7 +184,7 @@ namespace Life
             {
                 if (!r.ReadBoolean()) { if (!seen.Contains(t)) throw new InvalidDataException($"저장 파일 순서가 다름({t.Name})"); return; }
                 string s = r.ReadString(); seen.Add(t);
-                if (s != Sig(t)) throw new InvalidDataException($"저장 파일의 {t.Name} 형식이 지금과 다름");
+                if (s != Sig(t)) old[t] = Map(t, s);
             }
             object Prim(Type t) => Type.GetTypeCode(t) switch
             {

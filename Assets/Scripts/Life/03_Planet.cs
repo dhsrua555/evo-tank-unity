@@ -144,11 +144,18 @@ namespace Life
             if (slot < 0) return null;
             t ??= Traits.Of(g);
             var ps = parent >= 0 ? strains[parent] : null;
-            var s = new Strain { id = nextId++, parent = ps?.id ?? -1, slot = slot, g = g, t = t, born = (int)Day, gene = gene, species = ps?.species ?? -1 };
-            s.b = b ?? Body.Of(g, t);
-            s.att = Attack(t, s.b); s.vul = Vul(t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.b);
+            var s = new Strain { id = nextId++, parent = ps?.id ?? -1, slot = slot, born = (int)Day, gene = gene, species = ps?.species ?? -1 };
+            SetGenome(s, g, t, b);
             strains[slot] = s; alive.Add(s);
             return s;
+        }
+
+        // 계통의 유전체를 바꾸고 거기서 나오는 값(형질·몸·포식 값)을 다시 낸다. 표류로 바뀐 계통은 포식 표(06 PredCache)도 다시 잰다
+        public void SetGenome(Strain s, float[] g, Traits t = null, Body b = null)
+        {
+            s.g = g; s.t = t ?? Traits.Of(g); s.b = b ?? Body.Of(g, s.t);
+            s.att = Attack(s.t, s.b); s.vul = Vul(s.t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.b);
+            if (kOwn != null && s.slot >= 0) kOwn[s.slot] = null;
         }
     }
 }

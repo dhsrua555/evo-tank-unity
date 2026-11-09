@@ -46,6 +46,9 @@ namespace Life
         // 산화 풍화(1 PAL, 땅 29 %일 때): 땅에 드러난 옛 퇴적암의 유기 탄소·황철석이 산소에 녹아 나온다. 지구 값 × 행성 크기 0.08 / 365일
         public const double WEATHER_ORG = 1.3e9, WEATHER_PYR = 2.9e8;   // 유기 탄소 ~5.7e12 mol C/년(Zondervan 2023), 황철석 황 ~1.3e12 mol S/년(Burke 2018)
         public const double BURIAL = 0.003;           // 바닥에 닿은 사체가 하루에 묻히는 비율
+        // 묻히는 유기물의 C:P(총 반응성 인): 산소 있는 바닥은 인을 철 산화물·인회석으로 붙잡아 낮고(≈60), 산소 없는 바닥은 인을 물로 되돌려 높다(≈200)
+        // (Algeo & Ingall 2007; Van Cappellen & Ingall 1996). 정상 상태 유기 탄소 매몰 = 인 공급 × 이 비(Lenton & Daines 2018): 묻힘 속도가 아니라 이것과 인 공급이 산소를 정한다
+        public const double CP_OX = 60, CP_ANOX = 200, CP_K = 20;   // CP_K: 바닥 물 O2(μM)가 이만큼이면 두 값의 중간
         public const double FE3_SINK = 1.0;           // 철 산화물 입자 침강(m/일)
 
         // 무생물 반응(/μM/일)
@@ -72,12 +75,16 @@ namespace Life
         public const double K_DOC = 10;
         public const double D_NUT = 8.64e-5;          // 녹은 영양염·유기물 확산 계수(m²/일) = 1e-9 m²/s(NH4⁺ 2e-9, PO4 0.7e-9, 작은 유기물 0.5–1e-9 사이 값)
         public const double K_NFIX = 4, A_NFIX = 8;   // 질소 고정: 몫 1당 N(/일), N 하나에 ATP
+        // 이형세포 외피(당지질 층)가 들여보내는 바깥 O2 몫: 들어온 O2는 호흡이 태워 속을 거의 무산소로 둔다(Walsby 1985). Anabaena는 공기 포화(≈250 μM)에서도 잘 고정한다(Olson 2016 인용) —
+        // 0.01이면 250 μM에서 속 2.5 μM(억제 반), 원생누대 바다 수십 μM에서는 거의 안 억제. ponytail: 정확한 투과 배수는 문헌에서 못 찾아 정성 맞춤
+        public const double HET_O2 = 0.01;
         public const double M0 = 0.3;                 // 유지 ATP(/일, 20 °C)
         public const double MORT0 = 0.02;             // 바탕 사망(/일)
         public const double K_AER = 0.1;              // 산소 호흡 반포화 O2(μM): 해양 군집 실측 10–200 nM(Tiano 2014), 대장균 120 nM(Stolper 2010)
         // 산소 호흡 용량: 호흡 단백질 몫 1당 태울 수 있는 유기 C(/일). 대장균 ε_r 390 mM ATP/OD/h(Basan 2015) ≈ 600 ATP/C/일 ÷ 5 ATP/C = 120 /일.
         // 이 모형 화학합성 효소(K_CHEMO 200 H2 = 전자 400/일 → 유기 C 100/일)와도 맞는다. 리보솜 속도 비로 줄인 6.8은 산소 있는 물에서도 발효가 남아(65–87 %) 실측(nM O2까지 산소 호흡, Tiano 2014)과 어긋남
         public const double K_RESP = 120;
+        public const double D_O2 = 1.73e-4;           // 몸 속 O2 확산 계수(m²/일) = 2e-9 m²/s(물 25 °C 2.1e-9, 조직은 그 절반쯤 — Payne 2009 PNAS 106:24이 쓴 값과 같은 차수)
         public const double Y_AER = 5, Y_FERM = 0.7;  // 유기물 C 하나에서 얻는 ATP: 산소 호흡, 발효(H2 쌓이면 줄어듦)
         public const double ROS = 0.6, ROS_K = 60;    // 산소 독성(/일), 반포화 O2(μM)
         public const double OWN_O2 = 80;              // 산소 광합성 세포 안 O2(μM 당량, 고정 1/일당)

@@ -87,9 +87,9 @@ namespace Tank
             GUI.Label(new Rect(x, y, 130, 20), $"인 공급(풍화) ×{ph:0.0#}", sL);
             float lp = GUI.HorizontalSlider(new Rect(x + 134, y + 5, 130, 12), (float)Math.Log10(ph), -1, 1);
             if (Math.Abs(lp - Math.Log10(ph)) > 1e-3) { double p2 = Math.Round(Math.Pow(10, lp), 2); run.cmds.Enqueue(p => p.knobs.phosphate = p2); run.pl.knobs.phosphate = p2; }
-            GUI.Label(new Rect(x + 272, y, w - 272, 20), "인이 광합성을 막을 때만 듣는다", sS); y += 22;
-            GUI.Label(new Rect(x, y, w, 30), $"지금 광합성을 막는 것: {snap.lim} — 인이 크면 인 공급↑, 질소·인이면 바다 뒤집힘이 광합성을 늘림", sWrapL); y += 34;
-            GUI.Label(new Rect(x, y, w, 30), "산소는 잘 안 바뀜: 광합성이 늘면 그 유기물을 태우는 호흡·분해도 같이 늘어난다. 산소는 유기물·황철석이 묻히는 만큼만 쌓인다(실제 지구도 수백만 년).", sWrap); y += 34;
+            GUI.Label(new Rect(x + 272, y, w - 272, 20), "바다에 쌓인 인이 많아 아주 느림(×10이어도 100만 일+)", sS); y += 22;
+            GUI.Label(new Rect(x, y, w, 30), $"지금 광합성을 막는 것: {snap.lim} — 인·질소면 바다 뒤집힘(사건)이 깊은 물의 영양분을 올려 광합성을 늘림", sWrapL); y += 34;
+            GUI.Label(new Rect(x, y, w, 46), "산소가 7 % PAL쯤에 머무는 까닭: 깊은 바다의 황화수소·철이 내려오는 산소를 먹어 치운다(원생누대 '지루한 10억 년'처럼). 광합성만 늘리면 호흡·분해가 그만큼 태운다. 산소는 묻힌 유기물·황철석이 남긴 만큼만 쌓이고, 깊은 바다까지 산화해야 올라서 수십만 일 넘게 걸린다.", sWrap); y += 50;
             // 새 지구: 한 번 누르면 묻고, 4초 안에 다시 누르면 지금 지구를 지우고 처음부터
             bool ask = Time.unscaledTime - askNew < 4;
             if (GUI.Button(new Rect(x, y, 130, 26), ask ? "정말? 한 번 더" : "새 지구로 시작", ask ? sOn : sBtn)) { if (ask) NewEarth(); else askNew = Time.unscaledTime; }
@@ -133,7 +133,7 @@ namespace Tank
             if (Math.Abs(er - run.pl.knobs.eventRate) > 1e-3) { double e2 = Math.Round(er, 1); run.cmds.Enqueue(p => p.knobs.eventRate = e2); }
             GUI.Label(new Rect(x, y, 34, 20), $"×{run.pl.knobs.eventRate:0.0}", sS); x += 36;
             if (GUI.Button(new Rect(x, y, 64, 19), "사건 ▼", showEv ? sOn : sBtn)) showEv = !showEv;
-            float ew = Mathf.Min(460, W - 8); evR = new Rect(Mathf.Clamp(x + 64 - ew, 4, W - ew - 4), topH + 2, ew, 34 + Planet.KINDS.Length * 42 + 164);
+            float ew = Mathf.Min(460, W - 8); evR = new Rect(Mathf.Clamp(x + 64 - ew, 4, W - ew - 4), topH + 2, ew, 34 + Planet.KINDS.Length * 42 + 180);
             x += 70;
             // 오른쪽 끝에 붙이되 사건 단추를 덮지 않는다. 그래도 넘치면(세로 화면·휴대폰) 윗줄 오른쪽으로 올리고 상태 글자를 그만큼 줄인다
             bool up = Mathf.Max(x, W - 170) + 164 > W - 4;

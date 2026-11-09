@@ -77,13 +77,13 @@ namespace Life
                 }
         }
 
-        double[] buryC, buryFe, buryS;
+        double[] buryC, buryFe, buryS, buryP;
         void SumBurial()
         {
             for (int v = 0; v < V; v++)
             {
-                double m = buryC[v]; redB -= 4 * m + 9 * buryS[v]; outC += m; outN += m * 16 / 106; outP += m / 106; buriedC += m; outFe += buryFe[v]; outS += buryS[v];
-                buryC[v] = 0; buryFe[v] = 0; buryS[v] = 0;
+                double m = buryC[v]; redB -= 4 * m + 9 * buryS[v]; outC += m; outN += m * 16 / 106; outP += buryP[v]; buriedC += m; outFe += buryFe[v]; outS += buryS[v];
+                buryC[v] = 0; buryFe[v] = 0; buryS[v] = 0; buryP[v] = 0;
             }
         }
 
@@ -115,7 +115,11 @@ namespace Life
             if (IsBottom(v))
             {
                 double m = 0; for (int p = P.POC0; p <= P.POC2; p++) { d = c[p][v] * Cfg.BURIAL * dt; c[p][v] -= d; m += d; }
-                buryC[v] += m * vol[v] * 1e-6;   // 칸별로 모은 뒤 한 스레드에서 더한다(병렬 칸끼리 같은 수를 고치면 몫이 사라진다)
+                // 사체 속 인(레드필드 C:P 106) 중 묻히지 않는 몫은 물로 돌아가고(+, 산소 없는 바닥), 산소 있는 바닥은 물의 인을 더 붙잡아 같이 묻는다(−)
+                double cp = Cfg.CP_OX + (Cfg.CP_ANOX - Cfg.CP_OX) * Cfg.CP_K / (Cfg.CP_K + Math.Max(0, c[P.O2][v]));
+                double dp = m * (1.0 / 106 - 1 / cp); if (dp < 0) dp = Math.Max(dp, -0.5 * c[P.PO4][v]);
+                c[P.PO4][v] += dp;
+                buryC[v] += m * vol[v] * 1e-6; buryP[v] += (m / 106 - dp) * vol[v] * 1e-6;   // 칸별로 모은 뒤 한 스레드에서 더한다(병렬 칸끼리 같은 수를 고치면 몫이 사라진다)
                 d = c[P.FE3][v] * 0.01 * dt; c[P.FE3][v] -= d; buryFe[v] += d * vol[v] * 1e-6;
             }
         }

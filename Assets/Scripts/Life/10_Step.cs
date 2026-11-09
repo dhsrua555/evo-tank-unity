@@ -48,7 +48,7 @@ namespace Life
                 Array.Sort(vKey, vOrd);
                 Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(vOrd, System.Collections.Concurrent.EnumerablePartitionerOptions.NoBuffering), po, Bio); probe?.Invoke("bio"); Lap(2, ref t0);
                 Transport(); probe?.Invoke("transport");
-                buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V];
+                buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V]; buryP ??= new double[V];
                 Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");
                 Gas(); probe?.Invoke("gas");
                 Boundary(); probe?.Invoke("boundary"); Lap(3, ref t0);
