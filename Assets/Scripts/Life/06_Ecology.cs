@@ -93,8 +93,8 @@ namespace Life
             double x = (Math.Log10(prey / feed) + lr) / Cfg.PREY_SD;
             return x * x > 9 ? 0 : Math.Exp(-0.5 * x * x);
         }
-        public static double Allo(Body b) => Math.Min(1, Math.Pow(b.feed / Cfg.FEED_REF, -Cfg.FEED_EXP));   // 큰 포식자일수록 몸 탄소당 덜 걸러 먹고 덜 삼킨다
-        public static double Attack(Traits t, Body b) => Cfg.ATTACK * Allo(b) * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);
+        public static double Allo(Body b) => Math.Min(1, Math.Pow(b.feed / Cfg.FEED_REF, -Cfg.FEED_EXP));   // 큰 포식자일수록 몸 탄소당 덜 삼킨다(최대 섭취). 걸러 먹는 양(만남)은 CLR_EXP로 훨씬 덜 준다
+        public static double Attack(Traits t, Body b) => Cfg.ATTACK * Math.Min(1, Math.Pow(b.feed / Cfg.FEED_REF, -Cfg.CLR_EXP)) * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);
         public static double Vul(Traits t) => 1 - 0.8 * t.Sat(G.WALL, 0.02);
         // 바이러스 죽음(kill-the-winner: 같은 수용체 칸 숙주 밀도에 비례). 덩이 속 세포는 겉 세포가 막아 덜 걸린다 —
         // 대장균 생물막 안쪽 세포는 T7 파지에 거의 안 걸림(Vidakovic 2018). 바탕 0.2는 막이 없는 덩이도 조금은 뚫린다는 가정

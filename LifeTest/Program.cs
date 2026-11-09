@@ -466,6 +466,15 @@ static class Program
         var big = Enumerable.Range(0, n).Where(j => A[j].total >= 1e-3 * bt).ToList(); int top = big.OrderByDescending(j => TL[j]).First();
         double sh25 = big.Where(j => TL[j] >= 2.5).Sum(j => A[j].total) / bt;
         Console.WriteLine($"먹이 사슬: 평균 영양 단계 {mean:0.00} · 가장 높은 단계 {TL[top]:0.00}(계통 {A[top].id}, {A[top].b.size:0} μm, 세포 {A[top].t.MeanCells:0.#}) · 2.5 넘는 생물량 {sh25:P1} · 3 넘는 계통 {big.Count(j => TL[j] >= 3)}");
+        // 크기 스펙트럼: 몸 크기 반 자리(0.5 decade)마다 생물량 몫·평균 영양 단계·스스로 만든 탄소 몫(광합성·화학합성)
+        var sb = new System.Text.StringBuilder("크기 스펙트럼(몸 μm: 몫 단계 자급):");
+        for (double lo = -0.5; lo < 3.5; lo += 0.5)
+        {
+            var ix = Enumerable.Range(0, n).Where(j => Math.Log10(A[j].b.size) >= lo && Math.Log10(A[j].b.size) < lo + 0.5).ToList(); double bb = ix.Sum(j => A[j].total); if (bb <= 0) continue;
+            double au = ix.Sum(j => { double inc = auto[j] + dead[j]; for (int i = 0; i < n; i++) inc += F[j, i]; return inc > 0 ? A[j].total * auto[j] / inc : 0; });
+            sb.Append($" {Math.Pow(10, lo):0.#}–{Math.Pow(10, lo + 0.5):0.#}: {bb / bt:P0} {ix.Sum(j => A[j].total * TL[j]) / bb:0.00} {au / bb:P0} ·");
+        }
+        Console.WriteLine(sb.ToString().TrimEnd('·', ' '));
         return (A, TL);
     }
 

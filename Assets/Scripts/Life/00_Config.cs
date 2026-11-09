@@ -94,7 +94,10 @@ namespace Life
         // 먹고 먹히기
         public const double ATTACK = 6;               // 포식 막 몫 1당 공격률(/μM C/일)
         public const double HANDLE = 0.5;             // 먹이 처리 시간(일)
-        public const double FEED_REF = 5, FEED_EXP = 0.69;   // 몸 탄소당 청소·최대 섭취 ∝ (먹는 크기/5 μm)^−0.69 = 부피^−0.23 (Hansen 1997, 2–2000 μm). 5 μm 밑은 그대로
+        // 청소율(만남)은 최대 섭취보다 크기로 훨씬 덜 준다: Kiørboe & Hirst 2014 모음(PANGAEA 819856)을 다시 맞추면 원생생물 탄소당 최대 청소율 ∝ 질량^−0.07±0.06
+        // (= 지름^−0.20, n 61, 주로 Hansen 1997 자료), 원생생물~어류 871개 전체는 질량^−0.04로 14자리 내내 300–500 ml/mg C/h. 최대 섭취는 원생생물 질량^−0.22±0.04(= 지름^−0.67)로 FEED_EXP와 같다
+        public const double CLR_EXP = 0.20;
+        public const double FEED_REF = 5, FEED_EXP = 0.69;   // 몸 탄소당 최대 섭취 ∝ (먹는 크기/5 μm)^−0.69 = 부피^−0.23 (Hansen 1997, 2–2000 μm). 5 μm 밑은 그대로
         public const double PREY_SD = 0.6, PREY_MAX = 1.2;   // 먹이 크기 폭 0.6 decade, 먹는 크기의 1.2배까지(선호 크기 비는 유전자 G.PREY)
         public const double EGEST = 0.3;              // 먹은 것 중 똥·찌꺼기
         public const double VIRUS = 0.25, VIRUS_K = 0.3;   // 이긴 자 죽이기: 같은 수용체 칸 숙주 밀도에 비례
