@@ -200,25 +200,27 @@ namespace Life
             double Score(Strain s) => Math.Log(Math.Max(s.total, 1e-300)) + (s.rate > 0 ? 1e3 : 0);   // ponytail: 5일 지수 평균으로 '느는 중'을 가림. 포식·피식 순환이 길면 잠깐 줄어드는 드문 종이 먼저 지워질 수 있음
             var order = new List<Strain>(alive); order.Sort((a, b) => Score(a).CompareTo(Score(b)));
             int free = Cfg.SMAX - alive.Count, need = Math.Max(0, 96 - free), k = 0;
+            var nOf = new Dictionary<int, int>(); foreach (var s in alive) nOf[s.species] = nOf.GetValueOrDefault(s.species) + 1;
             foreach (var s in order)
             {
                 bool tiny = s.total <= Cfg.RARE * all;   // 생물권의 이 몫보다 적으면 사라진 것으로 친다(셀 수 없는 꼬리)
-                if (!tiny && k >= need) continue;
+                if (!tiny && (k >= need || nOf[s.species] < 2)) continue;   // 칸이 모자라 지울 때 종의 마지막 계통은 남긴다: 멸종은 생태로만
+                nOf[s.species]--;
                 int age = (int)Day - s.born; pruneDbg[age < 1 ? 0 : age < 10 ? 1 : 2]++; if (age < 10) { evoDbg[3]++; if (s.rate > 0) evoDbg[2]++; }
                 Remove(s, tiny ? null : Kin(s)); k++;
             }
             RebuildAlive();
         }
 
-        // 칸이 모자라 따로 세지 않게 된 계통은 죽은 게 아니다: 가장 가까운 산 친척(부모, 없으면 같은 종에서 유전체가 가장 가까운 것)으로 합친다
+        // 칸이 모자라 따로 세지 않게 된 계통은 죽은 게 아니다: 같은 종의 가장 가까운 산 친척(부모, 없으면 유전체가 가장 가까운 것)으로 합친다
         Strain Kin(Strain s)
         {
             Strain best = null; double bd = double.MaxValue;
             foreach (var o in alive)
             {
-                if (o == s || o.slot < 0) continue;
+                if (o == s || o.slot < 0 || o.species != s.species) continue;   // 다른 종이 된 부모에 합치면 그 종이 사라진다
                 if (o.id == s.parent) return o;
-                if (o.species != s.species) continue; double d = Genome.Dist(o.g, s.g); if (d < bd) { bd = d; best = o; }
+                double d = Genome.Dist(o.g, s.g); if (d < bd) { bd = d; best = o; }
             }
             return best;
         }
