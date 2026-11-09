@@ -33,28 +33,43 @@ namespace Life
         // 화학합성 공여체(H2, CH4, H2S, Fe2+): 선호 축 위치, 반포화(μM), 전자 수, ATP(산소 호흡), 산소 소비
         static readonly double[] DPOS = { 0.1, 0.35, 0.6, 0.9 }, DK = { 0.1, 1, 1, 5 }, DE = { 2, 8, 8, 1 }, YAER = { 1.0, 4, 3, 0.1 }, DO2 = { 0.5, 2, 2, 0.25 };
 
+        // 형질만으로 정해지는 값: 계통을 만들 때 한 번(Grow는 틱마다 계통·칸마다 불린다)
+        public static void Prep(Traits t)
+        {
+            double rho = Cfg.A_CM * t.dCell;
+            t.pack = rho < 1e-3 ? 1 : 1.5 / rho * (1 + 2 * Math.Exp(-rho) / rho + 2 * (Math.Exp(-rho) - 1) / (rho * rho));   // 묶음 효과 3Q*/(2ρ′): 10 μm 0.83, 100 μm 0.28
+            t.uH2 = Sig((t.eox - E[0] - 0.1) / 0.15); t.uHS = Sig((t.eox - E[1] - 0.1) / 0.15); t.uFe = Sig((t.eox - E[2] - 0.1) / 0.15); t.uW = Sig((t.eox - E[3] - 0.1) / 0.15);
+            t.sav = Math.Min(1, Math.Sqrt(1.0 / t.dCell));   // 큰 세포는 겉넓이가 모자란다
+            t.sqS = Math.Sqrt(20 / t.S);
+            for (int d = 0; d < 4; d++) { double x = (DPOS[d] - t.dnr) / 0.25; t.wD[d] = Math.Exp(-x * x); }
+            // 길쭉한 세포(장단축비 a, 같은 부피의 긴 회전타원체)의 확산·끌림 반지름 ÷ 같은 부피 공: a^(−1/3)·√(a²−1)/arcosh a — a 8이면 1.43
+            double a = t.aspect; t.elong = a > 1.0001 ? Math.Pow(a, -1.0 / 3) * Math.Sqrt(a * a - 1) / Math.Log(a + Math.Sqrt(a * a - 1)) : 1;
+            // 확산이 세포 하나에 대 주는 흡수 4πDrC(mol/일) ÷ 세포 탄소: 1 μm 세포 약 55, 10 μm 약 0.85 /μM/일 — 큰 세포는 운반체보다 확산이 먼저 막는다
+            t.kd = 4 * Math.PI * Cfg.D_NUT * (t.dCell / 2 * 1e-6) * t.elong * 1e-3 / t.cellC;
+        }
+        static double Ser(double up, double dif) => up > 0 && dif > 0 ? up * dif / (up + dif) : 0;   // 운반체와 확산이 이어진 두 저항(느린 쪽이 막는다)
+
         public static Rates Grow(Traits t, Body b, in Env e, double phago, double virusMort)
         {
             Rates r = default; var phi = t.phi;
-            double fT = Math.Exp(-0.5 * Math.Pow((e.T - t.topt) / t.tw, 2)), q10 = Math.Pow(2, (e.T - 20) / 10);
-            double ex = 0.3 + 0.7 * b.exposed, sav = Math.Min(1, Math.Sqrt(1.0 / t.dCell));   // 덩이 속 세포는 빛·영양을 덜 받고, 큰 세포는 겉넓이가 모자란다
+            double dT = (e.T - t.topt) / t.tw, fT = Math.Exp(-0.5 * dT * dT), q10 = Math.Exp(0.06931471805599453 * (e.T - 20));   // q10 = 2^((T−20)/10)
+            double ex = 0.3 + 0.7 * b.exposed, sav = t.sav;   // 덩이 속 세포는 빛을 덜 받는다(가림). 큰 세포는 겉넓이가 모자란다(Prep)
 
             // 빛 에너지와 광합성 전자 공여체
-            double rho = Cfg.A_CM * t.dCell, pack = rho < 1e-3 ? 1 : 1.5 / rho * (1 + 2 * Math.Exp(-rho) / rho + 2 * (Math.Exp(-rho) - 1) / (rho * rho));   // 묶음 효과 3Q*/(2ρ′): 10 μm 0.83, 100 μm 0.28
-            double P = phi[G.PHOTO] * Cfg.K_PHOTO * e.light / (e.light + Cfg.K_LIGHT) * ex * fT * pack;
-            double uH2 = Sig((t.eox - E[0] - 0.1) / 0.15), uHS = Sig((t.eox - E[1] - 0.1) / 0.15), uFe = Sig((t.eox - E[2] - 0.1) / 0.15), uW = Sig((t.eox - E[3] - 0.1) / 0.15);
+            double P = phi[G.PHOTO] * Cfg.K_PHOTO * e.light / (e.light + Cfg.K_LIGHT) * ex * fT * t.pack;
+            double uH2 = t.uH2, uHS = t.uHS, uFe = t.uFe, uW = t.uW;
             double aH2 = uH2 * e.H2 / (e.H2 + 0.1), aHS = uHS * e.H2S / (e.H2S + 1), aFe = uFe * e.FE2 / (e.FE2 + 5), aW = uW;
             double D = Math.Min(1, aH2 + aHS + aFe + aW), dsum = Math.Max(1e-12, aH2 + aHS + aFe + aW);
             double atpPh = P * (0.3 + 0.7 * D), ePh = 0.5 * P * D;
 
             // 화학합성: 공여체를 산화해 ATP(산소가 있으면 산소로, 없으면 황산·CO2로)
             double resp = t.Sat(G.RESP, 0.02), oAer = e.O2 / (e.O2 + Cfg.K_AER), aer = resp * oAer, sSO4 = e.SO4 / (e.SO4 + 20);
-            double[] conc = { e.H2, e.CH4, e.H2S, e.FE2 }; var R = new double[4]; double atpCh = 0, eCh = 0;
+            Span<double> conc = stackalloc double[] { e.H2, e.CH4, e.H2S, e.FE2 }, R = stackalloc double[4]; double atpCh = 0, eCh = 0;   // 스택에: 한 틱에 수만 번 불려서 힙에 만들면 GC가 잦다
             for (int d = 0; d < 4; d++)
             {
                 double yan = d == 0 ? 0.25 * sSO4 + 0.125 * (1 - sSO4) * e.CO2 / (e.CO2 + 5) : d == 1 ? 0.1 * sSO4 : 0;
                 double y = aer * YAER[d] + (1 - aer) * yan; if (y <= 0) continue;
-                double w = Math.Exp(-Math.Pow((DPOS[d] - t.dnr) / 0.25, 2));
+                double w = t.wD[d];
                 R[d] = phi[G.CHEMO] * Cfg.K_CHEMO * fT * w * conc[d] / (conc[d] + DK[d]);
                 if (d >= 2) { R[d] *= aer; y = YAER[d]; }   // 황화수소·철 산화는 받개가 산소뿐(이 모형엔 질산이 없다): 산소 몫만큼만 돈다
                 atpCh += R[d] * y; eCh += R[d] * DE[d] * 0.2;
@@ -62,12 +77,14 @@ namespace Life
 
             // 탄소 고정: 특이성 S가 높을수록 느리지만 O2에 덜 속는다(광호흡). 탄소 농축은 세포 안 CO2를 올린다
             double ccm = t.Sat(G.CCM, 0.03), ci = e.CO2 * (1 + 20 * ccm);
-            double gross = phi[G.FIX] * Cfg.K_FIX * Math.Sqrt(20 / t.S) * ci / (ci + Cfg.K_CO2) * fT;
+            double gross = phi[G.FIX] * Cfg.K_FIX * t.sqS * ci / (ci + Cfg.K_CO2) * fT;
             double pr = Math.Max(0, 1 - 0.5 * e.O2 / (t.S * Math.Max(ci, 1e-6)));
             double fixMax = Math.Min(gross * pr, (ePh + eCh) / 4), aFix = Cfg.A_FIX + 2 * ccm;
 
             // 유기물: 녹은 유기물 흡수 + 먹은 것(포식·청소)
-            double docUp = phi[G.OSMO] * Cfg.K_OSMO * fT * e.DOC / (e.DOC + Cfg.K_DOC) * ex * sav;
+            // 녹은 것의 흡수 = 운반체 × 확산(덩이는 이웃과 같은 물을 나눠 쓴다: share). 덩이 속 세포가 덜 받는 몫은 이 확산 몫이 맡는다(빛 가림은 ex)
+            double kd = t.kd * b.share;
+            double docUp = Ser(phi[G.OSMO] * Cfg.K_OSMO * fT * e.DOC / (e.DOC + Cfg.K_DOC) * sav, kd * e.DOC);
             double U = docUp + phago;
             // 태우기: 산소 호흡은 호흡 단백질 몫에 비례하는 속도까지만, 넘치는 몫은 발효(넘침 대사, Basan 2015). 해당 과정은 살림 단백질에 든다.
             // 발효는 H2가 쌓이면 잘 안 된다(열역학)
@@ -75,8 +92,8 @@ namespace Life
             double OrgATP(double c) { double a = Math.Min(c, capAer); return a * Cfg.Y_AER + (c - a) * yF; }
 
             // 질소·인
-            double tr = (0.03 + phi[G.NUT]) * ex * sav * fT;   // 암모늄·인산 운반체는 유기물 운반체와 다른 단백질(AMT·Pst)
-            double nIn = 3 * tr * e.NH4 / (e.NH4 + 0.5), pIn = 0.2 * tr * e.PO4 / (e.PO4 + 0.05);
+            double tr = (0.03 + phi[G.NUT]) * sav * fT;   // 암모늄·인산 운반체는 유기물 운반체와 다른 단백질(AMT·Pst)
+            double nIn = Ser(3 * tr * e.NH4 / (e.NH4 + 0.5), kd * e.NH4), pIn = Ser(0.2 * tr * e.PO4 / (e.PO4 + 0.05), kd * e.PO4);
             double o2Own = uW / dsum * Math.Min(fixMax, ePh / 4);             // 산소 광합성으로 세포 안에서 생기는 O2
             double seg = t.diff * (1 - b.exposed);                            // 분화: 속 세포가 산소에서 떨어져 질소를 고정한다(이형세포처럼)
             double nfix = phi[G.NFIX] * Cfg.K_NFIX * fT / (1 + (e.O2 + Cfg.OWN_O2 * o2Own * (1 - seg)) / 2);
@@ -84,9 +101,12 @@ namespace Life
             // 유지비: 온도 폭이 넓을수록, 편모·분화·물 산화 광계 수리 비용
             double M = Cfg.M0 * q10 * (1 + 0.15 * t.tw / 5) + 3 * phi[G.MOT] + 0.1 * P * uW + 0.05 * t.diff;
 
-            // 탄소·에너지로 낼 수 있는 성장률: 유기물 중 태울 몫 f와 고정량을 고른다(삼분 탐색)
+            // 탄소·에너지로 낼 수 있는 성장률: 유기물 중 태울 몫 f와 고정량을 고른다.
+            // Gce(f)는 조각마다 직선이고 오목하다(고정이 0과 최대 사이면 두 한계가 같아진다). 그래서 최댓값은 꺾이는 곳 —
+            // 양 끝, 산소 호흡 상한(f·U = capAer), 고정이 0·최대가 되는 곳 — 중 하나에 있다: 그 몇 곳만 잰다(옛 삼분 탐색 49번과 같은 답)
             double atpIn = atpPh + atpCh;
             double bestF = 0, bestC = 0;
+            double Inner(double f) => atpIn + OrgATP(f * U) - M - Cfg.A_BIO * (1 - f) * U;   // 고정 식의 분자: 0이면 고정 0, (A_BIO + aFix)·fixMax면 최대
             double Gce(double f, out double cfix)
             {
                 double a = (1 - f) * U, bb = atpIn + OrgATP(f * U) - M;
@@ -97,9 +117,15 @@ namespace Life
             if (U <= 0) gce = Gce(0, out bestC);
             else
             {
-                double lo = 0, hi = 1;
-                for (int i = 0; i < 24; i++) { double m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; if (Gce(m1, out _) < Gce(m2, out _)) lo = m1; else hi = m2; }
-                bestF = (lo + hi) / 2; gce = Gce(bestF, out bestC);
+                double fa = Math.Min(1, capAer / U);
+                Span<double> fs = stackalloc double[7]; int nf = 0; fs[nf++] = 0; fs[nf++] = 1; fs[nf++] = fa;
+                for (int s = 0; s < 2; s++)
+                {
+                    double s0 = s == 0 ? 0 : fa, s1 = s == 0 ? fa : 1, i0 = Inner(s0), i1 = Inner(s1); if (i1 <= i0) continue;
+                    for (int q = 0; q < 2; q++) { double tg = q == 0 ? 0 : (Cfg.A_BIO + aFix) * fixMax; if (tg >= i0 && tg <= i1) fs[nf++] = s0 + (s1 - s0) * (tg - i0) / (i1 - i0); }
+                }
+                gce = double.NegativeInfinity;
+                for (int q = 0; q < nf; q++) { double v = Gce(fs[q], out double c); if (v > gce) { gce = v; bestF = fs[q]; bestC = c; } }
             }
             double gRib = Cfg.K_RIB * phi[G.RIB] * fT;
             double gN = (nIn + nfix + phago * 16 / 106) * 106 / 16, gP = (pIn + phago / 106) * 106;   // 녹은 유기물은 N·P가 없다

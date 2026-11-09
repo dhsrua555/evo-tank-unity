@@ -11,6 +11,7 @@ namespace Life
         public int day, nSp, nStrain, nClade;
         public float O2, CO2, CH4, T;             // PAL, PAL, ppm, °C
         public float bio;                          // 전체 생물량(mol C)
+        public float photo;                        // 빛으로 고정한 탄소(mol C/일)
         public float oxyShare;                     // 고정한 탄소 중 산소 광합성 몫
         public float multi;                        // 덩이(평균 세포 수 ≥ 8) 생물량 몫
         public float aer, sod;                     // 태운 유기물 중 산소 호흡 몫, 생물량 가중 항산화 포화도
@@ -26,10 +27,11 @@ namespace Life
     public sealed partial class Planet
     {
         public readonly List<DayStat> history = new();
-        public readonly object gate = new();      // 화면이 읽는 동안 잠금
+        [NonSerialized] public readonly object gate = new();      // 화면이 읽는 동안 잠금
         public double[] lastLedger;
-        public Action<string> probe;           // 시험용: 단계마다 불림
-        public readonly ParallelOptions po = new();   // 앱: 화면 몫을 남기려고 병렬 수를 줄인다
+        [NonSerialized] public Action<string> probe;           // 시험용: 단계마다 불림
+        [NonSerialized] public readonly ParallelOptions po = new();
+        [NonSerialized] int[] vOrd; [NonSerialized] double[] vKey;   // 앱: 화면 몫을 남기려고 병렬 수를 줄인다
 
         public void Step()
         {
@@ -39,7 +41,12 @@ namespace Life
                 if (tick % Cfg.TPD == 0) Daily();
                 probe?.Invoke("daily"); Lap(0, ref t0);
                 Climate(); Lap(1, ref t0);
-                Parallel.For(0, V, po, Bio); probe?.Invoke("bio"); Lap(2, ref t0);
+                PredCache();
+                // 칸마다 일이 크게 다르다(계통 수의 제곱): 지난 틱에 무거웠던 칸부터 하나씩 나눠 줘야 마지막에 한 스레드만 남아 돌지 않는다
+                vOrd ??= new int[V]; vKey ??= new double[V];
+                for (int v = 0; v < V; v++) { vOrd[v] = v; vKey[v] = -(double)nV[v] * nV[v]; }
+                Array.Sort(vKey, vOrd);
+                Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(vOrd, System.Collections.Concurrent.EnumerablePartitionerOptions.NoBuffering), po, Bio); probe?.Invoke("bio"); Lap(2, ref t0);
                 Transport(); probe?.Invoke("transport");
                 buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V];
                 Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");
@@ -84,6 +91,7 @@ namespace Life
             for (int q = 0; q < 5; q++) inc5 += sh[q];
             d.bio = (float)bio; d.multi = bio > 0 ? (float)(multi / bio) : 0; d.sod = bio > 0 ? (float)(sod / bio) : 0;
             d.aer = catC > 0 ? (float)(aerC / catC) : 0; d.aerOx = catOx > 0 ? (float)(aerOx / catOx) : 0; d.resp = bio > 0 ? (float)(resp / bio) : 0;
+            d.photo = (float)sh[0];
             double fix = sh[0] + sh[1]; d.oxyShare = fix > 0 ? (float)(o2 / fix) : 0;
             if (inc5 > 0) { d.photoSh = (float)(sh[0] / inc5); d.chemoSh = (float)(sh[1] / inc5); d.preySh = (float)(sh[2] / inc5); d.detSh = (float)(sh[3] / inc5); d.docSh = (float)(sh[4] / inc5); }
             int nc = 0; var cl = new HashSet<int>();

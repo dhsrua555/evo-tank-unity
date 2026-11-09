@@ -23,11 +23,12 @@ namespace Life
         public double cFix, cPrey, cDet, cDoc, cChemo;                // 오늘 탄소·에너지 수입(mol C): 고정, 산 먹이, 사체, 녹은 유기물 · 화학합성 ATP
         public double o2Made, aerobic, catab;                         // 오늘 만든 O2, 산소 호흡으로 태운 C / 전체 태운 C
         public double jump, sel;                                      // 부모와의 몸 모양 거리(점진성 지표), 정착 때 선택 계수
+        public double att, vul, lsz, lfeed, allo;                     // 포식 값(형질·몸으로 정해져 칸·틱마다 같다): 공격률, 먹이 약함, log10 크기·먹는 크기, 크기 배율
     }
 
     public sealed partial class Planet
     {
-        public readonly Geo geo = new();
+        [NonSerialized] public readonly Geo geo = new();   // 저장하지 않음: 시드로 다시 만든다
         public readonly Knobs knobs = new();
         public int NR, V;                       // 해역 수, 칸 수(NR × NY)
         public bool[] live;                     // 칸이 있나(해저 아래 층은 없음)
@@ -145,6 +146,7 @@ namespace Life
             var ps = parent >= 0 ? strains[parent] : null;
             var s = new Strain { id = nextId++, parent = ps?.id ?? -1, slot = slot, g = g, t = t, born = (int)Day, gene = gene, species = ps?.species ?? -1 };
             s.b = b ?? Body.Of(g, t);
+            s.att = Attack(t, s.b); s.vul = Vul(t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.b);
             strains[slot] = s; alive.Add(s);
             return s;
         }

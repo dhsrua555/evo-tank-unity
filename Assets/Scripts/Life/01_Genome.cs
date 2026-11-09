@@ -55,9 +55,13 @@ namespace Life
             t.diff = g[G.DIFF];
             t.lr = 1.3 * g[G.PREY];
             t.vbin = (int)(g[G.R1] * 4.999) * 25 + (int)(g[G.R2] * 4.999) * 5 + (int)(g[G.R3] * 4.999);
+            Cell.Prep(t);
             return t;
         }
 
+        public double pack, uH2, uHS, uFe, uW, sav, sqS;   // 생리에서 형질만으로 정해지는 값(Cell.Prep): 색소 묶음, 공여체별 광계 쓰임, 겉넓이 몫, √(20/S)
+        public double elong, kd;                           // 길쭉함 배율(같은 부피 공보다 확산·끌림 반지름이 큼), 홀로 있을 때 확산이 대 주는 흡수(/μM/일, 세포 탄소 1 mol당)
+        public readonly double[] wD = new double[4];         // 화학합성 공여체별 선호 무게
         public double Sat(int gene, double k) => phi[gene] / (phi[gene] + k);
         public double MeanCells => Math.Sqrt(nA * n0);
     }

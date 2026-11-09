@@ -5,7 +5,7 @@ namespace Life
     // 사용자가 화면에서 바꾸는 손잡이
     public sealed class Knobs
     {
-        public double mu = 1.0;          // 돌연변이율: 분열 한 번에 유전체 돌연변이 수(0.0001–1). 1이 최대
+        public double mu = 1.0;          // 돌연변이율 배율(0.0001–10, 1 = 기본): 분열마다 생기는 돌연변이 공급과 정착 상한에 곱한다
         public double eventRate = 1.0;   // 자연 사건 빈도 배율(0 = 사건 없음)
         public double phosphate = 1.0;   // 풍화로 들어오는 인 배율
     }
@@ -70,6 +70,7 @@ namespace Life
         public const double K_CHEMO = 200;            // 화학합성 효소 몫 1당 전자 공여체 산화(/일)
         public const double K_OSMO = 30;              // 흡수 운반체 몫 1당 녹은 유기물 흡수(/일)
         public const double K_DOC = 10;
+        public const double D_NUT = 8.64e-5;          // 녹은 영양염·유기물 확산 계수(m²/일) = 1e-9 m²/s(NH4⁺ 2e-9, PO4 0.7e-9, 작은 유기물 0.5–1e-9 사이 값)
         public const double K_NFIX = 4, A_NFIX = 8;   // 질소 고정: 몫 1당 N(/일), N 하나에 ATP
         public const double M0 = 0.3;                 // 유지 ATP(/일, 20 °C)
         public const double MORT0 = 0.02;             // 바탕 사망(/일)

@@ -1,6 +1,7 @@
-// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]
+// 머리 없는 시험: dotnet LifeTest.dll <일수> <시드> [보고 간격] [돌연변이율] [csv]. 환경 변수: THREADS EVENTS LOAD SAVE RESP RCASES PROF PROBE CELL SHAPE
 // 매 간격 상태 한 줄, 사건은 일어날 때, 끝에 '됐다' 기준 판정(PASS/FAIL).
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -11,9 +12,10 @@ static class Program
     static int Main(string[] a)
     {
         int days = a.Length > 0 ? int.Parse(a[0]) : 100, seed = a.Length > 1 ? int.Parse(a[1]) : 1, every = a.Length > 2 ? int.Parse(a[2]) : 10;
-        var pl = new Planet(seed);
+        var pl = Environment.GetEnvironmentVariable("LOAD") is string ld ? Save.Read(ld, out _) : new Planet(seed);   // LOAD=파일: 저장한 지구에서 이어서(속도 재기 등)
         if (a.Length > 3) pl.knobs.mu = double.Parse(a[3]);
         if (Environment.GetEnvironmentVariable("THREADS") is string th) pl.po.MaxDegreeOfParallelism = int.Parse(th);   // 여러 시드를 한꺼번에 돌릴 때 실행마다 스레드 수를 묶는다
+        if (Environment.GetEnvironmentVariable("EVENTS") is string er) pl.knobs.eventRate = double.Parse(er);   // 사건 빈도 배율(0 = 사건 없음)
         string csv = a.Length > 4 ? a[4] : null;
         int nv = 0, nvent = 0; for (int v = 0; v < pl.V; v++) { if (pl.live[v]) nv++; if (pl.vent[v]) nvent++; }
         Console.WriteLine($"시드 {seed}: 해역 {pl.NR}, 칸 {nv}, 열수공 {nvent}, μ {pl.knobs.mu}");
@@ -33,13 +35,26 @@ static class Program
                 if (pl.B[st.slot * pl.V + v] <= 0) continue; var e = pl.EnvAt(v); var r = Cell.Grow(st.t, st.b, e, 0, 0);
                 Console.WriteLine($"칸 {v} T {e.T:0.0} 빛 {e.light:0.000} H2 {e.H2:0.00} CO2 {e.CO2:0} DOC {e.DOC:0.0} NH4 {e.NH4:0.0} PO4 {e.PO4:0.00} | g {r.g:0.000} mort {r.mort:0.000} fix {r.fix:0.000} assim {r.assim:0.000} catab {r.catab:0.000} chemoATP {r.chemoATP:0.00} nh4 {r.nh4:0.0000} po4 {r.po4:0.00000} | φ " + string.Join(" ", st.t.phi.Select(x => x.ToString("0.000"))));
             }
+        if (Environment.GetEnvironmentVariable("PROF") is string pf)   // PROF=틱 수: 단계별 시간(THREADS 없으면 한 스레드)
+        {
+            if (Environment.GetEnvironmentVariable("THREADS") == null) pl.po.MaxDegreeOfParallelism = 1;
+            int nt = int.Parse(pf); for (int i = 0; i < 6; i++) pl.Step();
+            Array.Clear(pl.tStage, 0, 5); var w0 = Stopwatch.StartNew();
+            for (int i = 0; i < nt; i++) pl.Step();
+            double tot = w0.Elapsed.TotalMilliseconds / nt;
+            int pairs = 0; for (int v = 0; v < pl.V; v++) foreach (var st in pl.alive) if (pl.B[st.slot * pl.V + v] > Cfg.BMIN) pairs++;
+            Console.WriteLine($"{pl.Day:0}일 계통 {pl.alive.Count} (계통·칸) {pairs}: 틱 {tot:0.00} ms = 하루 {pl.tStage[0] * 1000 / nt:0.00} 기후 {pl.tStage[1] * 1000 / nt:0.00} 생태 {pl.tStage[2] * 1000 / nt:0.00} 물질 {pl.tStage[3] * 1000 / nt:0.00} 진화 {pl.tStage[4] * 1000 / nt:0.00} · {1000 / (3 * tot):0} 일/초");
+            return 0;
+        }
         var sw = Stopwatch.StartNew(); int ev = 0;
         double landF = 0, allA = 0; for (int r = 0; r < pl.NR; r++) { allA += pl.area[r]; if (pl.kind[r] == 2) landF += pl.area[r]; }
-        double pBur = 0, pS = 0, pW = 0;   // 산소 장부: 지난 보고 때 누적값
+        double pBur = 0, pS = 0, pW = 0, pC = pl.inC, pO = pl.outC, pBc = pl.buriedC;   // 산소 장부: 지난 보고 때 누적값
         double pRed = pl.Red(), pRb = pl.redB, red0 = pRed, rb0 = pRb;   // 산화환원 장부: 지난 보고 때 환원력·경계 누적, 처음 값
         for (int d = 1; d <= days; d++)
         {
             for (int k = 0; k < Cfg.TPD; k++) pl.Step();
+            if (Environment.GetEnvironmentVariable("SAVE") is string svD && d == int.Parse(svD)) return SaveCheck(pl, (csv ?? "save") + ".sav");
+            if (Environment.GetEnvironmentVariable("RESP") is string rsD && d == int.Parse(rsD.Split(':')[0])) return Response(pl, (csv ?? "resp") + ".sav", double.Parse(rsD.Split(':')[1]));
             if (d % every == 0)
             {
                 double so = 0, sv = 0; for (int r = 0; r < pl.NR; r++) { int v = r * Cfg.NY; if (pl.live[v] && pl.kind[r] == 0) { so += pl.pool[P.SO4][v] * pl.vol[v]; sv += pl.vol[v]; } }
@@ -49,6 +64,10 @@ static class Program
                 for (int v = 0; v < pl.V; v++) if (pl.live[v]) { double L = pl.vol[v] * 1e-6; tO2 += pl.pool[P.O2][v] * L; tSO4 += pl.pool[P.SO4][v] * L; tHS += pl.pool[P.H2S][v] * L; }
                 Console.WriteLine($"        산화환원(O2 당량 mol/일, + = 환원): 경계 {(pl.redB - pRb) / 4 / every:0.0e0} · 새는 몫 {((red - pRed) - (pl.redB - pRb)) / 4 / every:0.0e0} | 대기 O2 {pl.atmO2:0.0e0} · 바다 O2 {tO2:0.0e0} · SO4 {tSO4:0.0e0} · H2S {tHS:0.0e0} mol");
                 pRed = red; pRb = pl.redB;
+                double oC = 0; for (int v = 0; v < pl.V; v++) if (pl.live[v]) oC += pl.pool[P.CO2][v] * pl.vol[v] * 1e-6;
+                double gh = 20 + 3 * Math.Log(Math.Max(1e-3, pl.CO2PAL), 2) + 2 * Math.Log(1 + Math.Max(0, pl.CH4ppm) / 2, 2) - 20 * (1 - Cfg.SUN) / 0.22;
+                Console.WriteLine($"        기후: T {pl.Tglobal:0.0} = 온실 {gh:0.0} + 사건 {pl.dT_ice + pl.dT_imp + pl.dT_aer + pl.dT_ghg + pl.dT_ch4:0.0}(빙하 {pl.dT_ice:0.0} 충돌 {pl.dT_imp:0.0} 화산재 {pl.dT_aer:0.0} 화산온실 {pl.dT_ghg:0.0} 메탄분출 {pl.dT_ch4:0.0}) 대기메탄 {pl.TghCH4:0.0} · 탄소(mol/일) 들어옴 {(pl.inC - pC) / every:0.0e0} 나감 {(pl.outC - pO) / every:0.0e0}(유기 매몰 {(pl.buriedC - pBc) / every:0.0e0}) | CO2 대기 {pl.atmCO2:0.0e0} · 바다 {oC:0.0e0} mol");
+                pC = pl.inC; pO = pl.outC; pBc = pl.buriedC;
             }
             while (ev < pl.events.Count) { var e = pl.events[ev++]; Console.WriteLine($"  ! {e.day}일 {e.kind}({e.size:0.0}): {e.text}"); }
             if (Environment.GetEnvironmentVariable("VENTS") != null && d % every == 0)
@@ -143,6 +162,7 @@ static class Program
         { var L = pl.Ledger(); L[1] -= pl.nfixV.Sum(); string[] en = { "C", "N", "P", "Fe", "S" }; Console.WriteLine("장부 원소별 어긋남: " + string.Join(" ", Enumerable.Range(0, 5).Select(k => $"{en[k]} {(L[k] - pl.ledger0[k]) / Math.Abs(pl.ledger0[k]):+0.0e0;-0.0e0}"))); }
         { var hg = new int[G.N]; foreach (var st in pl.alive) if (st.gene >= 0) hg[st.gene]++; Console.WriteLine("살아 있는 계통의 창시 돌연변이 유전자: " + string.Join(" ", Enumerable.Range(0, G.N).Select(i => $"{G.Name[i]} {hg[i]}")));
           Console.WriteLine("g[EOX] 분포: " + string.Join(" ", pl.alive.Select(st => st.g[G.EOX]).Distinct().Take(12).Select(x => x.ToString("0.000")))); }
+        Forms(pl); if (Environment.GetEnvironmentVariable("SHAPE") != null) Shapes(pl);
         Console.WriteLine($"단계 시간(초): 하루 {pl.tStage[0]:0.0} · 기후 {pl.tStage[1]:0.0} · 생태 {pl.tStage[2]:0.0} · 물질 {pl.tStage[3]:0.0} · 진화 {pl.tStage[4]:0.0}");
         Console.WriteLine($"속도 {days / sw.Elapsed.TotalSeconds:0.0} 일/초, 종 {pl.species.Count}개 생김(살아 있음 {pl.nAliveSp}), 갈래 {pl.clades.Count}");
         return 0;
@@ -221,7 +241,7 @@ static class Program
         foreach (var s in top)
         {
             int vb = 0; double bb = -1; for (int v = 0; v < pl.V; v++) if (pl.live[v] && pl.B[s.slot * pl.V + v] > bb) { bb = pl.B[s.slot * pl.V + v]; vb = v; }
-            int o = s.slot * pl.V + vb; double hb = pl.binB[vb * 125 + s.t.vbin], vm = Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K);
+            int o = s.slot * pl.V + vb; double hb = pl.binB[vb * 125 + s.t.vbin], vm = pl.VirusMort(s.t, s.b, vb);
             double ci = s.cFix + s.cPrey + s.cDet + s.cDoc; string role = ci <= 0 ? "-" : new[] { ("고정", s.cFix), ("포식", s.cPrey), ("청소", s.cDet), ("분해", s.cDoc) }.OrderByDescending(x => x.Item2).First().Item1;
             Console.WriteLine($"      종 {s.species} 몫 {s.total / W:P0} 세포 {s.t.MeanCells:0.0} 몸 {s.b.size:0} μm 칸 {vb}{(vb >= pl.NV0 ? "(열수공)" : $"(층{vb % Cfg.NY})")} 밀도 {bb:0.00} 수용체 {s.t.vbin} 숙주 {hb:0.00} → 바이러스 {vm:0.000} · 분열 {pl.grow[o]:0.000} 먹힘 {pl.eatenRate[o]:0.000} 자원몫 {pl.limA[o]:0.00} · {role}");
         }
@@ -261,5 +281,86 @@ static class Program
             Console.WriteLine(sb2);
         }
     }
+    // 저장 시험: 저장 → 불러오기 → 다시 저장한 파일이 바이트까지 같은지, 둘을 300일 더 나란히 돌려 매일 같은지
+    static int SaveCheck(Planet pl, string path)
+    {
+        var sw = Stopwatch.StartNew(); Save.Write(pl, path, 1); double tw = sw.Elapsed.TotalSeconds;
+        sw.Restart(); var q = Save.Read(path, out var h); double tr = sw.Elapsed.TotalSeconds;
+        q.po.MaxDegreeOfParallelism = pl.po.MaxDegreeOfParallelism;
+        Console.WriteLine($"저장 {tw:0.00} s · 불러오기 {tr:0.00} s · 파일 {new FileInfo(path).Length / 1e6:0.00} MB · {h.day}일 · 시드 {h.seed}");
+        Save.Write(q, path + "2", 1);
+        static byte[] Body(string f) { using var z = new System.IO.Compression.GZipStream(File.OpenRead(f), System.IO.Compression.CompressionMode.Decompress); var m = new MemoryStream(); z.CopyTo(m); return m.ToArray()[36..]; }   // 머리(시각) 36바이트 뺌
+        Say("저장 되살림(다시 저장한 파일이 바이트까지 같음)", Body(path).AsSpan().SequenceEqual(Body(path + "2")), $"{Body(path).Length / 1e6:0.0} MB(압축 전)");
+        int bad = -1;
+        for (int d = 1; d <= 300 && bad < 0; d++)
+        {
+            for (int k = 0; k < Cfg.TPD; k++) { pl.Step(); q.Step(); }
+            if (!pl.history[^1].Equals(q.history[^1]) || pl.atmO2 != q.atmO2 || pl.alive.Count != q.alive.Count || pl.events.Count != q.events.Count) bad = d;
+        }
+        Say("저장 되살림(300일 더 나란히 돌려 매일 같음)", bad < 0, bad < 0 ? $"{pl.Day:0}일까지 같음" : $"{bad}일째 다름: O2 {pl.O2PAL:0.0000e0} / {q.O2PAL:0.0000e0}, 종 {pl.nAliveSp} / {q.nAliveSp}");
+        return bad < 0 ? 0 : 1;
+    }
+
+    // 사건 반응: 같은 상태(저장 파일)에서 사건 하나만 일으키고(저절로 나는 사건은 끔) 대조와 견준다. 인 공급 손잡이 ×3도 같은 식으로.
+    // 잡음 = 난수만 한 번 흔든 대조: 진화가 갈라져 생기는 차이의 크기. 이보다 작은 차이는 사건 효과라고 말할 수 없다
+    static int Response(Planet pl, string path, double m)
+    {
+        Save.Write(pl, path, 1);
+        int[] at = { 1, 10, 30, 100, 300, 1000, 1500 };
+        var nm = new List<string> { "대조(사건 없음)", "잡음(난수만 흔듦)" }; nm.AddRange(Planet.KINDS.Select(k => k.name)); nm.Add("인 공급 ×3"); nm.Add("인 공급 ×10"); nm.Add("열수공 모두 ×0.3");
+        var only = Environment.GetEnvironmentVariable("RCASES")?.Split(',').Select(int.Parse).ToHashSet();   // 고른 경우만(대조는 늘)
+        int N = nm.Count, D = 1500; var T = new double[N][]; var O = new double[N][]; var F = new double[N][]; var Bm = new double[N][];
+        int nk = Planet.KINDS.Length;
+        for (int c = 0; c < N; c++)
+        {
+            if (c > 0 && only != null && !only.Contains(c)) continue;
+            var q = Save.Read(path, out _); q.knobs.eventRate = 0; q.po.MaxDegreeOfParallelism = pl.po.MaxDegreeOfParallelism;
+            if (c == 1) q.rng.U(); else if (c >= 2 && c < 2 + nk) q.Trigger(c - 2, m);
+            else if (c == 2 + nk) q.knobs.phosphate = 3; else if (c == 3 + nk) q.knobs.phosphate = 10; else if (c == 4 + nk) for (int v = q.NV0; v < q.V; v++) q.ventMul[v] *= 0.3;
+            T[c] = new double[D + 1]; O[c] = new double[D + 1]; F[c] = new double[D + 1]; Bm[c] = new double[D + 1];
+            for (int d = 1; d <= D; d++)
+            {
+                for (int i = 0; i < Cfg.TPD; i++) q.Step();
+                var h = q.history[q.history.Count - 1]; T[c][d] = q.Tglobal; O[c][d] = q.O2PAL; F[c][d] = h.photo; Bm[c][d] = h.bio;
+            }
+            double Mean(double[] x, int a, int b) { double z = 0; for (int d = a; d <= b; d++) z += x[d]; return z / (b - a + 1); }
+            string R(double[][] x, int a, int b) => $"×{Mean(x[c], a, b) / Math.Max(1e-30, Mean(x[0], a, b)):0.00}";
+            Console.WriteLine($"{nm[c],-12} 크기 {m}: 기온 " + (c == 0 ? string.Join(" · ", at.Select(d => $"{d}일 {T[0][d]:0.0}")) + " °C"
+                : string.Join(" · ", at.Select(d => $"{d}일 {T[c][d] - T[0][d]:+0.0;-0.0;0.0}")) + $" | 평균 기온차 {Mean(T[c], 1, D) - Mean(T[0], 1, D):+0.0;-0.0;0.0} °C · 대조 대비(1–100일 / 1–1500일) 산소 {R(O, 1, 100)} / {R(O, 1, D)} · 빛 고정 {R(F, 1, 100)} / {R(F, 1, D)} · 생물량 {R(Bm, 1, 100)} / {R(Bm, 1, D)}"));
+        }
+        return 0;
+    }
+
+    // 몸 꼴 손익(SHAPE): 생물량 큰 덩이 종 셋을 제 칸에서 가지·각 유전자만 바꿔 다시 잰다. 실이 아닌 꼴이 왜 지는지(나눔·가라앉기·바이러스·먹힘)
+    static void Shapes(Planet pl)
+    {
+        foreach (var st in pl.alive.Where(s => s.t.MeanCells >= 2).OrderByDescending(s => s.total).Take(3))
+        {
+            int vb = Enumerable.Range(0, pl.V).OrderByDescending(v => pl.B[st.slot * pl.V + v]).First(), si = st.slot * pl.V + vb; double lim = pl.limA[si] > 0 ? pl.limA[si] : 1;
+            Console.WriteLine($"꼴 손익: 종 {st.species} 칸 {vb} 세포 {st.t.MeanCells:0.0} 가지 {st.g[G.BRANCH]:0.00} 각 {st.g[G.ANGLE]:0.00} 자원몫 {lim:0.00}");
+            foreach (float br in new[] { 0.3f, 0.6f, 0.9f, 1f }) foreach (float an in new[] { 0.05f, 0.2f, 0.5f })
+            {
+                var g = (float[])st.g.Clone(); g[G.BRANCH] = br; g[G.ANGLE] = an; var t = Traits.Of(g); var b = Body.Of(g, t);
+                var e = pl.EnvAt(vb); double vm = pl.VirusMort(t, b, vb); var r = Cell.Grow(t, b, e, pl.Intake(t, b, vb, st.slot), vm);
+                double rr = t.dCell / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * rr * rr / 1e-3 * 86400 / (t.elong * b.share) * (1 - t.Sat(G.MOT, 0.01));
+                Console.WriteLine($"   가지 {br:0.0} 각 {an:0.00} | 차원 {b.dim:0.0} 나눔 {b.share:0.00} 바깥 {b.exposed:0.00} 크기 {b.size:0} μm | 가라앉기 {w:0.00} m/일 | 자람 {r.g:+0.000;-0.000} 죽음 {r.mort:0.000}(바이러스 {vm:0.000}) 먹힘 {pl.Eaten(t, b, vb, st.slot):0.000} → 적합 {pl.Fit(t, b, vb, st.slot, lim):+0.000;-0.000}");
+            }
+        }
+    }
+
+    // 몸 꼴 분포(살아 있는 종, 생물량 가중): 단세포 구균·막대·긴 막대, 덩이 실·판·덩어리. 모양 유전자(길쭉함·가지·각) 범위
+    static void Forms(Planet pl)
+    {
+        var w = new double[7]; var sh = new double[7]; string[] nm = { "단세포 공 a<1.3", "단세포 막대 1.3–3", "단세포 긴 막대 >3", "작은 덩이 2–7세포", "덩이 실 차원<1.5", "덩이 판 1.5–2.3", "덩이 덩어리 >2.3" };
+        float aMin = 9, aMax = -9, bMin = 9, bMax = -9, nMin = 9, nMax = -9; double tot = 0;
+        foreach (var sp in pl.species)
+        {
+            if (!sp.Alive || sp.rep < 0 || pl.strains[sp.rep] == null) continue; var st = pl.strains[sp.rep]; double m = Math.Max(0, sp.biomass); tot += m;
+            int k = st.t.MeanCells < 2 ? (st.t.aspect < 1.3 ? 0 : st.t.aspect < 3 ? 1 : 2) : st.t.MeanCells < 8 ? 3 : (st.b.dim < 1.5 ? 4 : st.b.dim < 2.3 ? 5 : 6);
+            w[k] += m; sh[k] += m * st.b.share; aMin = Math.Min(aMin, st.g[G.ASPECT]); aMax = Math.Max(aMax, st.g[G.ASPECT]); bMin = Math.Min(bMin, st.g[G.BRANCH]); bMax = Math.Max(bMax, st.g[G.BRANCH]); nMin = Math.Min(nMin, st.g[G.ANGLE]); nMax = Math.Max(nMax, st.g[G.ANGLE]);
+        }
+        Console.WriteLine("몸 꼴(생물량 몫): " + string.Join(" · ", Enumerable.Range(0, 7).Select(k => $"{nm[k]} {w[k] / Math.Max(1e-30, tot):P0}" + (w[k] > 0 ? $"(나눔 {sh[k] / w[k]:0.00})" : ""))) + $" | 유전자 범위 길쭉함 {aMin:0.00}–{aMax:0.00} 가지 {bMin:0.00}–{bMax:0.00} 각 {nMin:0.00}–{nMax:0.00}");
+    }
+
     static void Say(string what, bool ok, string detail) => Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what} — {detail}");
 }

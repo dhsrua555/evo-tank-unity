@@ -11,7 +11,7 @@ namespace Tank
     public sealed partial class Tank
     {
         Font font, fontB;
-        GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sTiny;
+        GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sBC, sTiny, sWrapL;
         const float INFO_H = 380, INFO_S = 236;   // 정보 판: 자세히(단백질 배분·조상) / 기본(접힘) — 기본이 작아야 좁은 화면에서 종 목록이 눌리지 않는다
         bool showGraph = true, showTree, showEv, sortNew, infoMore;
         string search = "", muText = "1";
@@ -32,8 +32,8 @@ namespace Tank
             sBtn = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12 };
             sOn = new GUIStyle(sBtn) { font = fontB, normal = { textColor = new Color(1, 0.85f, 0.4f), background = sBtn.active.background } };
             sField = new GUIStyle(GUI.skin.textField) { font = font, fontSize = 13 };
-            sR = new GUIStyle(sL) { richText = true }; sSR = new GUIStyle(sS) { richText = true, normal = { textColor = fg } }; sWrap = new GUIStyle(sS) { wordWrap = true };
-            sSC = new GUIStyle(sS) { alignment = TextAnchor.UpperCenter }; sTiny = new GUIStyle(sBtn) { fontSize = 9, padding = new RectOffset(0, 0, 0, 0) };
+            sR = new GUIStyle(sL) { richText = true }; sSR = new GUIStyle(sS) { richText = true, normal = { textColor = fg } }; sWrap = new GUIStyle(sS) { wordWrap = true }; sWrapL = new GUIStyle(sWrap) { normal = { textColor = new Color(0.8f, 0.83f, 0.86f) } };
+            sSC = new GUIStyle(sS) { alignment = TextAnchor.UpperCenter }; sBC = new GUIStyle(sB) { alignment = TextAnchor.UpperCenter }; sTiny = new GUIStyle(sBtn) { fontSize = 9, padding = new RectOffset(0, 0, 0, 0) };
         }
 
         void OnGUI()
@@ -41,6 +41,9 @@ namespace Tank
             if (snap == null) return;
             Styles();
             GUI.matrix = Matrix4x4.Scale(new Vector3(Draw.ui, Draw.ui, 1));
+            if (run.ffDays > 0) { CatchUp(); return; }
+            var ev0 = UnityEngine.Event.current;
+            if (showEv && (ev0.isMouse || ev0.type == EventType.ScrollWheel) && evR.Contains(ev0.mousePosition)) { EventMenu(); return; }   // 메뉴가 맨 위에 뜨므로 그 안의 누름은 메뉴만 받는다(밑의 지도·목록이 가로채지 않게)
             if (UnityEngine.Event.current.type == EventType.Repaint)
             {
                 Draw.Begin();
@@ -58,12 +61,55 @@ namespace Tank
             if (showGraph) GraphText(graphR);
             if (showTree) TreeGui();
             if (!showTree) Ticker();
-            if (run.ffDays > 0) GUI.Label(new Rect(W / 2 - 150, H / 2 - 15, 300, 30), $"멈춘 동안 못 간 날 따라잡는 중 · {run.ffDays:0}일 남음", sB);
+            if (showEv) EventMenu();
+            if (Time.unscaledTime < noteUntil) GUI.Label(new Rect((W - panelW) / 2 - 200, topH + 8, 400, 20), note, sSC);   // 물속 화면 가운데 위
+        }
+
+        // ── 사건 메뉴: 일으킬 사건과 그 효과, 지금 남은 효과, 인 공급 손잡이, 새 지구 ──
+        Rect evR;
+        void EventMenu()
+        {
+            var r = evR; var K = Planet.KINDS;
+            if (UnityEngine.Event.current.type == EventType.Repaint) { Fill(r, new Color(0.03f, 0.05f, 0.09f, 0.97f)); Fill(new Rect(r.x, r.y, r.width, 1), EDGE); Fill(new Rect(r.x, r.yMax - 1, r.width, 1), EDGE); }
+            float x = r.x + 8, y = r.y + 6, w = r.width - 16;
+            GUI.Label(new Rect(x, y, w - 60, 20), "자연 사건 · 누르면 크기 10으로 일으킴(저절로도 일어남)", sB);
+            if (GUI.Button(new Rect(r.xMax - 58, y - 2, 50, 24), "닫기", sBtn)) showEv = false;
+            y += 28;
+            for (int k = 0; k < K.Length; k++)
+            {
+                if (GUI.Button(new Rect(x, y + 2, 100, 28), K[k].name, sBtn)) { int kk = k; run.cmds.Enqueue(p => p.Trigger(kk, 10)); showEv = false; }
+                GUI.Label(new Rect(x + 106, y, w - 106, 40), K[k].fx, sWrapL);
+                y += 42;
+            }
+            var fx = snap.fx;
+            GUI.Label(new Rect(x, y, w, 34), "지금 남은 효과: " + (fx == null || fx.Length == 0 ? "없음" : string.Join(" · ", fx)), sWrapL); y += 36;
+            double ph = run.pl.knobs.phosphate;
+            GUI.Label(new Rect(x, y, 130, 20), $"인 공급(풍화) ×{ph:0.0#}", sL);
+            float lp = GUI.HorizontalSlider(new Rect(x + 134, y + 5, 130, 12), (float)Math.Log10(ph), -1, 1);
+            if (Math.Abs(lp - Math.Log10(ph)) > 1e-3) { double p2 = Math.Round(Math.Pow(10, lp), 2); run.cmds.Enqueue(p => p.knobs.phosphate = p2); run.pl.knobs.phosphate = p2; }
+            GUI.Label(new Rect(x + 272, y, w - 272, 20), "인이 광합성을 막을 때만 듣는다", sS); y += 22;
+            GUI.Label(new Rect(x, y, w, 30), $"지금 광합성을 막는 것: {snap.lim} — 인이 크면 인 공급↑, 질소·인이면 바다 뒤집힘이 광합성을 늘림", sWrapL); y += 34;
+            GUI.Label(new Rect(x, y, w, 30), "산소는 잘 안 바뀜: 광합성이 늘면 그 유기물을 태우는 호흡·분해도 같이 늘어난다. 산소는 유기물·황철석이 묻히는 만큼만 쌓인다(실제 지구도 수백만 년).", sWrap); y += 34;
+            // 새 지구: 한 번 누르면 묻고, 4초 안에 다시 누르면 지금 지구를 지우고 처음부터
+            bool ask = Time.unscaledTime - askNew < 4;
+            if (GUI.Button(new Rect(x, y, 130, 26), ask ? "정말? 한 번 더" : "새 지구로 시작", ask ? sOn : sBtn)) { if (ask) NewEarth(); else askNew = Time.unscaledTime; }
+        }
+
+        // 따라잡는 동안: 물속·판을 그리지 않고(그 CPU를 시뮬레이션에) 진행만 보인다. 그만두면 남은 날은 건너뛴다
+        void CatchUp()
+        {
+            if (UnityEngine.Event.current.type == EventType.Repaint) { Draw.Begin(); Draw.Rect(0, 0, W, H, new Color(0.02f, 0.04f, 0.07f, 1)); Draw.End(); }
+            double r = Math.Max(0.1, snap.rate), left = run.ffDays;
+            string eta = left / r < 90 ? $"{left / r:0}초" : $"{left / r / 60:0}분";
+            GUI.Label(new Rect(W / 2 - 200, H / 2 - 50, 400, 24), "멈춘 동안 못 간 날을 따라잡는 중", sBC);
+            GUI.Label(new Rect(W / 2 - 200, H / 2 - 22, 400, 20), $"{left:0}일 남음 · 초당 {r:0}일 · 약 {eta} · 지금 {snap.day:0}일째, 산소 {snap.O2:0.###} PAL, {snap.T:0.0} °C", sSC);
+            if (GUI.Button(new Rect(W / 2 - 70, H / 2 + 8, 140, 26), "그만 따라잡기", sBtn)) run.ffDays = 0;
         }
 
         // ── 윗줄 ──
         static readonly double[] SPEEDS = { -1, 1, 10, 100, 0 };
         static readonly string[] SPN = { "멈춤", "1일/초", "10", "100", "최대" };
+        float askNew = -9;
         void TopBar()
         {
             var s = snap; double yr = s.day / 365;
@@ -77,22 +123,18 @@ namespace Tank
             }
             x += 14;
             GUI.Label(new Rect(x, y, 66, 20), "돌연변이율", sL); x += 66;
-            double mu = run.pl.knobs.mu; float lg = GUI.HorizontalSlider(new Rect(x, y + 5, 110 - 50 * tight, 12), (float)Math.Log10(mu), -4, 0); x += 116 - 50 * tight;
+            double mu = run.pl.knobs.mu; float lg = GUI.HorizontalSlider(new Rect(x, y + 5, 110 - 50 * tight, 12), (float)Math.Log10(mu), -4, 1); x += 116 - 50 * tight;
             if (Math.Abs(lg - Math.Log10(mu)) > 1e-4) { mu = Math.Pow(10, lg); SetMu(mu); muText = mu.ToString("0.####"); }
             string nt = GUI.TextField(new Rect(x, y, 56, 19), muText, sField); x += 62;
-            if (nt != muText) { muText = nt; if (double.TryParse(nt, out double m) && m > 0) SetMu(Math.Min(1, m)); }
+            if (nt != muText) { muText = nt; if (double.TryParse(nt, out double m) && m > 0) SetMu(Math.Min(10, m)); }
             x += 10;
             GUI.Label(new Rect(x, y, 52, 20), "사건 빈도", sL); x += 56;
             float er = GUI.HorizontalSlider(new Rect(x, y + 5, 80 - 30 * tight, 12), (float)run.pl.knobs.eventRate, 0, 5); x += 84 - 30 * tight;
             if (Math.Abs(er - run.pl.knobs.eventRate) > 1e-3) { double e2 = Math.Round(er, 1); run.cmds.Enqueue(p => p.knobs.eventRate = e2); }
             GUI.Label(new Rect(x, y, 34, 20), $"×{run.pl.knobs.eventRate:0.0}", sS); x += 36;
-            if (GUI.Button(new Rect(x, y, 64, 19), "사건 ▾", showEv ? sOn : sBtn)) showEv = !showEv; x += 70;
-            if (showEv)
-            {
-                string[] ev = { "화산 대분출", "소행성 충돌", "빙하기", "열수공 이동" };
-                for (int k = 0; k < 4; k++)
-                    if (GUI.Button(new Rect(x - 70, topH + 4 + k * 22, 100, 20), ev[k], sBtn)) { int kk = k; run.cmds.Enqueue(p => p.Trigger(kk, 10)); showEv = false; }
-            }
+            if (GUI.Button(new Rect(x, y, 64, 19), "사건 ▼", showEv ? sOn : sBtn)) showEv = !showEv;
+            float ew = Mathf.Min(460, W - 8); evR = new Rect(Mathf.Clamp(x + 64 - ew, 4, W - ew - 4), topH + 2, ew, 34 + Planet.KINDS.Length * 42 + 164);
+            x += 70;
             // 오른쪽 끝에 붙이되 사건 단추를 덮지 않는다. 그래도 넘치면(세로 화면·휴대폰) 윗줄 오른쪽으로 올리고 상태 글자를 그만큼 줄인다
             bool up = Mathf.Max(x, W - 170) + 164 > W - 4;
             float xr = up ? W - 174 : Mathf.Max(x, W - 170), yb = up ? 2 : y;
@@ -130,7 +172,8 @@ namespace Tank
                     rows.Add((0, g.Key));
                     if (open.Contains(g.Key)) foreach (int i in g.OrderBy(key)) rows.Add((1, i));
                 }
-            float rh = 21, inner = rows.Count * rh; listWant = y - r.y + inner + 8;
+            float rh = Application.isMobilePlatform ? 26 : 21, inner = rows.Count * rh; listWant = y - r.y + inner + 8;
+            DragScroll(1, new Rect(r.x, y, r.width, r.yMax - y), ref listScroll.y, inner - (r.yMax - y));
             listScroll = GUI.BeginScrollView(new Rect(r.x, y, r.width, r.yMax - y), listScroll, new Rect(0, 0, r.width - 16, inner));
             float top = listScroll.y - rh, bot = listScroll.y + (r.yMax - y);
             for (int k = 0; k < rows.Count; k++)
@@ -140,19 +183,33 @@ namespace Tank
                 if (kind == 0)
                 {
                     var members = cl.First(g => g.Key == id); int big = members.OrderBy(i => -s.sp[i].biomass).First();
-                    Swatch(new Rect(8, yy + 5, 10, 10), s.sp[big]);
-                    string mark = open.Contains(id) ? "▾" : "▸";
+                    Swatch(new Rect(8, yy + rh / 2 - 5, 10, 10), s.sp[big]);
+                    string mark = open.Contains(id) ? "▼" : "▶";
                     if (GUI.Button(new Rect(22, yy, r.width - 40, rh - 1), $"{mark} {s.clades[id].name}  ·  {members.Count()}종  ·  {Draw.Mass(members.Sum(i => s.sp[i].biomass))}", sL)) { if (!open.Remove(id)) open.Add(id); }
                 }
                 else
                 {
                     var sp = s.sp[id];
                     if (id == sel) { GUI.color = new Color(1, 1, 1, 0.12f); GUI.DrawTexture(new Rect(0, yy, r.width, rh), Texture2D.whiteTexture); GUI.color = Color.white; }
-                    Swatch(new Rect(26, yy + 5, 10, 10), sp);
+                    Swatch(new Rect(26, yy + rh / 2 - 5, 10, 10), sp);
                     if (GUI.Button(new Rect(40, yy, r.width - 58, rh - 1), $"{sp.name}  <size=11><color=#9aa3ad>{Draw.RoleName[(int)sp.role]} · {Draw.Mass(sp.biomass)}</color></size>", sR)) Focus(id);
                 }
             }
             GUI.EndScrollView();
+        }
+        // 손가락(마우스)으로 끌어 넘기기: IMGUI 스크롤 뷰는 터치 끌기를 모른다. 판 안에서 누른 채 8 단위 넘게 움직이면 넘기기로 보고 단추 누름을 취소한다
+        Vector2 dragAt; float dragFrom; int dragKey = -1; bool dragMoved;
+        void DragScroll(int key, Rect area, ref float scroll, float max)
+        {
+            var e = UnityEngine.Event.current;
+            if (e.type == EventType.MouseDown && area.Contains(e.mousePosition)) { dragKey = key; dragAt = e.mousePosition; dragFrom = scroll; dragMoved = false; }
+            else if (e.type == EventType.MouseDrag && dragKey == key)
+            {
+                float dy = e.mousePosition.y - dragAt.y;
+                if (!dragMoved && Mathf.Abs(dy) > 8) { dragMoved = true; GUIUtility.hotControl = 0; }   // 누르던 단추를 놓게 한다(손을 떼도 안 눌림)
+                if (dragMoved) { scroll = Mathf.Clamp(dragFrom - dy, 0, Mathf.Max(0, max)); e.Use(); }
+            }
+            else if (e.type == EventType.MouseUp && dragKey == key) { dragKey = -1; if (dragMoved) e.Use(); }
         }
         void Swatch(Rect r, SpView s) { if (s.t == null) return; GUI.color = Draw.Of(s.t, s.id); GUI.DrawTexture(r, Texture2D.whiteTexture); GUI.color = Color.white; }
 
@@ -162,9 +219,9 @@ namespace Tank
         {
             Glass(r);
             var s = snap.sp[sel]; if (s.t == null) return;
-            bodyBox = new Rect(r.xMax - 124, r.y + 10, 114, 114);
+            bodyBox = new Rect(r.xMax - 106, r.y + 34, 96, 96);   // 위 오른쪽 구석은 닫기 단추 자리
             Draw.Rect(bodyBox.x, bodyBox.y, bodyBox.width, bodyBox.height, new Color(0.04f, 0.06f, 0.1f));
-            Draw.Body(Draw.ShapeOf(s.body, s.t), bodyBox.center.x, bodyBox.center.y, 50, Time.time * 0.1f, Draw.Of(s.t, s.id), 1);
+            Draw.Body(Draw.ShapeOf(s.body, s.t), bodyBox.center.x, bodyBox.center.y, 42, Time.time * 0.1f, Draw.Of(s.t, s.id), 1);
             // 수입 막대
             float bx = r.x + 10, by = r.y + 164, bw = r.width - 20; double sum = s.income.Sum();
             Color[] ic = { new Color(0.3f, 0.8f, 0.4f), new Color(0.98f, 0.6f, 0.2f), new Color(0.95f, 0.28f, 0.3f), new Color(0.75f, 0.6f, 0.4f), new Color(0.8f, 0.8f, 0.78f) };
@@ -177,8 +234,8 @@ namespace Tank
         void Info(Rect r)
         {
             var s = snap.sp[sel]; if (s.t == null) return;
-            if (GUI.Button(new Rect(r.xMax - 22, r.y + 2, 20, 18), "×", sS)) { sel = -1; return; }
-            float x = r.x + 10, y = r.y + 8, w = r.width - 150;
+            if (GUI.Button(new Rect(r.xMax - 66, r.y + 4, 58, 26), "닫기 ×", sBtn)) { sel = -1; return; }
+            float x = r.x + 10, y = r.y + 8, w = r.width - 126;
             GUI.Label(new Rect(x, y, w, 20), s.name, sB); y += 20;
             GUI.Label(new Rect(x, y, w, 18), $"{snap.clades[s.clade].name} · {(s.Alive ? $"{s.born}일에 나옴" : $"{s.born}–{s.died}일 (멸종)")}", sS); y += 18;
             GUI.Label(new Rect(x, y, w, 18), $"하는 일: {Draw.RoleName[(int)s.role]}", sL); y += 18;
@@ -195,7 +252,7 @@ namespace Tank
             if (es > 0) GUI.Label(new Rect(x, y, r.width - 20, 16), $"에너지를 어디서: 빛 {s.energy[0] / es:P0} · 화학 {s.energy[1] / es:P0} · 유기물 태우기 {s.energy[2] / es:P0}", sS);
             y += 18;
             GUI.Label(new Rect(x, y, r.width - 20, 16), $"산소 호흡 {s.t.Sat(G.RESP, 0.02):P0} · 항산화 {s.t.Sat(G.SOD, 0.005):P0} · 세포벽 {s.t.Sat(G.WALL, 0.02):P0} · 편모 {s.t.Sat(G.MOT, 0.01):P0}", sS); y += 18;
-            if (GUI.Button(new Rect(r.xMax - 74, r.y + 214, 64, 18), infoMore ? "접기 ▴" : "자세히 ▾", sBtn)) infoMore = !infoMore;
+            if (GUI.Button(new Rect(r.xMax - 74, r.y + 214, 64, 18), infoMore ? "접기 ▲" : "자세히 ▼", sBtn)) infoMore = !infoMore;
             if (!infoMore) return;
             GUI.Label(new Rect(x, r.y + 216, r.width - 20, 16), "단백질 배분", sS);
             var top = Enumerable.Range(0, G.NA).OrderBy(i => -s.t.phi[i]).Take(7).ToArray();
@@ -277,11 +334,12 @@ namespace Tank
             TreeLayout();
             var R = TreeRect; float rh = TreeRh, y0 = R.y + 28 - treeScroll, now = (float)Math.Max(1, snap.day), x0 = R.x + 10, w = R.width - 160;
             GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 180, 20), R.width < 560 ? $"계통수 · 종 {snap.sp.Length} · 살아 있음 {snap.alive.Length}" : $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 † = 멸종 · 누르면 그 종 정보", sB);   // 좁으면 짧게
-            if (GUI.Button(new Rect(R.xMax - 140, R.y + 4, 104, 20), "멸종 곁가지도", treeAll ? sOn : sBtn)) { treeAll = !treeAll; treeScroll = 0; }
-            if (GUI.Button(new Rect(R.xMax - 30, R.y + 4, 24, 20), "×", sBtn)) showTree = false;
+            if (GUI.Button(new Rect(R.xMax - 172, R.y + 3, 104, 24), "멸종 곁가지도", treeAll ? sOn : sBtn)) { treeAll = !treeAll; treeScroll = 0; }
+            if (GUI.Button(new Rect(R.xMax - 64, R.y + 3, 58, 24), "닫기 ×", sBtn)) showTree = false;
+            DragScroll(2, new Rect(R.x, R.y + 28, R.width, R.height - 28), ref treeScroll, treeN * rh - R.height + 40);
             var ev = UnityEngine.Event.current;
             if (ev.type == EventType.ScrollWheel && R.Contains(ev.mousePosition)) { treeScroll = Mathf.Clamp(treeScroll + ev.delta.y * 20, 0, Mathf.Max(0, treeN * rh - R.height + 40)); ev.Use(); }
-            if (ev.type == EventType.MouseDown && R.Contains(ev.mousePosition) && ev.mousePosition.y > R.y + 24)
+            if (ev.type == EventType.MouseUp && R.Contains(ev.mousePosition) && ev.mousePosition.y > R.y + 28)
             {
                 int row = (int)((ev.mousePosition.y - y0) / rh);
                 for (int i = 0; i < snap.sp.Length; i++) if (treeRow[i] == row) { sel = i; break; }

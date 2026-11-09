@@ -59,8 +59,9 @@ namespace Life
             Sink(pool[P.FE3], 0, Cfg.FE3_SINK);
             foreach (var s in Live())
             {
-                double r = s.b.size / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * r * r / 1.0e-3 * 86400 * (1 - s.t.Sat(G.MOT, 0.01));   // Stokes(m/일)
-                if (s.t.nA > 1) w *= 0.5;   // 덩이는 구멍이 많아 덜 가라앉는다
+                // Stokes: 무게(세포 부피 합) ÷ 끌림(몸의 끌림 반지름) → 세포 하나 값 ÷ (길쭉함 × 나눠 쓰는 몫). 곧은 실 65세포는 홀로 있는 세포의 약 5배, 같은 수의 덩어리는 약 14배
+                // (예전엔 몸 길이를 공 지름으로 써서 실이 수천 배 빨리 가라앉았다)
+                double r = s.t.dCell / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * r * r / 1.0e-3 * 86400 / (s.t.elong * s.b.share) * (1 - s.t.Sat(G.MOT, 0.01));   // m/일
                 if (w > 0.01) Sink(B, s.slot * V, w);
             }
         }
@@ -160,7 +161,7 @@ namespace Life
             // 황산(화산 SO2가 비로) · 풍화 인: 바다 표층에 넓이 비례로
             double seaA = 0; for (int r = 0; r < NR; r++) if (kind[r] == 0) seaA += area[r];
             double land = 0; for (int r = 0; r < NR; r++) if (kind[r] == 2) land += area[r];
-            double w = land / Math.Max(1, seaA + land) / 0.05 * Math.Exp((Tglobal - 15) / 13) * Math.Sqrt(Math.Max(0.01, CO2PAL)) * knobs.phosphate;
+            double w = land / Math.Max(1, seaA + land) / 0.05 * Math.Exp((Tglobal - 15) / 13) * Math.Sqrt(Math.Max(0.01, CO2PAL)) * knobs.phosphate * weatherMul;   // weatherMul: 산맥 솟음 사건(09)
             double pIn = Cfg.WEATHER_P * w * dt, so4 = Cfg.VOLC_SO4 * volc + sulfurPulse; sulfurPulse = 0;
             // 산화 풍화: 속도 ∝ O2^0.5(황철석 Williamson & Rimstidt 1994 [DO]^0.5). 1 PAL이면 드러난 만큼 다 녹는다(침식 한계, 유기 탄소는 O2가 낮을 때만 O2 율속 — Bolton 2006).
             // 탄소는 CO2로 대기에, 황은 황산으로 바다에, 철은 산화철로 땅에 남는다. 산소: C 하나에 O2 1, 황철석 S 하나에 O2 15/8

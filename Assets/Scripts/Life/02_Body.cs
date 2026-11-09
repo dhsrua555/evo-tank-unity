@@ -16,6 +16,8 @@ namespace Life
         public double exposed;                   // 겉에 드러난 세포 비율(빛·영양을 바로 받는 몫)
         public double dim;                       // 배치의 프랙털 차원(1 실 · 2 판 · 3 덩이)
         public double feed;                      // 먹을 때의 크기(μm): 분화 없는 덩이는 세포 하나씩 삼키고(세포 크기), 분화할수록 몸 전체로 잡는다(입·소화 공간)
+        public double share;                     // 나눠 쓰는 몫: 몸 전체의 확산·끌림 반지름 ÷ (세포 수 × 세포 반지름). 홀로 있는 세포 1, 붙을수록 이웃과 같은 물을 나눠 작아진다.
+                                                 // 영양 흡수의 확산 상한(05)과 가라앉는 속도(04)에 같이 쓴다: 실은 세포마다 물에 닿아 덩이보다 덜 나눠 쓰고, 덜 가라앉는다
 
         public static Body Of(float[] g, Traits t)
         {
@@ -42,6 +44,18 @@ namespace Life
             double exN = (double)outer / N;
             double cl = t.dCell * Math.Cbrt(t.aspect); b.feed = cl * Math.Pow(b.size / cl, t.diff);
             b.exposed = mean <= N ? exN : Math.Min(1, exN * Math.Pow(N / mean, 1 - 1 / b.dim));   // 큰 덩이일수록 속 세포가 많다(실은 그대로)
+            // 확산·끌림 반지름: Kirkwood 근사 1/C = (1/m²)(m/r + Σ_{i≠j} 1/d_ij) — 공 하나면 r, 맞닿은 둘이면 1.33 r(정확한 값 1.39 r), 곧은 실 m개면 ≈ m·r/(1 + ln m).
+            // 확산 포집 반지름과 Stokes 끌림 반지름이 거의 같다(Hubbard & Douglas 1993). 배치 밖으로 큰 덩이는 차원 법칙으로 늘린다
+            double rc = t.dCell / 2; var inv = new double[N + 1];   // inv[m] = Σ_{i<j<m} 1/d_ij
+            for (int j = 1; j < N; j++)
+            {
+                double sum = 0; var cj = b.cells[j];
+                for (int i = 0; i < j; i++) { double dx = cj.x - b.cells[i].x, dy = cj.y - b.cells[i].y, dz = cj.z - b.cells[i].z; sum += 1 / Math.Max(rc, Math.Sqrt(dx * dx + dy * dy + dz * dz)); }
+                inv[j + 1] = inv[j] + sum;
+            }
+            double Cap(int m) => (double)m * m / (m / rc + 2 * inv[m]);
+            double cap = mean <= N ? Cap(m0) + (Cap(m1) - Cap(m0)) * Math.Clamp(mean - m0, 0, 1) : Cap(N) * Math.Pow(mean / N, 1 / b.dim);
+            b.share = Math.Min(1, cap / (mean * rc));
             return b;
         }
 

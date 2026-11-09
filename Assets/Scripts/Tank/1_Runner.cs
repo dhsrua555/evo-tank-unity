@@ -1,6 +1,7 @@
 // 1단계 — 시뮬레이션 스레드. 화면(메인 스레드)과 따로 돌아서 창을 내리거나 다른 작업 공간에 있어도 계속 간다.
 // 화면은 잠금 없이 '사진'(Snap)만 읽는다. 화면에서 바꾸는 것(손잡이·사건)은 cmds 줄에 넣으면 틱 사이에 처리한다.
-// 태블릿: 앱이 멈춰 있던 동안 못 간 날을 다시 열 때 최대 속도로 따라잡는다(ffDays).
+// 태블릿: 앱이 멈춰 있던 동안 못 간 날을 다시 열 때 최대 속도로 따라잡는다(ffDays). 따라잡는 동안은 코어를 다 쓰고 사진을 1초에 한 번만 찍는다(화면도 3D를 멈춘다).
+// 자동 저장: 2분마다(실제 시간) 행성 전체를 savePath에 쓴다(Life/11_Save). 앱을 내리거나 끌 때도 화면 쪽이 SaveNow를 부른다.
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -33,6 +34,8 @@ namespace Tank
         public Clade[] clades;
         public float[] vO2, vH2S, vFe2, vLight, vT, vPOC; // 칸별 화학(μM)·빛·수온(°C)·사체 입자(μM C, 바다눈)
         public float[] ice, ventMul;
+        public string[] fx;                     // 지금 남은 사건 효과(한 줄씩)
+        public string lim;                      // 어제 광합성을 막은 것(Planet.PhotoLimits)
     }
 
     public sealed class Runner
@@ -42,6 +45,8 @@ namespace Tank
         public double speed;                    // 목표 속도(일/초), 0 = 최대
         public volatile bool paused;
         public double ffDays;                   // 따라잡을 날(최대 속도로)
+        public readonly string savePath;        // null = 저장 안 함(시드·사진 시험 실행)
+        const double SAVE_EVERY = 120;          // 자동 저장 간격(초, 실제 시간)
         public readonly ConcurrentQueue<Action<Planet>> cmds = new();
         public readonly ConcurrentQueue<DayStat> days = new();
         public readonly ConcurrentQueue<Event> news = new();
@@ -49,10 +54,9 @@ namespace Tank
         SpView[] cache = new SpView[0];
         int nDays, nEv;
 
-        public Runner(int seed)
+        public Runner(Planet pl, string savePath)
         {
-            pl = new Planet(seed);
-            pl.po.MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2);
+            this.pl = pl; this.savePath = savePath;
             MakeSnap(0);
             th = new Thread(Loop) { IsBackground = true, Name = "life" };
             th.Start();
@@ -60,14 +64,27 @@ namespace Tank
 
         public void Stop() { stop = true; th.Join(2000); }
 
+        // 앱이 내려가 있거나 꺼져 있던 동안 따라잡을 속도(일/초): 정한 속도, '최대'면 지금 잰 속도, 멈춤이면 0
+        public double CatchRate => paused ? 0 : speed > 0 ? speed : Math.Max(1, snap?.rate ?? 1);
+
+        // 틱 사이에만 쓴다(gate): 시뮬레이션 스레드의 자동 저장, 화면 스레드의 '내릴 때·끌 때' 저장 둘 다
+        public void SaveNow()
+        {
+            if (savePath == null) return;
+            try { var sw = Stopwatch.StartNew(); lock (pl.gate) Save.Write(pl, savePath, CatchRate); UnityEngine.Debug.Log($"[EvoTank] 저장 {pl.Day:0}일 · {sw.ElapsedMilliseconds} ms"); }
+            catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 저장 실패: " + e.Message); }
+        }
+
         void Loop()
         {
-            var sw = Stopwatch.StartNew(); double t0 = 0, d0 = pl.Day, lastSnap = 0, rate = 0, rT = 0, rD = pl.Day;
+            var sw = Stopwatch.StartNew(); double t0 = 0, d0 = pl.Day, lastSnap = 0, rate = 0, rT = 0, rD = pl.Day, lastSave = 0, savedDay = pl.Day;
             while (!stop)
             {
-                while (cmds.TryDequeue(out var a)) a(pl);
+                if (!cmds.IsEmpty) lock (pl.gate) while (cmds.TryDequeue(out var a)) a(pl);
                 double now = sw.Elapsed.TotalSeconds;
+                if (savePath != null && now - lastSave > SAVE_EVERY && pl.Day != savedDay) { SaveNow(); lastSave = now; savedDay = pl.Day; }
                 bool ff = ffDays > 0;
+                pl.po.MaxDegreeOfParallelism = ff ? Environment.ProcessorCount : Math.Max(1, Environment.ProcessorCount - 2);   // 평소엔 화면 몫으로 둘을 남긴다
                 if (paused && !ff) { Thread.Sleep(30); if (now - lastSnap > 0.3) { MakeSnap(rate = 0); lastSnap = now; } t0 = now; d0 = pl.Day; continue; }
                 // 목표 속도보다 앞서면 쉰다
                 if (!ff && speed > 0 && pl.Day - d0 > (now - t0) * speed) { Thread.Sleep(5); continue; }
@@ -79,7 +96,7 @@ namespace Tank
                 while (nDays < pl.history.Count) days.Enqueue(pl.history[nDays++]);
                 while (nEv < pl.events.Count) news.Enqueue(pl.events[nEv++]);
                 if (now - rT > 1) { rate = (pl.Day - rD) / (now - rT); rT = now; rD = pl.Day; }
-                if (now - lastSnap > 0.15) { MakeSnap(rate); lastSnap = now; }
+                if (now - lastSnap > (ff ? 1 : 0.15)) { MakeSnap(rate); lastSnap = now; }
             }
         }
 
@@ -128,6 +145,7 @@ namespace Tank
             for (int v = 0; v < V; v++) { s.vO2[v] = (float)p.pool[P.O2][v]; s.vH2S[v] = (float)p.pool[P.H2S][v]; s.vFe2[v] = (float)p.pool[P.FE2][v]; s.vLight[v] = (float)p.light[v]; s.vT[v] = (float)p.temp[v]; s.vPOC[v] = (float)(p.pool[P.POC0][v] + p.pool[P.POC1][v] + p.pool[P.POC2][v]); }
             s.ice = p.ice != null ? Array.ConvertAll(p.ice, x => (float)x) : new float[p.NR];
             s.ventMul = Array.ConvertAll(p.ventMul, x => (float)x);
+            s.fx = p.Effects().ToArray(); s.lim = p.PhotoLimits();
             snap = s;
         }
     }

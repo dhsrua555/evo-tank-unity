@@ -3,6 +3,7 @@
 // 목표·적합도 점수는 없다: 그 칸에서 더 빨리 불어나는(덜 죽는) 변이가 남을 뿐이다.
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Life
 {
@@ -29,19 +30,18 @@ namespace Life
         public double Fit(Traits t, Body b, int v, int self, double lim)
         {
             var e = EnvAt(v);
-            double hb = binB[v * 125 + t.vbin], vm = Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K);
-            var r = Cell.Grow(t, b, e, Intake(t, b, v, self), vm);
+            var r = Cell.Grow(t, b, e, Intake(t, b, v, self), VirusMort(t, b, v));
             return Math.Max(0, r.g) * lim + Math.Min(0, r.g) - r.mort - Eaten(t, b, v, self);
         }
 
         // 먹이 섭취(세포 C 1 mol당 /일, 똥 뺀 몫)
         public double Intake(Traits t, Body b, int v, int self)
         {
-            double a = Attack(t, b), E = 0; int mySp = strains[self]?.species ?? -1;
+            double a = Attack(t, b), E = 0, lf = Math.Log10(b.feed), cap = Cfg.PREY_MAX * b.feed; int mySp = strains[self]?.species ?? -1;
             for (int i = 0; i < alive.Count; i++)
             {
-                var s = alive[i]; if (s.slot == self || (s.species == mySp && mySp >= 0)) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
-                E += a * Pref(s.b.size, b.feed, t.lr) * Vul(s.t) * bi;
+                var s = alive[i]; if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.size > cap) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
+                double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * bi;   // = Pref(s.b.size, b.feed, t.lr), 로그는 계통에 둔 값
             }
             for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * pool[P.POC0 + k][v];
             return (1 - Cfg.EGEST) * E / (1 + Cfg.HANDLE / Allo(b) * E);
@@ -50,11 +50,11 @@ namespace Life
         // 먹힘률(/일): 그 칸 포식자들의 지금 섭취 배율로
         public double Eaten(Traits t, Body b, int v, int self)
         {
-            double vul = Vul(t), loss = 0; int mySp = strains[self]?.species ?? -1;
+            double vul = Vul(t), loss = 0, ls = Math.Log10(b.size); int mySp = strains[self]?.species ?? -1;
             for (int j = 0; j < alive.Count; j++)
             {
-                var s = alive[j]; if (s.slot == self || (s.species == mySp && mySp >= 0)) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
-                loss += Attack(s.t, s.b) * Pref(b.size, s.b.feed, s.t.lr) * vul * eatScale[sj] * bj;
+                var s = alive[j]; if (s.slot == self || (s.species == mySp && mySp >= 0) || b.size > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
+                double x = (ls - s.lfeed + s.t.lr) / Cfg.PREY_SD; if (x * x <= 9) loss += s.att * Math.Exp(-0.5 * x * x) * vul * eatScale[sj] * bj;   // = Attack × Pref, 계통에 둔 값으로
             }
             return loss;
         }
@@ -84,32 +84,48 @@ namespace Life
             supply = E;
             if (m == 0 || E <= 0) return;
             if (links == null) BuildLinks();
-            for (int k = 0; k < Cfg.EVAL; k++)
+            // 1) 고르기·돌연변이: 난수는 한 줄로 뽑는다(같은 시드 = 같은 결과)
+            // 돌연변이율이 1을 넘으면 후보를 그만큼 더 뽑는다(최대 10배): 공급이 늘면 같은 변이를 더 많이 세는 게 아니라 다른 변이가 더 많이 생긴다.
+            // 후보 하나가 대표하는 수(per)는 그만큼 줄여 전체 공급(후보 수 × per)은 돌연변이율에 비례한 그대로. 진화 단계 계산도 그 배수만큼 든다
+            double mx = Math.Clamp(knobs.mu, 1, 10); int ne = (int)(Cfg.EVAL * mx);
+            int nc = 0;
+            for (int k = 0; k < ne; k++)
             {
                 double x = rng.U() * E; int lo = 0, hi = m - 1;
                 while (lo < hi) { int mid = (lo + hi) / 2; if (supW[mid] < x) lo = mid + 1; else hi = mid; }
-                int si = supI[lo], slot = si / V, v = si % V; var par = strains[slot]; if (par == null) continue;
-                var g = Genome.Mutate(par.g, ref rng, out int gene);
-                var t = Traits.Of(g);
+                int si = supI[lo], v = si % V; var par = strains[si / V]; if (par == null) continue;
+                ref var c = ref cand[nc++];
+                c.si = si; c.g = Genome.Mutate(par.g, ref rng, out c.gene);
+                c.u = nbr[v].Length > 0 ? nbr[v][(int)(rng.U() * nbr[v].Length)] : -1;
+            }
+            // 2) 부모와 변이체를 같은 식으로 잰다(병렬). 모두 이 틱 시작의 상태로 잰다: 앞 후보가 정착해도 뒤 후보가 보는 이웃은 그대로(한 틱 = 8시간 안의 근사)
+            Parallel.For(0, nc, po, k =>
+            {
+                ref var c = ref cand[k]; int slot = c.si / V, v = c.si % V; var par = strains[slot]; int gene = c.gene;
+                c.t = Traits.Of(c.g);
                 bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH || gene == G.DIFF || gene < G.NA;
-                var body = shape ? Body.Of(g, t) : par.b;
-                double l = limA[si] > 0 ? limA[si] : 1;
-                double rp = Fit(par.t, par.b, v, slot, l), rm = Fit(t, body, v, slot, l);
+                c.body = shape ? Body.Of(c.g, c.t) : par.b;
+                double l = limA[c.si] > 0 ? limA[c.si] : 1;
+                c.rp = Fit(par.t, par.b, v, slot, l); c.rm = Fit(c.t, c.body, v, slot, l);
+                if (c.u >= 0) { int su = slot * V + c.u; double lu = limA[su] > 0 ? limA[su] : 1; c.rpu = Fit(par.t, par.b, c.u, slot, lu); c.rmu = Fit(c.t, c.body, c.u, slot, lu); }
+            });
+            // 3) 정착: 차례대로(난수·계통 칸을 쓴다)
+            // 후보 하나가 대표하는 변이체 수를 10 × 돌연변이율로 묶는다 — 중립 변이가 칸을 다 채우지 않게. 공급이 적을 땐 그대로.
+            // ponytail: 큰 개체군에서는 이 상한이 정착 수를 정하므로 돌연변이율에 비례하게 둔다(그래야 손잡이가 듣는다). 실제로는 클론 간섭으로 비례보다 덜 는다
+            double per = Math.Min(10 * knobs.mu / mx, E / ne);
+            for (int k = 0; k < nc; k++)
+            {
+                ref var c = ref cand[k]; int si = c.si, slot = si / V, v = si % V, gene = c.gene; var par = strains[slot]; var g = c.g; var t = c.t; var body = c.body;
+                double rp = c.rp, rm = c.rm;
                 double gen = Math.Max(0.05, grow[si]);   // 한 세대(1/분열 속도)당 선택 계수
-                double per = Math.Min(10, E / Cfg.EVAL);   // ponytail: 후보 하나가 대표하는 변이체 수를 10으로 묶음 — 중립 변이가 칸을 다 채우지 않게. 공급이 적을 땐 그대로
                 // 그 칸에서 스스로 늘지 못하는(r ≤ 0) 변이는 드물 때 반드시 사라진다(가지치기 과정): 부모가 이웃에서 흘러와 버티는 칸이어도
                 double sc = (rm - rp) / gen, Pk = rm > 0 ? Math.Min(1, Pfix(sc) * per) : 0;
                 // 이웃 칸으로 흘러간 변이체: 부모가 거기서 못 사는데 변이체는 산다면 새 터전을 연다(서식지 넓히기)
                 int dest = v;
-                if (nbr[v].Length > 0)
+                if (c.u >= 0 && c.rmu > 0 && c.rmu > c.rpu)
                 {
-                    int u = nbr[v][(int)(rng.U() * nbr[v].Length)], su = slot * V + u;
-                    double lu = limA[su] > 0 ? limA[su] : 1, rpu = Fit(par.t, par.b, u, slot, lu), rmu = Fit(t, body, u, slot, lu);
-                    if (rmu > 0 && rmu > rpu)
-                    {
-                        double s2 = (rmu - Math.Max(0, rpu)) / Math.Max(0.05, rmu), P2 = Math.Min(1, Pfix(s2) * per * 0.1);   // 흘러간 몫(0.1)만큼 공급이 적다
-                        if (P2 > Pk) { Pk = P2; sc = s2; dest = u; }
-                    }
+                    double s2 = (c.rmu - Math.Max(0, c.rpu)) / Math.Max(0.05, c.rmu), P2 = Math.Min(1, Pfix(s2) * per * 0.1);   // 흘러간 몫(0.1)만큼 공급이 적다
+                    if (P2 > Pk) { Pk = P2; sc = s2; dest = c.u; }
                 }
                 triedToday++;
                 // 표류 장벽: |s| < 1/N 인 변이는 부모와 구별되지 않는다(Lynch). 따로 계통을 만들지 않아야 칸이 쓸모 있는 변이에 남는다
@@ -118,7 +134,7 @@ namespace Life
                 if (gene == G.ADH) { adhDbg[0]++; adhDbg[up ? 1 : 3]++; if (up) adhDbg[5] += sc; }
                 if (rng.U() >= Pk) continue;
                 if (gene == G.ADH) adhDbg[up ? 2 : 4]++;
-                evoDbg[0]++; if ((dest == v ? rm : Fit(t, body, dest, slot, 1)) <= 0) evoDbg[1]++;
+                evoDbg[0]++; if ((dest == v ? rm : c.rmu) <= 0) evoDbg[1]++;
                 var ch = NewStrain(g, slot, gene, t, body); if (ch == null) continue;
                 double f = B[si] * Cfg.FOUND; B[si] -= f; B[ch.slot * V + dest] += f * vol[v] / vol[dest];   // 농도(μM)를 옮기므로 부피 비로(몰 보존)
                 ch.jump = ShapeDist(par, t, body); ch.sel = sc; ch.prev = f * vol[v] * 1e-6;
@@ -126,6 +142,10 @@ namespace Life
                 keptToday++;
             }
         }
+
+        // 후보 하나: 고른 (부모 계통, 칸), 돌연변이 유전체, 흘러갈 이웃 칸(없으면 −1), 부모·변이체의 순증가율(그 칸, 이웃 칸)
+        struct Cand { public int si, u, gene; public float[] g; public Traits t; public Body body; public double rp, rm, rpu, rmu; }
+        [NonSerialized] readonly Cand[] cand = new Cand[Cfg.EVAL * 10];
 
         // 하루 한 번: 너무 적어진 계통을 지우고(남은 몸은 녹은 유기물로), 칸이 모자라면 늘지 않는 계통 중 작은 것부터.
         // 생물권보다 빨리 느는 계통(갓 생긴 좋은 변이 포함)은 칸이 모자라도 남긴다: 작아도 자랄 시간을 준다
