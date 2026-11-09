@@ -32,7 +32,7 @@ namespace Life
         public double n0;       // 떨어져 나가는 번식체 세포 수
         public double diff;     // 분화 정도
         public int vbin;        // 바이러스 수용체 칸(5×5×5)
-        public double lr;       // 먹이 크기 선호: log10(먹는 쪽 ÷ 먹이). 0 = 자기만 한 먹이(와편모류), 0.5 = 1/3(작은 편모류), 1.3 = 1/20(걸러 먹기). Hansen 1994
+        public double lr;       // 먹이 크기 선호: log10(먹는 쪽 ÷ 먹이). 0 = 자기만 한 먹이(와편모류), 0.5 = 1/3(작은 편모류), 1.3 = 1/18(요각류), 1.7 = 1/50(지각류·부유 유생 — 걸러 먹는 무리, Hansen 1994의 가장 큰 무리 값이 상한)
 
         public static Traits Of(float[] g)
         {
@@ -53,7 +53,7 @@ namespace Life
             t.nA = Math.Clamp(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), 1, Cfg.CELLS_MAX);
             t.n0 = Math.Max(1, t.nA * 0.5 * g[G.PROP]);
             t.diff = g[G.DIFF];
-            t.lr = 1.3 * g[G.PREY];
+            t.lr = 1.7 * g[G.PREY];
             t.vbin = (int)(g[G.R1] * 4.999) * 25 + (int)(g[G.R2] * 4.999) * 5 + (int)(g[G.R3] * 4.999);
             Cell.Prep(t);
             return t;
@@ -91,7 +91,7 @@ namespace Life
             g[G.EOX] = 0.45f; g[G.SPEC] = 0.2f; g[G.DNR] = 0.1f; g[G.TOPT] = 0.41f; g[G.TW] = 0.6f;
             // 크기 1 μm·조금 길쭉: 첫 공통 조상 크기를 직접 잰 연구는 없다. 유전체 2.5 Mb·단백질 ~2,600개로 지금 원핵생물과 비슷해(Moody 2024) 그 크기를 쓴다
             g[G.SIZE] = 0.13f; g[G.ASPECT] = 0.2f; g[G.BRANCH] = 0.9f; g[G.ANGLE] = 0.2f; g[G.PROP] = 0.5f; g[G.DIFF] = 0;
-            g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f; g[G.PREY] = 0.37f;   // 포식이 생기면 쓸 먹이 크기: 자기의 1/3(작은 편모류 흔한 값, Hansen 1994)
+            g[G.R1] = 0.5f; g[G.R2] = 0.5f; g[G.R3] = 0.5f; g[G.PREY] = 0.28f;   // 포식이 생기면 쓸 먹이 크기: 자기의 1/3(작은 편모류 흔한 값, Hansen 1994)
             return g;
         }
 
