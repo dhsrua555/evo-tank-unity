@@ -406,8 +406,8 @@ static class Program
     // 나노 탐침(NANO=1): 생물량 많은 광합성·분해 계통을 홀세포로 두고 세포 지름만 0.7–12 μm로 바꿔 g·m(바이러스)·e·f를 잰다(1–10 μm 몸이 왜 없는가)
     static void NanoProbe(Planet pl)
     {
-        Console.WriteLine("나노 탐침: 홀세포 지름별 g 성장 · m 죽음(바이러스) · e 먹힘 · f 적합도(/일)");
-        foreach (var role in new[] { Role.광합성, Role.분해 })
+        Console.WriteLine("나노 탐침: 홀세포 지름별 g 성장 · m 죽음(바이러스) · e 먹힘 · s 섭취/최대 · f 적합도(/일)");
+        foreach (var role in new[] { Role.광합성, Role.분해, Role.포식 })
             foreach (var st in pl.alive.Where(s => s.species >= 0 && pl.species[s.species].role == role).OrderByDescending(s => s.total).Take(2))
             {
                 int v = Enumerable.Range(0, pl.NV0).OrderByDescending(x => pl.B[st.slot * pl.V + x]).First();
@@ -415,9 +415,9 @@ static class Program
                 foreach (double d in new[] { 0.7, 1.5, 3, 6, 12 })
                 {
                     var g2 = (float[])st.g.Clone(); g2[G.ADH] = 0; g2[G.SIZE] = (float)(Math.Log(d / 0.5) / Math.Log(200));
-                    var t = Traits.Of(g2); var b = Body.Of(g2, t, false); double vm = pl.VirusMort(t, b, v), e = pl.Eaten(t, b, v, st.slot);
-                    var r = Cell.Grow(t, b, pl.EnvAt(v), pl.Intake(t, b, v, st.slot), vm);
-                    sb.Append($" | {d} μm g {r.g:0.000} m {r.mort:0.000}({vm:0.000}) e {e:0.000} f {r.g - r.mort - e:+0.000;-0.000}");
+                    var t = Traits.Of(g2); var b = Body.Of(g2, t, false); double vm = pl.VirusMort(t, b, v), e = pl.Eaten(t, b, v, st.slot), inn = pl.Intake(t, b, v, st.slot);
+                    var r = Cell.Grow(t, b, pl.EnvAt(v), inn, vm);
+                    sb.Append($" | {d} μm g {r.g:0.000} m {r.mort:0.000}({vm:0.000}) e {e:0.000} s {inn * Cfg.HANDLE / Planet.Allo(t, b) / (1 - Cfg.EGEST):0.00} f {r.g - r.mort - e:+0.000;-0.000}");
                 }
                 Console.WriteLine(sb);
             }
@@ -514,7 +514,7 @@ static class Program
         {
             var ix = Enumerable.Range(0, n).Where(j => Math.Log10(A[j].b.size) >= lo && Math.Log10(A[j].b.size) < lo + 0.5).ToList(); double bb = ix.Sum(j => A[j].total); if (bb <= 0) continue;
             double au = ix.Sum(j => { double inc = auto[j] + dead[j]; for (int i = 0; i < n; i++) inc += F[j, i]; return inc > 0 ? A[j].total * auto[j] / inc : 0; });
-            sb.Append($" {Math.Pow(10, lo):0.#}–{Math.Pow(10, lo + 0.5):0.#}: {bb / bt:P0} {ix.Sum(j => A[j].total * TL[j]) / bb:0.00} {au / bb:P0} ·");
+            sb.Append($" {Math.Pow(10, lo):0.#}–{Math.Pow(10, lo + 0.5):0.#}: {bb / bt:P0} {ix.Sum(j => A[j].total * TL[j]) / bb:0.00} {au / bb:P0} 벽 {ix.Sum(j => A[j].total * A[j].t.Sat(G.WALL, 0.02)) / bb:0.00} ·");
         }
         Console.WriteLine(sb.ToString().TrimEnd('·', ' '));
         // 산소와 먹이 사슬: 칸 O2 구간마다 그 칸에서 먹은 것으로 잰 영양 단계. 무산소 먹이 사슬은 짧고(성장 효율 낮음, Fenchel & Finlay 1990),
