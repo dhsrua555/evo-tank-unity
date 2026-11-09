@@ -94,7 +94,7 @@ namespace Life
             return x * x > 9 ? 0 : Math.Exp(-0.5 * x * x);
         }
         public static double Allo(Traits t, Body b) { double cl = t.dCell * Math.Cbrt(t.aspect); return Math.Min(1, Math.Pow(cl / Cfg.FEED_REF, -Cfg.FEED_EXP)) * Math.Pow(b.feed / cl, -Cfg.MET_EXP * b.dim); }   // 큰 포식자일수록 몸 탄소당 덜 삼킨다(최대 섭취). 걸러 먹는 양(만남)은 CLR_EXP로 훨씬 덜 준다
-        public static double Attack(Traits t, Body b) => Cfg.ATTACK * Math.Min(1, Math.Pow(b.feed / Cfg.FEED_REF, -Cfg.CLR_EXP)) * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);
+        public static double Attack(Traits t, Body b) => Cfg.ATTACK * Math.Min(1, Math.Pow(b.feed / Cfg.FEED_REF, -Cfg.CLR_EXP)) * t.phi[G.PHAGO] * (1 - 0.7 * t.Sat(G.WALL, 0.02) * (1 - t.diff)) * (0.5 + t.Sat(G.MOT, 0.01)) * (0.3 + 0.7 * b.exposed);   // 벽은 홀세포의 삼켜 먹기를 막는다(벽 있는 세포는 식세포 작용을 못 함). 분화한 몸은 벽 없는 먹는 세포(입·소화관)로 먹어 갑옷을 입고도 사냥한다(절지동물)
         public static double Vul(Traits t) => 1 - 0.8 * t.Sat(G.WALL, 0.02);
         // 바이러스 죽음(kill-the-winner: 같은 수용체 칸 숙주 밀도에 비례). 덩이 속 세포는 겉 세포가 막아 덜 걸린다 —
         // 대장균 생물막 안쪽 세포는 T7 파지에 거의 안 걸림(Vidakovic 2018). 바탕 0.2는 막이 없는 덩이도 조금은 뚫린다는 가정
