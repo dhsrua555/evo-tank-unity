@@ -24,6 +24,7 @@ namespace Life
         };
 
         public double Tglobal;                    // 평균 표층 기온(°C)
+        public double tDeep = double.NaN;         // 심해 수온(°C): 깊은 물은 열을 천천히 바꾼다(심해 섞임 시간). 그래서 충돌·메탄 같은 짧은 충격에 피난처가 된다
         public double volcMul = 1, sulfurPulse;   // 화산 활동 배율, 오늘 황 비
         public double dT_aer, dT_imp, dT_ice, dT_ghg, dT_ch4, dark = 0;   // 사건 기온 변화(°C): 화산재, 충돌, 빙하, 화산 온실, 메탄 분출. 어둠(0 = 평소, 1 = 캄캄)
         public double darkTau = 25;               // 충돌 어둠·식음이 줄어드는 시간(일, e-fold). 충돌 크기에 따라 정한다
@@ -36,7 +37,8 @@ namespace Life
         {
             double co2 = Math.Max(1e-3, CO2PAL);
             Tglobal = 20 + 3 * Math.Log(co2, 2) + TghCH4 - 20 * (1 - Cfg.SUN) / 0.22 + dT_aer + dT_imp + dT_ice + dT_ghg + dT_ch4;
-            double tDeep = Math.Max(2, Tglobal - 8);
+            double tEq = Math.Max(2, Tglobal - 8);   // 오래 두면 심해가 가는 수온
+            tDeep = double.IsNaN(tDeep) ? tEq : tDeep + (tEq - tDeep) * (1 - Math.Exp(-Cfg.DT / Cfg.TAU_Z[2]));
             // 그늘: 칸의 생물량이 빛을 가린다
             var shade = new double[V];
             foreach (var s in alive) for (int v = 0; v < V; v++) shade[v] += B[s.slot * V + v];
