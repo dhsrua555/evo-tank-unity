@@ -98,7 +98,7 @@ namespace Life
         public static double Vul(Traits t) => 1 - 0.8 * t.Sat(G.WALL, 0.02);
         // 바이러스 죽음(kill-the-winner: 같은 수용체 칸 숙주 밀도에 비례). 덩이 속 세포는 겉 세포가 막아 덜 걸린다 —
         // 대장균 생물막 안쪽 세포는 T7 파지에 거의 안 걸림(Vidakovic 2018). 바탕 0.2는 막이 없는 덩이도 조금은 뚫린다는 가정
-        public double VirusMort(Traits t, Body b, int v) { double hb = binB[v * 125 + t.vbin]; return Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K) * (0.2 + 0.8 * b.exposed); }
+        public double VirusMort(Traits t, Body b, int v) { double hb = binB[v * 125 + t.vbin]; return Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K) * (0.2 + 0.8 * b.exposed) * Cell.Clock(t, b); }   // 병도 몸 시계를 따른다(바이러스는 숙주 세포의 대사로 불어남; 바다 자연 사망 ∝ 몸무게^−0.25, Peterson & Wroblewski 1984). 홀세포는 시계 1이라 그대로
         static int PocClass(double size) => size < 3 ? P.POC0 : size < 30 ? P.POC1 : P.POC2;
 
         void Bio(int v)
