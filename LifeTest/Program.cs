@@ -433,14 +433,16 @@ static class Program
     static void SizeProbe(Planet pl)
     {
         Console.WriteLine("몸 크기 탐침(Δ = 바꾼 몸 − 지금 몸, /일): g 성장 · m 죽음 · e 먹힘 · f 적합도 · w 가라앉음");
-        (string, int, double)[] vars = { ("붙음+2", G.ADH, 2), ("붙음+6", G.ADH, 6), ("붙음−2", G.ADH, -2), ("크기+2", G.SIZE, 2), ("크기−2", G.SIZE, -2), ("분화+2", G.DIFF, 2), ("포식막+2", G.PHAGO, 2), ("벽+2", G.WALL, 2), ("편모+2", G.MOT, 2) };
+        (string, int, double)[] vars = { ("붙음+2", G.ADH, 2), ("붙음+6", G.ADH, 6), ("붙음−2", G.ADH, -2), ("크기+2", G.SIZE, 2), ("크기−2", G.SIZE, -2), ("분화+2", G.DIFF, 2), ("포식막+2", G.PHAGO, 2), ("벽+2", G.WALL, 2), ("편모+2", G.MOT, 2),
+                                          ("공짜붙음+2", G.ADH, 2), ("공짜붙음+6", G.ADH, 6), ("공짜붙음+12", G.ADH, 12) };   // 공짜: 세포 수만 그 붙음 값을 따르고 단백질 몫은 그대로(붙음 단백질 비용을 뺀 몸)
         var top = pl.alive.OrderByDescending(s => s.total).ToList();   // 생물량 많은 4개 + 포식 계통 많은 3개
         foreach (var st in top.Take(4).Concat(top.Where(s => s.species >= 0 && pl.species[s.species].role == Role.포식).Take(3)).Distinct())
         {
             int v = Enumerable.Range(0, pl.NV0).OrderByDescending(x => pl.B[st.slot * pl.V + x]).First(); double o0 = pl.pool[P.O2][v];
-            (double g, double m, double e, double f, double w, double sz, double n) Of(float[] g)
+            (double g, double m, double e, double f, double w, double sz, double n) Of(float[] g, bool free = false)
             {
-                var t = Traits.Of(g); var b = Body.Of(g, t, false); var r = Cell.Grow(t, b, pl.EnvAt(v), pl.Intake(t, b, v, st.slot), pl.VirusMort(t, b, v)); double e = pl.Eaten(t, b, v, st.slot);
+                var t = Traits.Of(free ? st.g : g); if (free) { var tc = Traits.Of(g); t.nA = tc.nA; t.n0 = tc.n0; g = st.g; }
+                var b = Body.Of(g, t, false); var r = Cell.Grow(t, b, pl.EnvAt(v), pl.Intake(t, b, v, st.slot), pl.VirusMort(t, b, v)); double e = pl.Eaten(t, b, v, st.slot);
                 double rr = t.dCell / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * rr * rr / 1.0e-3 * 86400 / (t.elong * b.share) * (1 - t.Sat(G.MOT, 0.01)) / pl.thick[v];
                 return (r.g, r.mort, e, r.g - r.mort - e, w, b.size, t.MeanCells);
             }
@@ -450,7 +452,7 @@ static class Program
                 var sb = new System.Text.StringBuilder($"  계통 {st.id} {(st.species >= 0 ? pl.species[st.species].role.ToString() : "?")} 세포 {z.n:0.#} 크기 {z.sz:0} μm · 칸 {v} O2 {o2:0.0} μM | g {z.g:0.000} m {z.m:0.000} e {z.e:0.000} f {z.f:0.000} w {z.w:0.000} (m 중 바이러스 {pl.VirusMort(st.t, st.b, v):0.000}[수용체 칸 숙주 중 같은 종 {pl.alive.Where(a => a.t.vbin == st.t.vbin && a.species == st.species).Sum(a => pl.B[a.slot * pl.V + v]) / Math.Max(1e-30, pl.binB[v * 125 + st.t.vbin]):P0}] · 시계 {Cell.Clock(st.t, st.b):0.00} · 분화 {st.t.diff:0.00} · 섭취/최대 {pl.Intake(st.t, st.b, v, st.slot) * Cfg.HANDLE / Planet.Allo(st.t, st.b) / (1 - Cfg.EGEST):0.00})");
                 foreach (var (nm, gi, k) in vars)
                 {
-                    var g2 = (float[])st.g.Clone(); g2[gi] = (float)Math.Clamp(g2[gi] + k * Cfg.STEP, 0, 1); var y = Of(g2);
+                    var g2 = (float[])st.g.Clone(); g2[gi] = (float)Math.Clamp(g2[gi] + k * Cfg.STEP, 0, 1); var y = Of(g2, nm.StartsWith("공짜"));
                     sb.Append($" | {nm}({y.n:0.#}세포 {y.sz:0}μm) f{y.f - z.f:+0.000;-0.000}(g{y.g - z.g:+0.000;-0.000} m{y.m - z.m:+0.000;-0.000} e{y.e - z.e:+0.000;-0.000}{(Math.Abs(y.w - z.w) > 0.002 ? $" w{y.w - z.w:+0.000;-0.000}" : "")})");
                 }
                 Console.WriteLine(sb);
