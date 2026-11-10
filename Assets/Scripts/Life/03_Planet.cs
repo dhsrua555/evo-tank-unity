@@ -23,7 +23,7 @@ namespace Life
         public double cFix, cPrey, cDet, cDoc, cChemo;                // 오늘 탄소·에너지 수입(mol C): 고정, 산 먹이, 사체, 녹은 유기물 · 화학합성 ATP
         public double o2Made, aerobic, catab;                         // 오늘 만든 O2, 산소 호흡으로 태운 C / 전체 태운 C
         public double jump, sel;                                      // 부모와의 몸 모양 거리(점진성 지표), 정착 때 선택 계수
-        public double att, vul, lsz, lfeed, allo;                     // 포식 값(형질·몸으로 정해져 칸·틱마다 같다): 공격률, 먹이 약함, log10 크기·먹는 크기, 크기 배율
+        public double att, vul, lsz, lfeed, allo, mot;                     // 포식 값(형질·몸으로 정해져 칸·틱마다 같다): 공격률, 먹이 약함, log10 크기·먹는 크기, 크기 배율
     }
 
     public sealed partial class Planet
@@ -154,7 +154,7 @@ namespace Life
         public void SetGenome(Strain s, float[] g, Traits t = null, Body b = null)
         {
             s.g = g; s.t = t ?? Traits.Of(g); s.b = b ?? Body.Of(g, s.t);
-            s.att = Attack(s.t, s.b); s.vul = Vul(s.t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.t, s.b);
+            s.att = Attack(s.t, s.b); s.vul = Vul(s.t); s.lsz = Math.Log10(s.b.size); s.lfeed = Math.Log10(s.b.feed); s.allo = Allo(s.t, s.b); s.mot = Mot(s.t);
             if (kOwn != null && s.slot >= 0) kOwn[s.slot] = null;
         }
     }
