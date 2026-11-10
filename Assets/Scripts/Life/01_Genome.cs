@@ -49,7 +49,7 @@ namespace Life
             double vol = Math.PI / 6 * t.dCell * t.dCell * t.dCell;
             t.cellC = 0.216e-12 * Math.Pow(vol, 0.939) / 12;                  // Menden-Deuer & Lessard 2000
             // 붙음: 분열한 딸세포가 붙어 남을 확률 p = φ/(φ+φ0) → 갈라지기 전 덩이 ≈ 1/(1−p) = 1 + φ/φ0, 거기에 지수.
-            // 문턱이 없어 붙음 단백질을 조금만 늘려도 덩이가 조금 커진다. 한 걸음(φ ×1.17)에 세포 수 ×1.23 이하
+            // 문턱이 없어 붙음 단백질을 조금만 늘려도 덩이가 조금 커진다. 한 걸음(φ ×1.17)에 세포 수 ×1.6 이하
             t.nA = Math.Clamp(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), 1, Cfg.CELLS_MAX);
             t.n0 = Math.Max(1, t.nA * 0.5 * g[G.PROP]);
             t.diff = g[G.DIFF];

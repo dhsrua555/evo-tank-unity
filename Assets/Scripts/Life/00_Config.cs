@@ -126,7 +126,7 @@ namespace Life
         public const double VIRUS = 0.25, VIRUS_K = 0.3;   // 이긴 자 죽이기: 같은 수용체 칸 숙주 밀도에 비례
 
         // 다세포
-        public const double ADH0 = 0.003, ADH_EXP = 1.3;   // 덩이 세포 수 = (붙음 몫 / ADH0)^ADH_EXP
+        public const double ADH0 = 0.003, ADH_EXP = 3;   // 덩이 세포 수 = (1 + 붙음 몫 / ADH0)^ADH_EXP. 3: 붙음 몫 0.03이면 1300세포(1.3이면 23세포 — 큰 덩이가 단백질 값으로 막혔음, README)
         public const int CELLS_MAX = 4096;            // 덩이 세포 수 상한
 
         // 진화
