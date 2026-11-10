@@ -41,6 +41,7 @@ namespace Life
             new In(r).Root(pl, ver >= 2);
             if (pl.pool[0].Length == pl.V && pl.B.Length % pl.V == 0 && pl.B.Length / pl.V < Cfg.SMAX) Widen(pl, pl.B.Length / pl.V);
             if (pl.B.Length != Cfg.SMAX * pl.V || pl.pool[0].Length != pl.V) throw new InvalidDataException("저장 파일의 칸 수가 지금 설정과 다름");
+            foreach (var s in pl.strains) if (s != null) pl.SetGenome(s, s.g);   // 형질·몸·포식 값은 유전체에서 다시 낸다: 공식을 고친 업데이트도 옛 저장의 값을 쓰지 않게(같은 공식이면 저장값과 같음)
             return pl;
         }
 
