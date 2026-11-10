@@ -495,7 +495,7 @@ static class Program
                 var w = new double[n]; double wd = 0, tot = 0;
                 for (int i = 0; i < n; i++)
                 {
-                    var si = A[i]; if (i == j || si.species == sj.species && si.species >= 0 || si.b.size > Cfg.PREY_MAX * sj.b.feed) continue;
+                    var si = A[i]; if (i == j || si.species == sj.species && si.species >= 0 || si.b.esd > Cfg.PREY_MAX * sj.b.feed) continue;
                     double x = (si.lsz - lf + sj.t.lr) / Cfg.PREY_SD; if (x * x <= 9) tot += w[i] = Math.Exp(-0.5 * x * x) * si.vul * Planet.Enc(sj.mot, si.mot) * pl.B[si.slot * pl.V + v];
                 }
                 for (int k = 0; k < 3; k++) tot += Planet.Pref(Cfg.POC_SIZE[k], sj.b.feed, sj.t.lr) * Planet.Enc(sj.mot, 0) * pl.pool[P.POC0 + k][v];
@@ -559,7 +559,7 @@ static class Program
                     double lf = Math.Log10(b.feed), wp = 0, tot = 0;
                     foreach (var si in A)
                     {
-                        if (si == pr || si.species == pr.species && si.species >= 0 || si.b.size > Cfg.PREY_MAX * b.feed) continue;
+                        if (si == pr || si.species == pr.species && si.species >= 0 || si.b.esd > Cfg.PREY_MAX * b.feed) continue;
                         double x = (si.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x > 9) continue; double w = Math.Exp(-0.5 * x * x) * si.vul * Planet.Enc(Planet.Mot(t), si.mot) * pl.B[si.slot * pl.V + v]; tot += w; if (hi.Contains(si)) wp += w;
                     }
                     for (int k = 0; k < 3; k++) tot += Planet.Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * Planet.Enc(Planet.Mot(t), 0) * pl.pool[P.POC0 + k][v];

@@ -118,7 +118,10 @@ namespace Life
         // 질량 지수다: 먹는 단위(길이 feed)에 든 세포 수 = (feed/세포 길이)^차원(실 1 · 판 2 · 덩어리 3)이라 길이로는 × 몸 차원. 덩어리면 예전 지름 지수 0.37과 같다
         public const double MET_EXP = 0.123;
         public const double FEED_REF = 5, FEED_EXP = 0.69;   // 몸 탄소당 최대 섭취 ∝ (먹는 크기/5 μm)^−0.69 = 부피^−0.23 (Hansen 1997, 2–2000 μm). 5 μm 밑은 그대로
-        public const double PREY_SD = 0.6, PREY_MAX = 1.2;   // 먹이 크기 폭 0.6 decade, 먹는 크기의 1.2배까지(선호 크기 비는 유전자 G.PREY)
+        // 먹이 크기 폭(log10 지름의 표준편차): Hansen, Bjørnsen & Hansen 1994 표 2의 50 %·10 % 폭(섬모충·윤충·부유 유생·노플리우스·요각류 유생)을
+        // 가우스로 환산하면 0.11–0.37, 중앙 0.22(두 기준 모두). Ward et al. 2012 크기 모델 σ 0.5(ln) = 0.22. Heneghan et al. 2016 무리별 0.14–0.23. 예전 0.6은 근거 없이 2.7배 넓었다.
+        // 크기는 먹는 쪽·먹히는 쪽 모두 같은 부피 공 지름(02 Body.esd)으로 센다 — 자료가 부피·질량으로 잰 값(Ward 2012 ESD, Heneghan 2016 질량). 겉 길이로 세면 같은 세포 수의 실이 덩어리보다 10배 커 이 폭이 큰 몸의 먹이를 끊는다(16시드 불일치 t −14)
+        public const double PREY_SD = 0.22, PREY_MAX = 1.2;   // 먹는 크기의 1.2배까지(선호 크기 비는 유전자 G.PREY)
         public const double EGEST = 0.3;              // 먹은 것 중 똥·찌꺼기
         public const double VIRUS = 0.25, VIRUS_K = 0.3;   // 이긴 자 죽이기: 같은 수용체 칸 숙주 밀도에 비례
 

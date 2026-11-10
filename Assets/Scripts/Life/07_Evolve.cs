@@ -43,7 +43,7 @@ namespace Life
             int n = presOn ? nPres[v] : alive.Count;
             for (int q = 0; q < n; q++)
             {
-                var s = alive[presOn ? pres[v][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.size > cap) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
+                var s = alive[presOn ? pres[v][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.esd > cap) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
                 double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * Enc(me, s.mot) * bi;   // = Pref(s.b.size, b.feed, t.lr), 로그는 계통에 둔 값
             }
             for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * Enc(me, 0) * pool[P.POC0 + k][v];
@@ -53,11 +53,11 @@ namespace Life
         // 먹힘률(/일): 그 칸 포식자들의 지금 섭취 배율로
         public double Eaten(Traits t, Body b, int v, int self)
         {
-            double vul = Vul(t), me = Mot(t), loss = 0, ls = Math.Log10(b.size); int mySp = strains[self]?.species ?? -1;
+            double vul = Vul(t), me = Mot(t), loss = 0, ls = Math.Log10(b.esd); int mySp = strains[self]?.species ?? -1;
             int n = presOn ? nPres[v] : alive.Count;
             for (int q = 0; q < n; q++)
             {
-                var s = alive[presOn ? pres[v][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || b.size > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
+                var s = alive[presOn ? pres[v][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || b.esd > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
                 double x = (ls - s.lfeed + s.t.lr) / Cfg.PREY_SD; if (x * x <= 9) loss += s.att * Math.Exp(-0.5 * x * x) * vul * Enc(s.mot, me) * eatScale[sj] * bj;   // = Attack × Pref, 계통에 둔 값으로
             }
             return loss;
@@ -120,7 +120,7 @@ namespace Life
                 c.t = Traits.Of(c.g);
                 bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH || gene == G.DIFF || gene < G.NA;
                 c.body = shape ? Body.Of(c.g, c.t, gene != G.BRANCH && gene != G.ANGLE && gene != G.SIZE && gene != G.ASPECT) : par.b;
-                bool sameI = Attack(c.t, c.body) == par.att && c.body.feed == par.b.feed && c.t.lr == par.t.lr && Mot(c.t) == par.mot, sameE = Vul(c.t) == par.vul && c.body.size == par.b.size && Mot(c.t) == par.mot;
+                bool sameI = Attack(c.t, c.body) == par.att && c.body.feed == par.b.feed && c.t.lr == par.t.lr && Mot(c.t) == par.mot, sameE = Vul(c.t) == par.vul && c.body.esd == par.b.esd && Mot(c.t) == par.mot;
                 double l = limA[c.si] > 0 ? limA[c.si] : 1;
                 c.rp = pR[c.si]; c.rm = FitWith(c.t, c.body, v, l, sameI ? pI[c.si] : Intake(c.t, c.body, v, slot), sameE ? pE[c.si] : Eaten(c.t, c.body, v, slot));
                 if (c.u >= 0) { int su = slot * V + c.u; double lu = limA[su] > 0 ? limA[su] : 1; c.rpu = pR[su]; c.rmu = FitWith(c.t, c.body, c.u, lu, sameI ? pI[su] : Intake(c.t, c.body, c.u, slot), sameE ? pE[su] : Eaten(c.t, c.body, c.u, slot)); }
