@@ -56,7 +56,7 @@ namespace Life
             b.size = Math.Max(t.dCell * Math.Cbrt(t.aspect), 2 * (rg + r0));
             int outer = 0; foreach (var c in b.cells) if (c.outer > 0.5f) outer++;
             double exN = (double)outer / N;
-            double cl = t.dCell * Math.Cbrt(t.aspect); b.esd = cl * Math.Cbrt(Math.Max(1, mean)); b.feed = cl * Math.Pow(b.esd / cl, t.diff);
+            double cl = t.dCell; b.esd = cl * Math.Cbrt(Math.Max(1, mean)); b.feed = cl * Math.Pow(b.esd / cl, t.diff);   // 세포 하나의 ESD = dCell(세포 탄소를 π/6·dCell³에서 내므로)
             b.exposed = mean <= N ? exN : Math.Min(1, exN * Math.Pow(N / mean, 1 - 1 / b.dim));   // 큰 덩이일수록 속 세포가 많다(실은 그대로)
             // 확산·끌림 반지름: Kirkwood 근사 1/C = (1/m²)(m/r + Σ_{i≠j} 1/d_ij) — 공 하나면 r, 맞닿은 둘이면 1.33 r(정확한 값 1.39 r), 곧은 실 m개면 ≈ m·r/(1 + ln m).
             // 확산 포집 반지름과 Stokes 끌림 반지름이 거의 같다(Hubbard & Douglas 1993). 배치 밖으로 큰 덩이는 차원 법칙으로 늘린다

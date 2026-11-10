@@ -62,7 +62,7 @@ namespace Life
         // 섭취(Allo)의 세포 넘는 몫과 같은 크기·지수: 분화 0이면 세포 하나가 단위라 1, 분화 1이면 (먹는 단위 세포 수)^−MET_EXP = (몸/세포 길이)^(−MET_EXP × 몸 차원). 섭취만 줄고 비용이 그대로면 큰 포식자는 늘 굶는다
         // 지수는 생활형 안 기울기(Kiørboe & Hirst 2014, 질량^−0.12). DeLong의 0.76–0.79는 생활형을 섞은 값이라 한 계통이 커지는 데 쓰면 너무 가파르다
         // 삼켜 먹는 몸(포식 막 몫)에만: 광합성 몸(식물)은 몸 전체 호흡이 질량에 거의 비례한다(Reich 2006 Nature 439:457) — 시계를 모두에 주면 광합성 실이 싸져 몸 꼴이 실 하나로 쏠렸다(16시드)
-        public static double Clock(Traits t, Body b) => Math.Min(1, Math.Pow(b.feed / (t.dCell * Math.Cbrt(t.aspect)), -Cfg.MET_EXP * 3 * t.Sat(G.PHAGO, 0.02)));
+        public static double Clock(Traits t, Body b) => Math.Min(1, Math.Pow(b.feed / t.dCell, -Cfg.MET_EXP * 3 * t.Sat(G.PHAGO, 0.02)));
         public static double OxicFrac(Traits t, Body b, double o2, double need)
         {
             if (need <= 0) return 1;
