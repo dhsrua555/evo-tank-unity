@@ -309,20 +309,28 @@ namespace Tank
         }
 
         // ── 계통수: 가로 = 시간, 세로 = 종(부모 아래에 자식, 나온 순). 멸종한 종은 회색 ──
-        int[] treeRow; Snap treeSnap; int treeN; bool treeAllSeen;
+        // 18만 종 세계: 줄 배치는 1초에 한 번만 다시 하고 배열은 다시 쓴다(전엔 스냅샷마다 종 수만큼 목록을 새로 잡아 GC로 끊김), 그리기·이름은 화면에 보이는 줄만
+        int[] treeRow = new int[0], rowSp = new int[0], kidOff = new int[1], kidArr = new int[0], treeStk = new int[0]; bool[] treeKeep = new bool[0];
+        Snap treeSnap; int treeN, treeLen; bool treeAllSeen; float treeAt = -9;
         void TreeLayout()
         {
-            if (treeSnap == snap && treeAllSeen == treeAll) return; treeSnap = snap; treeAllSeen = treeAll;
-            int n = snap.sp.Length; treeRow = new int[n]; treeN = 0;
-            var keep = new bool[n];   // 기본: 살아 있는 종과 그 조상만(멸종한 곁가지는 '멸종 곁가지도'로)
+            if (treeSnap == snap && treeAllSeen == treeAll) return;
+            if (treeSnap != null && treeAllSeen == treeAll && Time.unscaledTime - treeAt < 1) return;   // 옛 배치(1초 안)를 그대로: 종 번호는 늘기만 해서 옛 줄도 그대로 맞다
+            treeSnap = snap; treeAllSeen = treeAll; treeAt = Time.unscaledTime;
+            int n = treeLen = snap.sp.Length; treeN = 0;
+            if (treeRow.Length < n) { int c = n + n / 4 + 64; treeRow = new int[c]; rowSp = new int[c]; kidOff = new int[c + 1]; kidArr = new int[c]; treeStk = new int[c]; treeKeep = new bool[c]; }
+            var keep = treeKeep; Array.Clear(keep, 0, n);   // 기본: 살아 있는 종과 그 조상만(멸종한 곁가지는 '멸종 곁가지도'로)
             for (int i = 0; i < n; i++) if (treeAll || snap.sp[i].Alive) for (int a = i; a >= 0 && a < n && !keep[a]; a = snap.sp[a].parent) keep[a] = true;
-            for (int i = 0; i < n; i++) treeRow[i] = -1;
-            var kids = new List<int>[n]; for (int i = 0; i < n; i++) kids[i] = new List<int>();
-            var roots = new List<int>();
-            for (int i = 0; i < n; i++) { if (!keep[i]) continue; var s = snap.sp[i]; if (s.parent >= 0 && s.parent < n) kids[s.parent].Add(i); else roots.Add(i); }
-            var st = new Stack<int>(); for (int i = roots.Count - 1; i >= 0; i--) st.Push(roots[i]);
-            while (st.Count > 0) { int i = st.Pop(); treeRow[i] = treeN++; for (int k = kids[i].Count - 1; k >= 0; k--) st.Push(kids[i][k]); }
+            // 자식 목록을 한 배열에(kidOff[p]..kidOff[p+1] = p의 자식, 번호 차례)
+            Array.Clear(kidOff, 0, n + 1);
+            for (int i = 0; i < n; i++) { int p = snap.sp[i].parent; if (keep[i] && p >= 0 && p < n) kidOff[p + 1]++; }
+            for (int i = 0; i < n; i++) { kidOff[i + 1] += kidOff[i]; rowSp[i] = kidOff[i]; treeRow[i] = -1; }
+            for (int i = 0; i < n; i++) { int p = snap.sp[i].parent; if (keep[i] && p >= 0 && p < n) kidArr[rowSp[p]++] = i; }
+            int top = 0; for (int i = n - 1; i >= 0; i--) { int p = snap.sp[i].parent; if (keep[i] && (p < 0 || p >= n)) treeStk[top++] = i; }
+            while (top > 0) { int i = treeStk[--top]; treeRow[i] = treeN; rowSp[treeN++] = i; for (int k = kidOff[i + 1] - 1; k >= kidOff[i]; k--) treeStk[top++] = kidArr[k]; }
         }
+        // 화면에 걸칠 수 있는 줄 범위(줄 번호는 나온 차례 = 깊이 우선)
+        void TreeRows(Rect R, float y0, out int r0, out int r1) { r0 = Mathf.Max(0, Mathf.FloorToInt((R.y + 24 - y0) / TreeRh) - 1); r1 = Mathf.Min(treeN - 1, Mathf.CeilToInt((R.yMax - y0) / TreeRh)); }
         Rect TreeRect => new Rect(gauge.xMax + 10, topH + 10, mapR.x - gauge.xMax - 20, (showGraph ? graphR.y : H) - topH - 20);
         const float TreeRh = 18;   // 한 줄에 종 하나(이름까지), 넘치면 휠로 내린다
         void TreeDraw()
@@ -330,16 +338,26 @@ namespace Tank
             TreeLayout(); var R = TreeRect;
             Draw.Rect(R.x, R.y, R.width, R.height, new Color(0.03f, 0.05f, 0.08f, 0.88f));
             float now = (float)Math.Max(1, snap.day), x0 = R.x + 10, w = R.width - 160, y0 = R.y + 28 - treeScroll, rh = TreeRh;
-            for (int i = 0; i < snap.sp.Length; i++)
+            void Link(int i)   // 부모 줄에서 이 종 줄까지 세로선(판 안으로 자름)
             {
-                var s = snap.sp[i]; if (treeRow[i] < 0) continue; float y = y0 + treeRow[i] * rh + rh / 2;
-                float xa = x0 + w * s.born / now, xb = x0 + w * (s.Alive ? 1 : s.died / now);
-                if (s.parent >= 0 && treeRow[s.parent] >= 0) { float yp = y0 + treeRow[s.parent] * rh + rh / 2, ya = Mathf.Max(Mathf.Min(y, yp), R.y + 24), yb = Mathf.Min(Mathf.Max(y, yp), R.yMax - 2); if (yb > ya) Draw.Line(xa, ya, xa, yb, new Color(1, 1, 1, 0.18f)); }
+                var s = snap.sp[i]; if (s.parent < 0 || treeRow[s.parent] < 0) return;
+                float y = y0 + treeRow[i] * rh + rh / 2, yp = y0 + treeRow[s.parent] * rh + rh / 2, xa = x0 + w * s.born / now;
+                float ya = Mathf.Max(Mathf.Min(y, yp), R.y + 24), yb = Mathf.Min(Mathf.Max(y, yp), R.yMax - 2); if (yb > ya) Draw.Line(xa, ya, xa, yb, new Color(1, 1, 1, 0.18f));
+            }
+            TreeRows(R, y0, out int r0, out int r1);
+            for (int r = r0; r <= r1; r++)
+            {
+                int i = rowSp[r]; var s = snap.sp[i]; float y = y0 + r * rh + rh / 2;
+                Link(i);
                 if (y < R.y + 24 || y > R.yMax) continue;
+                float xa = x0 + w * s.born / now, xb = x0 + w * (s.Alive ? 1 : s.died / now);
                 Color c = s.Alive && s.t != null ? Draw.Of(s.t, s.id) : new Color(0.45f, 0.45f, 0.48f);
                 Draw.Rect(xa, y - 3, Mathf.Max(1, xb - xa), 6, c);
                 if (i == sel) Draw.Rect(x0 - 6, y - 1, 4, 2, Color.white);
             }
+            // 판을 위아래로 가로지르는 선: 부모는 보이는 마지막 줄의 조상(깊이 우선이라 자식 무리가 이어져 있다), 자식은 그 아래
+            if (r1 >= r0) for (int p = rowSp[r1]; p >= 0 && p < treeLen; p = snap.sp[p].parent)
+                    for (int k = kidOff[p + 1] - 1; k >= kidOff[p] && treeRow[kidArr[k]] > r1; k--) Link(kidArr[k]);
         }
         void TreeGui()
         {
@@ -354,12 +372,13 @@ namespace Tank
             if (ev.type == EventType.MouseUp && R.Contains(ev.mousePosition) && ev.mousePosition.y > R.y + 28)
             {
                 int row = (int)((ev.mousePosition.y - y0) / rh);
-                for (int i = 0; i < snap.sp.Length; i++) if (treeRow[i] == row) { sel = i; break; }
+                if (row >= 0 && row < treeN) sel = rowSp[row];
                 ev.Use();
             }
-            for (int i = 0; i < snap.sp.Length; i++)
+            TreeRows(R, y0, out int r0, out int r1);
+            for (int r = r0; r <= r1; r++)
             {
-                var s = snap.sp[i]; if (treeRow[i] < 0) continue; float y = y0 + treeRow[i] * rh;
+                int i = rowSp[r]; var s = snap.sp[i]; float y = y0 + r * rh;
                 if (y < R.y + 24 || y > R.yMax - 14) continue;
                 GUI.color = s.Alive || i == sel ? Color.white : new Color(0.92f, 0.92f, 0.95f);   // 멸종 이름도 어두운 판에서 읽히게(sS 회색 × 0.92)
                 GUI.Label(new Rect(x0 + w * (s.Alive ? 1 : s.died / now) + 4, y - 2, 170, rh + 4), s.Alive ? s.name : s.name + " †", s.Alive || i == sel ? sL : sS);
