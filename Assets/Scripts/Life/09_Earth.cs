@@ -24,6 +24,7 @@ namespace Life
         };
 
         public double Tglobal;                    // 평균 표층 기온(°C)
+        public double sun = Cfg.SUN0;             // 태양 밝기(지금 = 1), 틱마다 밝아짐(00 SUN0 → SUN_CAM). 이 필드 전 저장은 SUN0부터 다시 밝아진다
         public double tDeep = double.NaN;         // 심해 수온(°C): 깊은 물은 열을 천천히 바꾼다(심해 섞임 시간). 그래서 충돌·메탄 같은 짧은 충격에 피난처가 된다
         public double volcMul = 1, sulfurPulse;   // 화산 활동 배율, 오늘 황 비
         public double dT_aer, dT_imp, dT_ice, dT_ghg, dT_ch4, dark = 0;   // 사건 기온 변화(°C): 화산재, 충돌, 빙하, 화산 온실, 메탄 분출. 어둠(0 = 평소, 1 = 캄캄)
@@ -35,8 +36,9 @@ namespace Life
 
         void Climate()
         {
+            sun = Math.Min(Cfg.SUN_CAM, sun + (Cfg.SUN_CAM - Cfg.SUN0) / Cfg.SUN_DAYS * Cfg.DT);
             double co2 = Math.Max(1e-3, CO2PAL);
-            Tglobal = 20 + 3 * Math.Log(co2, 2) + TghCH4 - 20 * (1 - Cfg.SUN) / 0.22 + dT_aer + dT_imp + dT_ice + dT_ghg + dT_ch4;
+            Tglobal = 20 + 3 * Math.Log(co2, 2) + TghCH4 - 20 * (1 - sun) / 0.22 + dT_aer + dT_imp + dT_ice + dT_ghg + dT_ch4;
             double tEq = Math.Max(2, Tglobal - 8);   // 오래 두면 심해가 가는 수온
             tDeep = double.IsNaN(tDeep) ? tEq : tDeep + (tEq - tDeep) * (1 - Math.Exp(-Cfg.DT / Cfg.TAU_Z[2]));
             // 그늘: 칸의 생물량이 빛을 가린다
@@ -47,7 +49,7 @@ namespace Life
             {
                 double lat = geo.rLat[r] * Math.PI / 180, sn = Math.Sin(lat);
                 double tS = Math.Max(-1.8, Tglobal + 9 - 30 * sn * sn); ice[r] = Math.Clamp(-(Tglobal + 9 - 30 * sn * sn) / 10, 0, 0.95);
-                double I0 = Cfg.SUN * Math.Cos(lat) * (1 - dark) * (1 - 0.9 * ice[r]);
+                double I0 = sun * Math.Cos(lat) * (1 - dark) * (1 - 0.9 * ice[r]);
                 for (int k = 0; k < Cfg.NY; k++)
                 {
                     int v = r * Cfg.NY + k; if (!live[v]) continue;

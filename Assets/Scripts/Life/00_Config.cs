@@ -36,7 +36,10 @@ namespace Life
         // 원시 지구 시작값 (Fe·SO4·PO4: 시생누대 추정 범위 안, brief 3-6)
         public const double CO2_PAL0 = 30, O2_PAL0 = 1e-7, CH4_PPM0 = 100, H2_PPM0 = 100;
         public const double FE2_DEEP0 = 50, FE2_TOP0 = 20, SO4_0 = 50, PO4_0 = 0.2, NH4_0 = 2, DOC_0 = 0.02;   // 녹은 유기물은 처음에 거의 없다: 먹는 쪽은 만드는 쪽이 생겨야 산다
-        public const double SUN = 0.78;               // 태양 밝기(지금 = 1)
+        // 태양 밝기(지금 = 1): 처음 0.78(~3.2 Ga, Gough 1981 S/S0 = 1/(1 + 0.4(1 − t/4.57 Gyr)))에서 캄브리아 0.955(541 Ma)까지 SUN_DAYS일에 고르게 밝아진다.
+        // 이 모형은 화학을 지질 시간으로 압축해 산소가 ~2000일에 대사건(2.4 Ga, 해 0.82), ~8000일에 0.9 PAL(캄브리아)에 이르므로 해도 같은 시계로.
+        // 해를 0.78에 두면 산소가 캄브리아 수준인 20000일 세상이 평균 −4–14 °C·극지 얼음(16시드)인데 캄브리아는 온실(고위도 바다 20–25 °C, Hearing 2018 Sci Adv)
+        public const double SUN0 = 0.78, SUN_CAM = 0.955, SUN_DAYS = 8000;
 
         // 대기: 실제 우리 행성 크기(지구의 8 %) 대기를 ATM배로 줄여 느린 저장고가 생태 시간 안에 움직이게 한다(지질 시간 압축).
         public const double ATM = 1e-5;

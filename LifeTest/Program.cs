@@ -85,8 +85,8 @@ static class Program
                 Console.WriteLine($"        산화환원(O2 당량 mol/일, + = 환원): 경계 {(pl.redB - pRb) / 4 / every:0.0e0} · 새는 몫 {((red - pRed) - (pl.redB - pRb)) / 4 / every:0.0e0} | 대기 O2 {pl.atmO2:0.0e0} · 바다 O2 {tO2:0.0e0} · SO4 {tSO4:0.0e0} · H2S {tHS:0.0e0} mol");
                 pRed = red; pRb = pl.redB;
                 double oC = 0; for (int v = 0; v < pl.V; v++) if (pl.live[v]) oC += pl.pool[P.CO2][v] * pl.vol[v] * 1e-6;
-                double gh = 20 + 3 * Math.Log(Math.Max(1e-3, pl.CO2PAL), 2) + 2 * Math.Log(1 + Math.Max(0, pl.CH4ppm) / 2, 2) - 20 * (1 - Cfg.SUN) / 0.22;
-                Console.WriteLine($"        기후: T {pl.Tglobal:0.0} = 온실 {gh:0.0} + 사건 {pl.dT_ice + pl.dT_imp + pl.dT_aer + pl.dT_ghg + pl.dT_ch4:0.0}(빙하 {pl.dT_ice:0.0} 충돌 {pl.dT_imp:0.0} 화산재 {pl.dT_aer:0.0} 화산온실 {pl.dT_ghg:0.0} 메탄분출 {pl.dT_ch4:0.0}) 대기메탄 {pl.TghCH4:0.0} · 탄소(mol/일) 들어옴 {(pl.inC - pC) / every:0.0e0} 나감 {(pl.outC - pO) / every:0.0e0}(유기 매몰 {(pl.buriedC - pBc) / every:0.0e0}) | CO2 대기 {pl.atmCO2:0.0e0} · 바다 {oC:0.0e0} mol");
+                double gh = 20 + 3 * Math.Log(Math.Max(1e-3, pl.CO2PAL), 2) + 2 * Math.Log(1 + Math.Max(0, pl.CH4ppm) / 2, 2) - 20 * (1 - pl.sun) / 0.22;
+                Console.WriteLine($"        기후: 해 {pl.sun:0.000} · T {pl.Tglobal:0.0} = 온실 {gh:0.0} + 사건 {pl.dT_ice + pl.dT_imp + pl.dT_aer + pl.dT_ghg + pl.dT_ch4:0.0}(빙하 {pl.dT_ice:0.0} 충돌 {pl.dT_imp:0.0} 화산재 {pl.dT_aer:0.0} 화산온실 {pl.dT_ghg:0.0} 메탄분출 {pl.dT_ch4:0.0}) 대기메탄 {pl.TghCH4:0.0} · 탄소(mol/일) 들어옴 {(pl.inC - pC) / every:0.0e0} 나감 {(pl.outC - pO) / every:0.0e0}(유기 매몰 {(pl.buriedC - pBc) / every:0.0e0}) | CO2 대기 {pl.atmCO2:0.0e0} · 바다 {oC:0.0e0} mol");
                 pC = pl.inC; pO = pl.outC; pBc = pl.buriedC;
             }
             while (ev < pl.events.Count) { var e = pl.events[ev++]; Console.WriteLine($"  ! {e.day}일 {e.kind}({e.size:0.0}): {e.text}"); }
