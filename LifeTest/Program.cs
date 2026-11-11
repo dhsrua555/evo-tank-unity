@@ -11,6 +11,7 @@ static class Program
 {
     static int Main(string[] a)
     {
+        if (Environment.GetEnvironmentVariable("FRAC") != null) return Frac();   // 덩이 파쇄 세포 수 표(02 Body.Fracture)와 기준 확인
         int days = a.Length > 0 ? int.Parse(a[0]) : 100, seed = a.Length > 1 ? int.Parse(a[1]) : 1, every = a.Length > 2 ? int.Parse(a[2]) : 10;
         var pl = Environment.GetEnvironmentVariable("LOAD") is string ld ? Save.Read(ld, out _) : new Planet(seed);   // LOAD=파일: 저장한 지구에서 이어서(속도 재기 등)
         if (a.Length > 3) pl.knobs.mu = double.Parse(a[3]);
@@ -403,6 +404,12 @@ static class Program
             int k = st.t.MeanCells < 2 ? (st.t.aspect < 1.3 ? 0 : st.t.aspect < 3 ? 1 : 2) : st.t.MeanCells < 8 ? 3 : (st.b.dim < 1.5 ? 4 : st.b.dim < 2.3 ? 5 : 6);
             w[k] += m; sh[k] += m * st.b.share; aMin = Math.Min(aMin, st.g[G.ASPECT]); aMax = Math.Max(aMax, st.g[G.ASPECT]); bMin = Math.Min(bMin, st.g[G.BRANCH]); bMax = Math.Max(bMax, st.g[G.BRANCH]); nMin = Math.Min(nMin, st.g[G.ANGLE]); nMax = Math.Max(nMax, st.g[G.ANGLE]);
         }
+        if (Environment.GetEnvironmentVariable("LUMPS") != null)   // 큰 덩이(8세포 넘게) 생물량 많은 종 8개: 붙음이 정한 세포 수 · 파쇄 상한 · 배치 유전자
+            foreach (var sp in pl.species.Where(sp => sp.Alive && sp.rep >= 0 && pl.strains[sp.rep] != null && pl.strains[sp.rep].t.MeanCells >= 8).OrderByDescending(sp => sp.biomass).Take(8))
+            {
+                var st = pl.strains[sp.rep]; double raw = Math.Min(Cfg.CELLS_MAX, Math.Pow(1 + st.t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP));
+                Console.WriteLine($"  덩이 종 {sp.id} 몫 {sp.biomass / Math.Max(1e-30, tot):P1} 세포 {st.t.nA:0}(붙음 {raw:0} · 파쇄 {Body.Fracture(st.g, st.t.aspect):0} · 난류 {Body.Shear(st.g, st.t):0}) 세포지름 {st.t.dCell:0.0} μm 가지 {st.g[G.BRANCH]:0.00} 각 {st.g[G.ANGLE] * 180:0}° 길쭉 {st.t.aspect:0.0} 차원 {st.b.dim:0.0} 크기 {st.b.size:0} μm 포식막 {st.t.phi[G.PHAGO]:0.00}");
+            }
         Console.WriteLine("몸 꼴(생물량 몫): " + string.Join(" · ", Enumerable.Range(0, 7).Select(k => $"{nm[k]} {w[k] / Math.Max(1e-30, tot):P0}" + (w[k] > 0 ? $"(나눔 {sh[k] / w[k]:0.00})" : ""))) + $" | 유전자 범위 길쭉함 {aMin:0.00}–{aMax:0.00} 가지 {bMin:0.00}–{bMax:0.00} 각 {nMin:0.00}–{nMax:0.00}");
     }
 
@@ -586,6 +593,25 @@ static class Program
         var roles = L.GroupBy(sp => sp.role).Where(g => g.Sum(sp => sp.biomass) > 0.01 * tot).Select(g => g.Key.ToString()).ToList();
         Console.WriteLine($"다양성: 종 {L.Count} · 실효 종 수 {Math.Exp(H):0.0} · 형태 불일치(분산 합) {disp:0.00} · 크기 폭 {Math.Log10(sMax / sMin):0.0}자리({sMin:0.#}–{sMax:0.#} μm) · 하는 일 {roles.Count}가지({string.Join("·", roles)}) · 표류 {pl.driftN}(몸 꼴 {pl.driftShape}) · 분화 평균 {Dif(L)}(포식 {Dif(L.Where(sp => sp.role == Role.포식).ToList())})");
         string Dif(List<Species> S) { double w = S.Sum(sp => sp.biomass); return w > 0 ? $"{S.Sum(sp => sp.biomass * pl.strains[sp.rep].t.diff) / w:0.00}" : "-"; }   // 생물량 가중
+    }
+
+    static int Frac()
+    {
+        double r0 = Body.FractureAt(0.5, 0.3, 1.2, Body.NDRAW);
+        if (Math.Abs(r0 - 100) > 1) { Console.WriteLine($"기준 배치(β 0.5, 54°, 1.2)가 100세포가 아님: {r0}"); return 1; }
+        Console.WriteLine("갈래β 꺾임 장단축비 → 부러지는 세포 수 (실제 쓰는 값 / 4096까지 직접)");
+        foreach (var b in new[] { 0, 0.25, 0.5, 0.75, 1 }) foreach (var an in new[] { 0.1, 0.2, 0.3, 0.5 }) foreach (var ar in new[] { 1, 1.2, 2, 4, 8 })
+            Console.WriteLine($"{b,4} {an * 180,4:F0}° {ar,4} → {Body.Fracture(G3(b, an, ar), ar),6:F0} / {Body.FractureAt(b, an, ar, 4096),6:F0}");
+        Console.WriteLine("난류 끊김(02 Body.Shear, η 3 mm): 배치 · 세포 지름 → 끊기기 전 세포 수 · 그때 몸 길이");
+        foreach (var (b, an, ar, nm) in new[] { (1.0, 0.0, 1.0, "곧은 실"), (1.0, 0.15, 1.5, "윗 포식 실(각 27°)"), (0.75, 0.2, 1.2, "성긴 가지"), (0.5, 0.3, 1.2, "두 갈래 덩이") })
+            foreach (double d in new[] { 3.0, 10, 30 })
+            {
+                var g = G3(b, an, ar); g[G.SIZE] = (float)(Math.Log(d / 0.5) / Math.Log(200)); var t = Traits.Of(g);
+                double n = Body.Shear(g, t); t.nA = Math.Min(n, Cfg.CELLS_MAX); t.n0 = t.nA; var bd = Body.Of(g, t, false);
+                Console.WriteLine($"  {nm,-14} {d,3} μm → {n,6:F0}세포 · 몸 {bd.size / 1000:0.00} mm(차원 {bd.dim:0.0})");
+            }
+        return 0;
+        static float[] G3(double b, double an, double ar) { var g = new float[G.N]; g[G.BRANCH] = (float)b; g[G.ANGLE] = (float)an; g[G.ASPECT] = (float)(Math.Log(ar) / Math.Log(8)); return g; }
     }
 
     static void Bench(Planet pl)

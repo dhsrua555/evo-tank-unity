@@ -128,6 +128,7 @@ namespace Life
         // 다세포
         public const double ADH0 = 0.003, ADH_EXP = 3;   // 덩이 세포 수 = (1 + 붙음 몫 / ADH0)^ADH_EXP. 3: 붙음 몫 0.03이면 1300세포(1.3이면 23세포 — 큰 덩이가 단백질 값으로 막혔음, README)
         public const int CELLS_MAX = 4096;            // 덩이 세포 수 상한
+        public const double ETA = 3000;   // 난류 끊김 길이(μm): 바다 표층 콜모고로프 길이 (ν³/ε)^¼, ν 1e-6 m²/s, ε 1e-8 W/kg(외해 상층 100 m 중앙값) → 3.2 mm. 곧은 실은 이 길이에서 끊긴다(02 Body.Shear)
 
         // 진화
         public const double STEP = 0.04;              // 돌연변이 한 걸음: 대사·배분 유전자(범위의 4 %, 몫 ×1.38)

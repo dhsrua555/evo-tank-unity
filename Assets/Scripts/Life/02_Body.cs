@@ -46,9 +46,13 @@ namespace Life
                 for (int i = 0; i < m; i++) { double dx = b.cells[i].x - cx, dy = b.cells[i].y - cy, dz = b.cells[i].z - cz; s += dx * dx + dy * dy + dz * dz; }
                 return Math.Sqrt(s / m);
             }
-            int N = b.cells.Length;
+            int N = b.cells.Length; double mean = t.MeanCells, r0 = t.dCell * Math.Cbrt(t.aspect) / 2;
             b.dim = N >= 8 ? Math.Clamp(Math.Log(N / (N / 4.0)) / Math.Log(Math.Max(1.01, R(N) / Math.Max(1e-3, R(Math.Max(2, N / 4))))), 1, 3) : 3;
-            double mean = t.MeanCells, r0 = t.dCell * Math.Cbrt(t.aspect) / 2;
+            if (mean > N)   // 배치보다 큰 몸: N → mean 사이의 차원을 직접 잰 회전 반지름(GeoOf, 반지름 1 단위)에서 낸다. 아래 크기·겉·확산 반지름이 이 차원으로 늘어난다
+            {
+                var rgU = GeoOf(g, t.aspect).rg; int k0 = Math.Min(rgU.Length - 2, (int)mean); double rm = rgU[k0] + (rgU[k0 + 1] - rgU[k0]) * Math.Clamp(mean - k0, 0, 1);
+                b.dim = Math.Clamp(Math.Log(mean / N) / Math.Log(Math.Max(1.0001, rm / rgU[N])), 1, 3);
+            }
             // 평균 덩이 크기: 계산한 배치 안이면 그 회전 반지름, 넘으면 차원 법칙으로 늘린다
             // 세포 수가 정수 사이일 때는 이웃 정수의 회전 반지름 사이를 잇는다: 붙음을 조금 늘리면 몸도 조금 커진다(계단 없음)
             int m0 = Math.Clamp((int)Math.Floor(mean), 1, N), m1 = Math.Min(N, m0 + 1);
@@ -81,10 +85,80 @@ namespace Life
         }
 
         // 세포 i의 부모 = floor((i−1)·β). 방향은 부모 방향을 θ만큼 꺾되 꺾는 축을 황금각씩 돌린다(잎차례처럼 3차원으로 퍼짐)
-        static CellPos[] Layout(float[] g, Traits t, int n)
+        // 덩이 파쇄: 딸세포가 정해진 각으로 단단히 붙어 못 움직이면, 덩이가 커질수록 안쪽 세포끼리 겹쳐 눌리고(포장 변형) 어느 크기에서 부러진다.
+        // 눈송이 효모: 둥근 세포(장단축비 ≈ 1.2) 덩이는 ~100세포에서 부러지고, 세포가 길수록 덜 빽빽해 더 크게 자란다(Jacobeen 2018 Nat Phys). 붙는 힘은 진화 내내 거의 그대로.
+        // 그래서 붙음 단백질을 늘려도 덩이는 이 세포 수를 못 넘는다. 잣대: 풀기 전 배치의 겹침 에너지 U(m) = Σ_{i<j<m} max(0, 1.6r − d)²/r²가
+        // 기준 배치(두 갈래 β 0.5, 꺾임 54°, 장단축비 1.2) 100세포의 U에 이르는 세포 수. 256세포 안에서 안 부러지면 1024세포까지 재고, 그래도 안 부러지면 512 → 1024 세포의 U 멱법칙으로 늘린다.
+        // 크기와 무관(반지름 1로 잼). 유전자 셋으로만 정해지니 기억해 둔다(ponytail: 4096개 넘으면 통째로 비움 — 값은 유전자로만 정해져 다시 재도 같다)
+        static readonly ConcurrentDictionary<(float, float, float), (double cap, double[] q, double ex, double[] rg)> frac = new();
+        static readonly double UC = Strain(0.5, 0.3, 1.2, 100).U[100];
+
+        // U[m] = 앞 m개(≤ nU) 세포의 겹침 에너지(풀기 전), rg[m] = 회전 반지름(푼 뒤, 반지름 1 단위, ≤ n)
+        static (double[] U, double[] rg) Strain(double beta, double ang, double aspect, int n, int nU = int.MaxValue)
+        {
+            var c = Place(beta, Math.PI * ang, 2 * Math.Cbrt(aspect) * 0.95, 1, n); nU = Math.Min(n, nU); var U = new double[nU + 1]; var rg = new double[n + 1]; double sx = 0, sy = 0, sz = 0, s2 = 0;
+            for (int i = 0; i < nU; i++)
+            {
+                double s = 0;
+                for (int j = 0; j < i; j++) { double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z, d = Math.Sqrt(dx * dx + dy * dy + dz * dz); if (d < 1.6) s += (1.6 - d) * (1.6 - d); }
+                U[i + 1] = U[i] + s;
+            }
+            Relax(c, 1);   // 몸 길이는 겹침을 푼 배치(그리는 몸과 같은 것)에서 잰다: 풀기 전 꼬불꼬불한 실은 풀면 곧게 펴진다
+            for (int i = 0; i < n; i++)
+            {
+                sx += c[i].x; sy += c[i].y; sz += c[i].z; s2 += c[i].x * c[i].x + c[i].y * c[i].y + c[i].z * c[i].z; int m = i + 1;
+                rg[m] = Math.Sqrt(Math.Max(0, s2 / m - (sx * sx + sy * sy + sz * sz) / ((double)m * m)));
+            }
+            return (U, rg);
+        }
+
+        // 배치 하나에서 파쇄 상한과 난류 짐 q(m)(아래 Shear)을 같이 잰다
+        static (double cap, double[] q, double ex, double[] rg) Geo(double beta, double ang, double aspect, int M, int R)   // 겹침은 M세포까지, 회전 반지름은 R세포까지 잰다
+        {
+            var (U, rg) = Strain(beta, ang, aspect, R, M); double cap = double.NaN;
+            for (int m = 2; m <= M && double.IsNaN(cap); m++) if (U[m] > UC) cap = m - 1 + (UC - U[m - 1]) / (U[m] - U[m - 1]);   // 넘는 자리 사이를 이어 계단 없이
+            if (double.IsNaN(cap))
+            {
+                double k = U[M / 2] > 0 ? Math.Max(1, Math.Log(U[M] / U[M / 2]) / Math.Log(2)) : 2;
+                cap = U[M] <= 0 ? Cfg.CELLS_MAX : Math.Min(Cfg.CELLS_MAX, M * Math.Pow(UC / U[M], 1 / k));
+            }
+            double lu = 2 * Math.Cbrt(aspect) * 0.95; var q = new double[R + 1];
+            for (int m = 2; m <= R; m++) q[m] = Math.Max(q[m - 1], Math.Pow(12, 1.5) * rg[m] * rg[m] * rg[m] / (m * lu));   // 누적 최댓값: 처음 넘는 자리를 이분 탐색으로
+            double D = Math.Clamp(Math.Log(4) / Math.Log(Math.Max(1.0001, rg[R] / rg[R / 4])), 1, 3);
+            return (cap, q, 3 / D - 1, rg);
+        }
+
+        // 256세포 안에서 안 부러지면 1024까지 직접(겹침 늘림 오차 최대 40 % → 확인 표), 그래도 안 부러지면 회전 반지름만 CELLS_MAX까지 직접 잰다:
+        // 몸이 NDRAW보다 크면 크기를 이 값으로 정한다(02 Of). 256세포에서 잰 차원으로 늘리면 갈래 0.99 실이 4096세포에서 5배 크게 나왔음(갈래가 100세포마다 늘어 빗자루가 됨)
+        static (double cap, double[] q, double ex, double[] rg) GeoOf(float[] g, double aspect)
+        {
+            if (frac.Count > 4096) frac.Clear();   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
+            return frac.GetOrAdd((g[G.BRANCH], g[G.ANGLE], g[G.ASPECT]), _ =>
+            {
+                float b = g[G.BRANCH], an = g[G.ANGLE]; var a = Geo(b, an, aspect, NDRAW, NDRAW);
+                if (a.cap > NDRAW) a = Geo(b, an, aspect, 4 * NDRAW, 4 * NDRAW);
+                return a.cap > 4 * NDRAW ? Geo(b, an, aspect, 4 * NDRAW, Cfg.CELLS_MAX) : a;
+            });
+        }
+
+        public static double Fracture(float[] g, double aspect) => GeoOf(g, aspect).cap;   // 부러지기 전 최대 세포 수(겹침이 안 쌓이는 실은 CELLS_MAX)
+        public static double FractureAt(double beta, double ang, double aspect, int M) => Geo(beta, ang, aspect, M, M).cap;
+
+        // 난류 끊김: 물이 몸을 늘이는 힘은 길이 L의 제곱으로 크고(가는 막대, Batchelor 1971), 그 힘을 가운데 단면의 결합들이 나눠 진다.
+        // 단면의 세포 수 k ≈ m × 결합 길이 / L이라 결합 하나의 짐 ∝ L³/m: 곧은 실은 길이²로 커지고, 판은 √m로, 덩어리는 거의 그대로(안 끊김).
+        // 곧은 실이 Cfg.ETA(바다 표층 콜모고로프 길이 ≈ 3 mm)에서 끊기게 맞춘다 — 떠 있는 실 실측 최대(Trichodesmium·Aphanizomenon ~mm, 수백 세포)와 같은 크기.
+        // L = √12 × 회전 반지름(곧은 막대면 길이 그대로). ponytail: 끊김 문턱 자료는 없고(난류가 세면 실이 짧아진다는 실험만, Xiao 2016), 모든 칸에 같은 ε. 칸별 섞임 세기가 생기면 칸마다 η로
+        public static double Shear(float[] g, Traits t)
+        {
+            var (_, q, ex, _) = GeoOf(g, t.aspect); int M = q.Length - 1; double r = t.dCell / 2, thr = Cfg.ETA * Cfg.ETA / (r * r);
+            if (q[M] <= thr) return ex <= 0.01 || q[M] <= 0 ? Cfg.CELLS_MAX : Math.Min(Cfg.CELLS_MAX, M * Math.Pow(thr / q[M], 1 / ex));
+            int lo = 2, hi = M; while (lo < hi) { int mid = (lo + hi) / 2; if (q[mid] > thr) hi = mid; else lo = mid + 1; }
+            return lo - 1 + (thr - q[lo - 1]) / (q[lo] - q[lo - 1]);
+        }
+
+        static CellPos[] Place(double beta, double theta, double len, double r, int n)   // 풀기 전 배치: 딸세포를 부모에서 len 떨어진 곳에 θ로 꺾어 붙인다
         {
             var c = new CellPos[n]; var dir = new (double x, double y, double z)[n];
-            double beta = g[G.BRANCH], theta = Math.PI * g[G.ANGLE], len = t.dCell * Math.Cbrt(t.aspect) * 0.95, r = t.dCell / 2;
             c[0] = new CellPos { r = (float)r, parent = -1 }; dir[0] = (1, 0, 0);
             var kids = new int[n];
             for (int i = 1; i < n; i++)
@@ -98,8 +172,25 @@ namespace Life
                 dir[i] = nd;
                 c[i] = new CellPos { x = (float)(c[p].x + nd.Item1 * len), y = (float)(c[p].y + nd.Item2 * len), z = (float)(c[p].z + nd.Item3 * len), r = (float)r, parent = p };
             }
-            // 겹침 풀기: 붙은 짝은 거리 len을 지키고, 겹친 세포는 밀어낸다(몇 번만)
-            bool moved = true;   // 한 바퀴 동안 아무것도 안 밀렸으면 그 뒤 바퀴도 같다: 멈춘다(결과 같음)
+            return c;
+        }
+
+        static CellPos[] Layout(float[] g, Traits t, int n)
+        {
+            double r = t.dCell / 2; var c = Place(g[G.BRANCH], Math.PI * g[G.ANGLE], t.dCell * Math.Cbrt(t.aspect) * 0.95, r, n); Relax(c, r);
+            // 겉 세포: 이웃(2.2 r 안)이 적은 세포
+            for (int i = 0; i < n; i++)
+            {
+                int nb = 0;
+                for (int j = 0; j < n; j++) { if (i == j) continue; double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z; if (dx * dx + dy * dy + dz * dz < 4.8 * r * r) nb++; }
+                c[i].outer = nb < 7 ? 1 : 0;
+            }
+            return c;
+        }
+
+        static void Relax(CellPos[] c, double r)   // 겹침 풀기: 겹친 세포는 밀어낸다(몇 번만)
+        {
+            int n = c.Length; bool moved = true;   // 한 바퀴 동안 아무것도 안 밀렸으면 그 뒤 바퀴도 같다: 멈춘다(결과 같음)
             for (int it = 0; it < 12 && n > 2 && moved; it++)
             {
                 moved = false;
@@ -112,14 +203,6 @@ namespace Life
                         c[i].x += (float)(dx * push); c[i].y += (float)(dy * push); c[i].z += (float)(dz * push);
                     }
             }
-            // 겉 세포: 이웃(2.2 r 안)이 적은 세포
-            for (int i = 0; i < n; i++)
-            {
-                int nb = 0;
-                for (int j = 0; j < n; j++) { if (i == j) continue; double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z; if (dx * dx + dy * dy + dz * dz < 4.8 * r * r) nb++; }
-                c[i].outer = nb < 7 ? 1 : 0;
-            }
-            return c;
         }
 
         static (double, double, double) Perp((double x, double y, double z) d, double phi)

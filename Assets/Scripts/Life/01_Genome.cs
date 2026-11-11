@@ -50,7 +50,9 @@ namespace Life
             t.cellC = 0.216e-12 * Math.Pow(vol, 0.939) / 12;                  // Menden-Deuer & Lessard 2000
             // 붙음: 분열한 딸세포가 붙어 남을 확률 p = φ/(φ+φ0) → 갈라지기 전 덩이 ≈ 1/(1−p) = 1 + φ/φ0, 거기에 지수.
             // 문턱이 없어 붙음 단백질을 조금만 늘려도 덩이가 조금 커진다. 한 걸음(φ ×1.17)에 세포 수 ×1.6 이하
-            t.nA = Math.Clamp(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), 1, Cfg.CELLS_MAX);
+            // 덩이는 붙는 힘이 아니라 포장 변형으로 부러진다(02 Body.Fracture): 붙음을 아무리 늘려도 그 세포 수를 못 넘는다
+            // 가는 실은 난류에 끊긴다(02 Body.Shear)
+            t.nA = Math.Clamp(Math.Min(Math.Min(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), Body.Fracture(g, t.aspect)), Body.Shear(g, t)), 1, Cfg.CELLS_MAX);
             t.n0 = Math.Max(1, t.nA * 0.5 * g[G.PROP]);
             t.diff = g[G.DIFF];
             t.lr = 1.7 * g[G.PREY];
