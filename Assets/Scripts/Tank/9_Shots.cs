@@ -1,5 +1,5 @@
 // 9단계 — 점검 사진: EvoTank.x86_64 -shots <폴더> [-days N] [-seed S] → 최대 속도로 N일(기본 1500)까지 간 뒤
-// 처음 화면 · 가장 많은 종 따라가기 · 그 종 크게 · 둘째 종 · 가장 얕은 바다 1.25 m(물속 20 cm 시야) · 표층 현미경 · 계통수 · 사건 메뉴 · 내린 종 목록 · 따라잡기를 찍고 끝낸다. 로그 줄은 "[EvoTank] …".
+// 처음 화면 · 가장 많은 종 따라가기 · 그 종 크게 · 둘째 종 · 가장 얕은 바다 1.25 m(물속 20 cm 시야) · 표층 현미경 · 계통수 · 사건 메뉴 · 내린 종 목록을 찍고 끝낸다. 로그 줄은 "[EvoTank] …".
 using System;
 using System.Collections;
 using System.IO;
@@ -40,10 +40,9 @@ namespace Tank
             Bt = B = dense >= 0 ? Mathf.Clamp(Len(snap.sp[dense]) * 12, 5e-6f, 3) : 3e-4f; yield return new WaitForSeconds(3); yield return Shot(dir, "6_표층현미경");
             Debug.Log($"[EvoTank] 표층 현미경: 가장 짙은 종 {(dense >= 0 ? snap.sp[dense].name + " " + Size(snap.sp[dense].body.size) : "없음")} 시야 {LenTxt(B)} 보이는 {avs.Count(x => !x.dying)}마리");
             showTree = true; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "7_계통수"); showTree = false;
-            // 태블릿 점검: 사건 메뉴(설명·지금 광합성을 막는 것) · 아래로 내린 종 목록 · 따라잡기 화면
+            // 태블릿 점검: 사건 메뉴(설명·지금 광합성을 막는 것) · 아래로 내린 종 목록
             showEv = true; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "8_사건메뉴"); showEv = false;
             foreach (int i in snap.alive) open.Add(snap.sp[i].clade); listScroll.y = 1e5f; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "9_목록아래");
-            run.ffDays = 300; run.paused = false; yield return new WaitForSeconds(1.5f); yield return Shot(dir, "10_따라잡기"); run.ffDays = 0; run.paused = true;
             Application.Quit();
         }
 

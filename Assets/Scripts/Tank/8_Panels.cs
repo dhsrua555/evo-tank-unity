@@ -41,7 +41,6 @@ namespace Tank
             if (snap == null) return;
             Styles();
             GUI.matrix = Matrix4x4.Scale(new Vector3(Draw.ui, Draw.ui, 1));
-            if (run.ffDays > 0) { CatchUp(); return; }
             var ev0 = UnityEngine.Event.current;
             if (showEv && (ev0.isMouse || ev0.type == EventType.ScrollWheel) && evR.Contains(ev0.mousePosition)) { EventMenu(); return; }   // 메뉴가 맨 위에 뜨므로 그 안의 누름은 메뉴만 받는다(밑의 지도·목록이 가로채지 않게)
             if (UnityEngine.Event.current.type == EventType.Repaint)
@@ -93,17 +92,6 @@ namespace Tank
             // 새 지구: 한 번 누르면 묻고, 4초 안에 다시 누르면 지금 지구를 지우고 처음부터
             bool ask = Time.unscaledTime - askNew < 4;
             if (GUI.Button(new Rect(x, y, 130, 26), ask ? "정말? 한 번 더" : "새 지구로 시작", ask ? sOn : sBtn)) { if (ask) NewEarth(); else askNew = Time.unscaledTime; }
-        }
-
-        // 따라잡는 동안: 물속·판을 그리지 않고(그 CPU를 시뮬레이션에) 진행만 보인다. 그만두면 남은 날은 건너뛴다
-        void CatchUp()
-        {
-            if (UnityEngine.Event.current.type == EventType.Repaint) { Draw.Begin(); Draw.Rect(0, 0, W, H, new Color(0.02f, 0.04f, 0.07f, 1)); Draw.End(); }
-            double r = Math.Max(0.1, snap.rate), left = run.ffDays;
-            string eta = left / r < 90 ? $"{left / r:0}초" : $"{left / r / 60:0}분";
-            GUI.Label(new Rect(W / 2 - 200, H / 2 - 50, 400, 24), "멈춘 동안 못 간 날을 따라잡는 중", sBC);
-            GUI.Label(new Rect(W / 2 - 200, H / 2 - 22, 400, 20), $"{left:0}일 남음 · 초당 {r:0}일 · 약 {eta} · 지금 {snap.day:0}일째, 산소 {snap.O2:0.###} PAL, {snap.T:0.0} °C", sSC);
-            if (GUI.Button(new Rect(W / 2 - 70, H / 2 + 8, 140, 26), "그만 따라잡기", sBtn)) run.ffDays = 0;
         }
 
         // ── 윗줄 ──

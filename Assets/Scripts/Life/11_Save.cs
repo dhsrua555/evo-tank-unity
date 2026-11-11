@@ -18,7 +18,7 @@ namespace Life
         const int MAGIC = 0x544F5645, VER = 2;   // "EVOT". 2: 맨 위 Planet 형 서명도 적음(1은 없음)
         const BindingFlags F = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-        public sealed class Head { public int seed; public double day, rate; public DateTime at; }   // rate: 저장할 때 속도(일/초), 멈춘 동안 따라잡기에 쓴다
+        public sealed class Head { public int seed; public double day, rate; public DateTime at; }   // rate: 저장할 때 정한 속도(일/초, 0 = 최대). 지금은 읽기만 하고 안 씀(옛 '멈춘 동안 따라잡기' 자리, 파일 형식은 그대로)
 
         public static void Write(Planet pl, string path, double rate)
         {

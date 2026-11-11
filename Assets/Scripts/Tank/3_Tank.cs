@@ -48,8 +48,6 @@ namespace Tank
                 }
             pl ??= new Planet(seedArg >= 0 && !fresh ? seedArg : Environment.TickCount & 0xffff);
             run = new Runner(pl, path);
-            // 태블릿: 앱이 꺼져 있던 동안 갔어야 할 날을 따라잡는다(내렸다 다시 열 때와 같은 규칙)
-            if (h != null && Application.isMobilePlatform) run.ffDays = Math.Clamp((DateTime.UtcNow - h.at).TotalSeconds * h.rate, 0, 30000);
             Fonts(); LookInit();
             if (shots) StartCoroutine(Shots());
             Debug.Log($"[EvoTank] 시작: 시드 {pl.seed}, {pl.Day:0}일, 해역 {pl.NR}, 칸 {pl.V}, 저장 {path ?? "안 함"}");
@@ -74,16 +72,8 @@ namespace Tank
             return i >= 0 && i + 1 < a.Length && int.TryParse(a[i + 1], out int x) ? x : def;
         }
 
-        // 태블릿: 앱이 멈춘 동안 갔어야 할 날을 다시 열 때 따라잡는다(최대 3만 일)
-        DateTime pausedAt; double pausedDay, pausedRate;
-        void OnApplicationPause(bool p)
-        {
-            if (run == null) return;
-            if (p) { pausedAt = DateTime.UtcNow; pausedDay = run.pl.Day; pausedRate = run.CatchRate; run.SaveNow(); return; }   // 내리면 바로 저장: 그대로 꺼져도 이어진다
-            if (run.paused || pausedAt == default) return;
-            double want = (DateTime.UtcNow - pausedAt).TotalSeconds * pausedRate, done = run.pl.Day - pausedDay;
-            run.ffDays = Math.Clamp(want - done, 0, 30000);
-        }
+        // 휴대폰·태블릿: 내리면 바로 저장(그대로 꺼져도 이어진다). 내려가 있던 동안의 날은 따라잡지 않고, 다시 열면 멈춘 곳에서 이어 간다
+        void OnApplicationPause(bool p) { if (p) run?.SaveNow(); }
 
         void Update()
         {
@@ -96,10 +86,7 @@ namespace Tank
             if (snap == null) return;
             mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y) / Draw.ui;
             inView = !showTree && !OverPanel(mouse);
-            // 따라잡는 동안은 3D를 멈추고 화면을 10 fps로: 남는 CPU를 시뮬레이션에
-            bool ff = run.ffDays > 0;
-            Application.targetFrameRate = ff ? 10 : 30; cam.cullingMask = ff ? 0 : ~0;
-            if (!ff) DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh);
+            DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh);
         }
 
         void Layout()
