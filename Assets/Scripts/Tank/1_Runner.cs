@@ -93,7 +93,8 @@ namespace Tank
         }
 
         // 사진 찍기: 살아 있는 종마다 칸별 생물량을 모아 가장 많은 칸 8개를 고른다
-        void MakeSnap(double rate)
+        void MakeSnap(double rate) { long t = Perf.T(); Snap1(rate); Perf.Add(7, t); }
+        void Snap1(double rate)
         {
             var p = pl; int V = p.V;
             var s = new Snap { day = p.Day, O2 = p.O2PAL, CO2 = p.CO2PAL, CH4 = p.CH4ppm, T = p.Tglobal, rate = rate, nStrain = p.alive.Count, nSp = p.nAliveSp };

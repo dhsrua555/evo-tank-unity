@@ -38,6 +38,8 @@ namespace Tank
             int seedArg = Arg("-seed", -1); bool test = seedArg >= 0 || shots;
             string path = test ? null : Path.Combine(Application.persistentDataPath, "earth.sav");
             Planet pl = null; Life.Save.Head h = null;
+            int li = Array.IndexOf(Environment.GetCommandLineArgs(), "-load");   // -load <파일>: 그 지구를 읽어 돌리되 저장은 안 함(렉 재기·시험)
+            if (li >= 0) { path = null; pl = Life.Save.Read(Environment.GetCommandLineArgs()[li + 1], out h); }
             if (path != null && !fresh && File.Exists(path))
                 try { pl = Life.Save.Read(path, out h); Note($"저장한 지구를 이어서 돌립니다 · {h.day:0}일"); }
                 catch (Exception e)
@@ -86,7 +88,7 @@ namespace Tank
             if (snap == null) return;
             mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y) / Draw.ui;
             inView = !showTree && !OverPanel(mouse);
-            DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh);
+            long t = Perf.T(); DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh); Perf.Add(0, t); Perf.Frame(avs.Count);
         }
 
         void Layout()
@@ -110,5 +112,28 @@ namespace Tank
             else DiveTo(v / Cfg.NY, p.zTop[v] + Math.Min(p.thick[v] * 0.5, 8), s);
         }
 
+    }
+
+    // -perf: 5초마다 프레임 시간(평균·최대)과 부분별 시간·GC 횟수를 로그로(렉 찾기). 안 켜면 아무것도 안 함
+    static class Perf
+    {
+        public static readonly bool On = Array.IndexOf(Environment.GetCommandLineArgs(), "-perf") >= 0;
+        static readonly string[] N = { "물속", "맞추기", "움직임", "그리기", "고르기", "판", "몸그물", "사진" };
+        static readonly double[] sum = new double[8], max = new double[8]; static readonly int[] cnt = new int[8];
+        static double fSum, fMax; static int frames, gc0; static float t0;
+        public static long T() => On ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        public static void Add(int k, long from)
+        {
+            if (!On) return; double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            lock (sum) { sum[k] += ms; max[k] = Math.Max(max[k], ms); cnt[k]++; }
+        }
+        public static void Frame(int avs)
+        {
+            if (!On) return; double f = Time.unscaledDeltaTime * 1000; fSum += f; fMax = Math.Max(fMax, f); frames++;
+            if (Time.unscaledTime - t0 < 5) return;
+            var sb = new System.Text.StringBuilder($"[EvoTank] 성능 {frames / (Time.unscaledTime - t0):0} fps · 프레임 평균 {fSum / frames:0.0} 최대 {fMax:0} ms · GC {GC.CollectionCount(0) - gc0}회 · 개체 {avs} |");
+            lock (sum) for (int k = 0; k < N.Length; k++) { if (cnt[k] > 0) sb.Append($" {N[k]} {sum[k] / frames:0.00}/{max[k]:0.0}ms×{cnt[k]}"); sum[k] = max[k] = 0; cnt[k] = 0; }
+            Debug.Log(sb.ToString()); fSum = fMax = 0; frames = 0; gc0 = GC.CollectionCount(0); t0 = Time.unscaledTime;
+        }
     }
 }

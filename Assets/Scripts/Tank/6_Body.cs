@@ -35,6 +35,7 @@ namespace Tank
         {
             var key = (s.body, s.id);
             if (bodyMeshes.TryGetValue(key, out var m)) return m;
+            long t0 = Perf.T(); try {
             if (bodyMeshes.Count > 400) { foreach (var x in bodyMeshes.Values) Destroy(x); bodyMeshes.Clear(); }
             var t = s.t; var c = s.body.cells; int n = Mathf.Clamp(Mathf.RoundToInt((float)t.MeanCells), 1, c.Length);
             Vector3 cen = Vector3.zero; for (int i = 0; i < n; i++) cen += new Vector3(c[i].x, c[i].y, c[i].z); cen /= n;
@@ -51,6 +52,7 @@ namespace Tank
                 Cell(b, o, c[i].r, asp, q, detail, t, cc, r, n == 1, outDir, !inner && detail > 0);
             }
             m = b.Mesh(); bodyMeshes[key] = m; return m;
+            } finally { Perf.Add(6, t0); }
         }
 
         // 세포 하나: 반지름 R(μm), 길쭉함 asp(부피는 같게), detail 2 전부 · 1 막+알갱이+편모 · 0 막만

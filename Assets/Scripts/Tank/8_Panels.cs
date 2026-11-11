@@ -36,7 +36,8 @@ namespace Tank
             sSC = new GUIStyle(sS) { alignment = TextAnchor.UpperCenter }; sBC = new GUIStyle(sB) { alignment = TextAnchor.UpperCenter }; sTiny = new GUIStyle(sBtn) { fontSize = 9, padding = new RectOffset(0, 0, 0, 0) };
         }
 
-        void OnGUI()
+        void OnGUI() { long t = Perf.T(); Gui(); Perf.Add(5, t); }
+        void Gui()
         {
             if (snap == null) return;
             Styles();

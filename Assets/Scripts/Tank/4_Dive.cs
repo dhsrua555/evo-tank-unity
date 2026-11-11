@@ -96,12 +96,12 @@ namespace Tank
             if (selAv != null && (selAv.dying || snap.sp[selAv.sp].died >= 0)) selAv = null;
             Edges();
             int v = Voxel();
-            if (v != vNow || Mathf.Abs(Mathf.Log(B / Mathf.Max(1e-9f, Bseen))) > 0.05f || fresh && Time.unscaledTime - lastRec > 0.5f) { vNow = v; Bseen = B; lastRec = Time.unscaledTime; Reconcile(v); }
-            MoveAvs(dt);
+            if (v != vNow || Mathf.Abs(Mathf.Log(B / Mathf.Max(1e-9f, Bseen))) > 0.05f || fresh && Time.unscaledTime - lastRec > 0.5f) { vNow = v; Bseen = B; lastRec = Time.unscaledTime; long t = Perf.T(); Reconcile(v); Perf.Add(1, t); }
+            long t0 = Perf.T(); MoveAvs(dt); Perf.Add(2, t0);
             if (selAv != null) MoveBy(selAv.p);   // 고른 개체와 함께 헤엄친다(떠다니는 원점)
             CamUpdate(dt);
-            DrawAll(v);
-            HoverPick();
+            t0 = Perf.T(); DrawAll(v); Perf.Add(3, t0);
+            t0 = Perf.T(); HoverPick(); Perf.Add(4, t0);
         }
 
         // 처음: 가장 많은 종이 사는 칸(없으면 가장 얕은 바다 1.25 m)
