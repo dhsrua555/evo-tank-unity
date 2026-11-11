@@ -5,7 +5,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Life;
 
 namespace Tank
@@ -16,7 +18,12 @@ namespace Tank
         public int id, parent, clade, born, died, strains;
         public string name; public Role role;
         public double biomass, peak;
-        public Body body; public Traits t; public float[] g;
+        public float[] g;
+        // 형질·몸은 처음 볼 때 만든다: 멸종한 종 대부분은 아무도 안 본다. Traits.Of가 종 하나에 ~1.5 ms(몸 배치 GeoOf)라
+        // 첫 사진에서 다 만들면 2만 종 지구(11000일)가 Mono에서 230초 멈췄다
+        Traits tr; Body b;
+        public Traits t { get => tr ??= g != null ? Traits.Of(g) : null; set => tr = value; }
+        public Body body { get => b ??= t != null ? Body.Of(g, t) : null; set => b = value; }
         public double[] income;                 // 빛·화학·산 먹이·사체·녹은 유기물(오늘)
         public double[] energy;                 // 쓴 ATP: 빛·화학·유기물 태우기(오늘)
         public int[] where; public float[] share;   // 많이 사는 칸(최대 8)과 그 몫
@@ -37,6 +44,32 @@ namespace Tank
         public string lim;                      // 어제 광합성을 막은 것(Planet.PhotoLimits)
     }
 
+    // 시뮬레이션 일꾼 스레드: 우선순위를 낮춘 전용 스레드들(Linux·안드로이드 nice 10, 윈도우 BelowNormal). 컴퓨터가 붐빌 때(다른 프로그램·실험)
+    // 시뮬이 화면 스레드의 CPU를 뺏지 않게 하고, 한가하면 그대로 다 쓴다. 바쁜 루프 16개와 같이 재 보니 바꾸기 전 프레임 최대 55–250 ms
+    static class Low
+    {
+        public static readonly TaskScheduler Sched = new S(Math.Max(1, Environment.ProcessorCount - 2));
+        [ThreadStatic] static bool mine;
+        [DllImport("libc")] static extern int gettid();
+        [DllImport("libc")] static extern int setpriority(int which, int who, int prio);
+        public static void Me()
+        {
+            mine = true;
+            try { Thread.CurrentThread.Priority = System.Threading.ThreadPriority.BelowNormal; } catch { }
+            if (UnityEngine.Application.platform is UnityEngine.RuntimePlatform.LinuxPlayer or UnityEngine.RuntimePlatform.Android)
+                try { setpriority(0, gettid(), 10); } catch (Exception e) { UnityEngine.Debug.LogWarning("[EvoTank] 시뮬 스레드 우선순위 못 낮춤: " + e.Message); }   // Linux는 nice가 스레드마다
+        }
+        sealed class S : TaskScheduler
+        {
+            readonly BlockingCollection<Task> q = new(); readonly int n;
+            public S(int n) { this.n = n; for (int i = 0; i < n; i++) new Thread(() => { Me(); foreach (var t in q.GetConsumingEnumerable()) TryExecuteTask(t); }) { IsBackground = true, Name = "life " + i }.Start(); }
+            protected override void QueueTask(Task t) => q.Add(t);
+            protected override bool TryExecuteTaskInline(Task t, bool queued) => mine && TryExecuteTask(t);
+            protected override IEnumerable<Task> GetScheduledTasks() => q.ToArray();
+            public override int MaximumConcurrencyLevel => n;
+        }
+    }
+
     public sealed class Runner
     {
         public readonly Planet pl;
@@ -55,6 +88,7 @@ namespace Tank
         public Runner(Planet pl, string savePath)
         {
             this.pl = pl; this.savePath = savePath;
+            pl.po.TaskScheduler = Low.Sched;
             MakeSnap(0);
             th = new Thread(Loop) { IsBackground = true, Name = "life" };
             th.Start();
@@ -72,6 +106,7 @@ namespace Tank
 
         void Loop()
         {
+            Low.Me();
             var sw = Stopwatch.StartNew(); double t0 = 0, d0 = pl.Day, lastSnap = 0, rate = 0, rT = 0, rD = pl.Day, lastSave = 0, savedDay = pl.Day;
             while (!stop)
             {
@@ -116,7 +151,6 @@ namespace Tank
                 var rep = sp.rep >= 0 ? p.strains[sp.rep] : null;
                 if (rep != null) { w.body = rep.b; w.t = rep.t; }
                 else if (old != null) { w.body = old.body; w.t = old.t; }
-                else { w.t = Traits.Of(sp.g); w.body = Body.Of(sp.g, w.t); }
                 if (sp.Alive && acc.TryGetValue(sp.id, out var a))
                 {
                     double tot = 0; for (int v = 0; v < V; v++) tot += a[v];

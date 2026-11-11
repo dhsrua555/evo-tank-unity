@@ -143,20 +143,23 @@ namespace Tank
         // ── 종 목록: 하는 일·몸 꼴로 거르고(갈래로 묶지 않음 — 갈래 하나에 종이 1–3개라 묶어도 줄지 않았다), 줄마다 무엇인지(일·꼴·크기)를 보인다 ──
         static readonly string[] FORMS = { "단세포", "작은 덩이", "실", "판", "덩어리" }, ROLES = { "광합성", "화학", "포식", "청소", "분해", "혼합" }, SORTS = { "많은 순", "큰 순", "나온 순" };
         static int FormOf(SpView s) { double n = s.t.MeanCells; return n < 2 ? 0 : n < 8 ? 1 : s.body.dim < 1.5 ? 2 : s.body.dim < 2.3 ? 3 : 4; }   // LifeTest Forms와 같은 경계
-        int fRole = -1, fForm = -1, sortBy; readonly List<int> shown = new();
+        int fRole = -1, fForm = -1, sortBy; readonly List<int> shown = new(); (Snap, int, int, string, int) shownKey;
         void List(Rect r)
         {
             var s = snap; float y = r.y + 6, ch = Application.isMobilePlatform ? 24 : 20, rh = Application.isMobilePlatform ? 26 : 21;
-            shown.Clear();
-            foreach (int i in s.alive)
+            if (!shownKey.Equals((s, fRole, fForm, search, sortBy)))   // 거르기·정렬은 사진이나 거름이 바뀔 때만(OnGUI는 프레임마다 두 번 넘게 불린다)
             {
-                var sp = s.sp[i]; if (sp.body == null || sp.t == null) continue;
-                if (fRole >= 0 && (int)sp.role != fRole || fForm >= 0 && FormOf(sp) != fForm) continue;
-                if (search.Length > 0 && sp.name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0 && s.clades[sp.clade].name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                shown.Add(i);
+                shownKey = (s, fRole, fForm, search, sortBy); shown.Clear();
+                foreach (int i in s.alive)
+                {
+                    var sp = s.sp[i]; if (sp.body == null || sp.t == null) continue;
+                    if (fRole >= 0 && (int)sp.role != fRole || fForm >= 0 && FormOf(sp) != fForm) continue;
+                    if (search.Length > 0 && sp.name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0 && s.clades[sp.clade].name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    shown.Add(i);
+                }
+                Func<int, double> key = sortBy == 0 ? i => -s.sp[i].biomass : sortBy == 1 ? i => -s.sp[i].body.size : i => -s.sp[i].born;
+                shown.Sort((a, b) => key(a).CompareTo(key(b)));
             }
-            Func<int, double> key = sortBy == 0 ? i => -s.sp[i].biomass : sortBy == 1 ? i => -s.sp[i].body.size : i => -s.sp[i].born;
-            shown.Sort((a, b) => key(a).CompareTo(key(b)));
             GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), shown.Count == s.alive.Length ? $"살아 있는 종 {s.alive.Length}" : $"살아 있는 종 {s.alive.Length} 중 {shown.Count}", sB);
             y += 22;
             search = GUI.TextField(new Rect(r.x + 10, y, r.width - 20, ch), search, sField);
@@ -182,11 +185,14 @@ namespace Tank
         // 칩 한 줄: 누르면 그것만, 다시 누르면 '전체'(all = true일 때 맨 앞에 '전체' 칩)
         float Chips(Rect r, float y, float h, string[] names, ref int v, bool all)
         {
-            int n = names.Length + (all ? 1 : 0); float w = (r.width - 20) / n;
+            int n = names.Length + (all ? 1 : 0); string Nm(int k) => all && k == 0 ? "전체" : names[all ? k - 1 : k];
+            float tot = 0; for (int k = 0; k < n; k++) tot += Nm(k).Length + 2;   // 칩 폭은 글자 수에 맞춰 나눈다('작은 덩이'가 잘리지 않게)
+            float x = r.x + 10;
             for (int k = 0; k < n; k++)
             {
-                int val = all ? k - 1 : k; string t = all && k == 0 ? "전체" : names[all ? k - 1 : k];
-                if (GUI.Button(new Rect(r.x + 10 + k * w, y, w - 2, h), t, v == val ? sOn : sBtn)) { v = val; listScroll.y = 0; }
+                int val = all ? k - 1 : k; float w = (r.width - 20) * (Nm(k).Length + 2) / tot;
+                if (GUI.Button(new Rect(x, y, w - 2, h), Nm(k), v == val ? sOn : sBtn)) { v = val; listScroll.y = 0; }
+                x += w;
             }
             return y + h + 3;
         }

@@ -30,14 +30,14 @@ namespace Tank
         {
             Application.runInBackground = true;          // 창을 내려도 화면이 계속(시뮬레이션은 어차피 따로 돈다)
             QualitySettings.vSyncCount = 0;
-            Application.targetFrameRate = 30;            // 화면은 30 fps면 충분: 남는 CPU는 시뮬레이션에
+            Application.targetFrameRate = Application.isMobilePlatform ? 30 : 60;   // 컴퓨터 60 fps(화면 스레드 일은 프레임마다 ~3 ms), 휴대폰은 전지·발열 때문에 30
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             cam = GetComponent<Camera>(); cam.fieldOfView = 50;
             // 시드나 사진(-shots)을 준 시험 실행은 저장 파일을 읽지도 쓰지도 않는다(사용자 지구를 덮지 않게)
             bool shots = Array.IndexOf(Environment.GetCommandLineArgs(), "-shots") >= 0, fresh = newEarth; newEarth = false;
             int seedArg = Arg("-seed", -1); bool test = seedArg >= 0 || shots;
             string path = test ? null : Path.Combine(Application.persistentDataPath, "earth.sav");
-            Planet pl = null; Life.Save.Head h = null;
+            Planet pl = null; Life.Save.Head h = null; var rd = System.Diagnostics.Stopwatch.StartNew();
             int li = Array.IndexOf(Environment.GetCommandLineArgs(), "-load");   // -load <파일>: 그 지구를 읽어 돌리되 저장은 안 함(렉 재기·시험)
             if (li >= 0) { path = null; pl = Life.Save.Read(Environment.GetCommandLineArgs()[li + 1], out h); }
             if (path != null && !fresh && File.Exists(path))
@@ -49,10 +49,10 @@ namespace Tank
                     Note("저장 파일을 못 읽어 새 지구로 시작합니다(옛 파일은 earth.sav.old)");
                 }
             pl ??= new Planet(seedArg >= 0 && !fresh ? seedArg : Environment.TickCount & 0xffff);
-            run = new Runner(pl, path);
+            long readMs = rd.ElapsedMilliseconds; run = new Runner(pl, path);
             Fonts(); LookInit();
             if (shots) StartCoroutine(Shots());
-            Debug.Log($"[EvoTank] 시작: 시드 {pl.seed}, {pl.Day:0}일, 해역 {pl.NR}, 칸 {pl.V}, 저장 {path ?? "안 함"}");
+            Debug.Log($"[EvoTank] 시작: 시드 {pl.seed}, {pl.Day:0}일, 해역 {pl.NR}, 칸 {pl.V}, 종 {pl.species.Count}(살아 있음 {pl.nAliveSp}), 저장 {path ?? "안 함"} · 읽기 {readMs} ms · 첫 사진까지 {rd.ElapsedMilliseconds - readMs} ms");
         }
 
         void OnDestroy() => run?.Stop();
