@@ -31,11 +31,20 @@ namespace Tank
         public bool Alive => died < 0;
     }
 
+    // 종 사진 표: 사진마다 종 수만큼 새 배열을 잡지 않고 시뮬 쪽 캐시를 같이 본다(18만 종 지구에서 사진마다 1.5 MB → 앱 GC).
+    // 멸종한 종의 칸은 한 번 쓴 뒤 안 바뀐다. 살아 있는 종의 칸은 다음 사진이 새 SpView로 갈아 끼울 수 있다(칸 하나는 늘 온전한 한 사진)
+    public sealed class SpTable
+    {
+        readonly SpView[] a; public readonly int Length;
+        public SpTable(SpView[] a, int n) { this.a = a; Length = n; }
+        public SpView this[int i] => a[i];
+    }
+
     public sealed class Snap
     {
         public double day, O2, CO2, CH4, T, rate;   // rate: 지금 속도(일/초)
         public int nStrain, nSp;
-        public SpView[] sp;                     // id 순, 멸종 포함
+        public SpTable sp;                      // id 순, 멸종 포함
         public int[] alive;                     // 살아 있는 종 id
         public Clade[] clades;
         public float[] vO2, vH2S, vFe2, vLight, vT, vPOC; // 칸별 화학(μM)·빛·수온(°C)·사체 입자(μM C, 바다눈)
@@ -82,7 +91,7 @@ namespace Tank
         public readonly ConcurrentQueue<DayStat> days = new();
         public readonly ConcurrentQueue<Event> news = new();
         readonly Thread th; volatile bool stop;
-        SpView[] cache = new SpView[0];
+        SpView[] cache = new SpView[0]; Clade[] cladeArr = new Clade[0];
         // 사진 만들 때 쓰고 돌려받는 것(시뮬레이션 스레드만): 사진마다 종 수 × 칸 수 배열을 새로 잡으면 앱이 GC로 끊겼다
         readonly Dictionary<int, double[]> accMap = new(); readonly Stack<double[]> accPool = new(); readonly int[] topBuf = new int[8];
         int nDays, nEv;
@@ -171,9 +180,10 @@ namespace Tank
                 if (sp.Alive) alive.Add(i);
             }
             foreach (var a in acc.Values) accPool.Push(a);
-            s.sp = new SpView[ns]; Array.Copy(cache, s.sp, ns);
+            s.sp = new SpTable(cache, ns);
             s.alive = alive.ToArray();
-            s.clades = p.clades.ToArray();
+            if (cladeArr.Length != p.clades.Count) cladeArr = p.clades.ToArray();   // 갈래는 붙기만 한다(같은 객체를 화면이 읽음)
+            s.clades = cladeArr;
             s.vO2 = new float[V]; s.vH2S = new float[V]; s.vFe2 = new float[V]; s.vLight = new float[V]; s.vT = new float[V]; s.vPOC = new float[V];
             for (int v = 0; v < V; v++) { s.vO2[v] = (float)p.pool[P.O2][v]; s.vH2S[v] = (float)p.pool[P.H2S][v]; s.vFe2[v] = (float)p.pool[P.FE2][v]; s.vLight[v] = (float)p.light[v]; s.vT[v] = (float)p.temp[v]; s.vPOC[v] = (float)(p.pool[P.POC0][v] + p.pool[P.POC1][v] + p.pool[P.POC2][v]); }
             s.ice = p.ice != null ? Array.ConvertAll(p.ice, x => (float)x) : new float[p.NR];

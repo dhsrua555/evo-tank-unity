@@ -35,7 +35,7 @@ namespace Tank
             var g = run.pl.geo; int r0 = 0; for (int c = 1; c < g.NO; c++) if (g.rDepth[c] < g.rDepth[r0]) r0 = c;
             sel = -1; GoTo(r0, 1.25); Bt = B = 0.2f; yield return new WaitForSeconds(3); yield return Shot(dir, "5_얕은바다");
             Debug.Log($"[EvoTank] 얕은 바다 {g.Name(r0)} 바닥 {g.rDepth[r0]:0} m 보이는 {avs.Count(x => !x.dying)}마리 점 {smallN:0.#e0} 바다눈 {snap.vPOC[Voxel()]:0.###}");
-            GoTo(r0, 5); int vs = Voxel(), dense = -1; foreach (int i in snap.alive) if (snap.sp[i].body != null && (dense < 0 || snap.sp[i].conc[vs] > snap.sp[dense].conc[vs])) dense = i;
+            GoTo(r0, 5); int vs = Voxel(), dense = -1; foreach (int i in snap.alive) if (snap.sp[i].body != null && (dense < 0 || (snap.sp[i].conc?[vs] ?? 0) > (snap.sp[dense].conc?[vs] ?? 0))) dense = i;
             Bt = B = dense >= 0 ? Mathf.Clamp(Len(snap.sp[dense]) * 12, 5e-6f, 3) : 3e-4f; yield return new WaitForSeconds(3); yield return Shot(dir, "6_표층현미경");
             Debug.Log($"[EvoTank] 표층 현미경: 가장 짙은 종 {(dense >= 0 ? snap.sp[dense].name + " " + Size(snap.sp[dense].body.size) : "없음")} 시야 {LenTxt(B)} 보이는 {avs.Count(x => !x.dying)}마리");
             showTree = true; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "7_계통수"); showTree = false;

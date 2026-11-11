@@ -41,6 +41,7 @@ namespace Life
             new In(r).Root(pl, ver >= 2);
             if (pl.pool[0].Length == pl.V && pl.B.Length % pl.V == 0 && pl.B.Length / pl.V < Cfg.SMAX) Widen(pl, pl.B.Length / pl.V);
             if (pl.B.Length != Cfg.SMAX * pl.V || pl.pool[0].Length != pl.V) throw new InvalidDataException("저장 파일의 칸 수가 지금 설정과 다름");
+            foreach (var sp in pl.species) if (!sp.Alive) sp.g0 = null;   // 08 Speciate: 멸종 종의 창시 유전체는 안 쓴다(그 고침 전 저장)
             foreach (var s in pl.strains) if (s != null) pl.SetGenome(s, s.g);   // 형질·몸·포식 값은 유전체에서 다시 낸다: 공식을 고친 업데이트도 옛 저장의 값을 쓰지 않게(같은 공식이면 저장값과 같음)
             return pl;
         }
@@ -75,9 +76,11 @@ namespace Life
 
         sealed class Out
         {
-            readonly BinaryWriter w; readonly Dictionary<object, int> ids = new(RefEq.I); readonly HashSet<Type> seen = new();
+            // ids는 지난번 저장의 객체 수로 미리 잡는다(18만 종 지구: 객체 ~130만, 늘릴 때마다 다시 잡으면 수십 MB). buf: 수 배열을 바이트로 옮길 때 다시 쓰는 칸
+            static int lastIds = 1024; byte[] buf = new byte[1 << 16];
+            readonly BinaryWriter w; readonly Dictionary<object, int> ids = new(lastIds, RefEq.I); readonly HashSet<Type> seen = new();
             public Out(BinaryWriter w) => this.w = w;
-            public void Root(object o) { Struct(o.GetType()); Fields(o); }
+            public void Root(object o) { Struct(o.GetType()); Fields(o); lastIds = Math.Max(1024, ids.Count + ids.Count / 8); }
             public void Fields(object o) { foreach (var f in Save.Fields(o.GetType())) Value(f.FieldType, f.GetValue(o)); }
 
             void Value(Type t, object v)
@@ -94,7 +97,7 @@ namespace Life
                 {
                     var a = (Array)v; var e = t.GetElementType(); if (a.Rank != 1) throw new NotSupportedException($"저장: {t}");
                     w.Write(a.Length);
-                    if (Bulk(e)) { var b = new byte[Buffer.ByteLength(a)]; Buffer.BlockCopy(a, 0, b, 0, b.Length); w.Write(b); }
+                    if (Bulk(e)) { int n = Buffer.ByteLength(a); if (buf.Length < n) buf = new byte[Math.Max(n, 2 * buf.Length)]; Buffer.BlockCopy(a, 0, buf, 0, n); w.Write(buf, 0, n); }
                     else for (int i = 0; i < a.Length; i++) Value(e, a.GetValue(i));
                 }
                 else if (IsList(t)) { var l = (IList)v; var e = t.GetGenericArguments()[0]; w.Write(l.Count); for (int i = 0; i < l.Count; i++) Value(e, l[i]); }
@@ -118,7 +121,7 @@ namespace Life
 
         sealed class In
         {
-            readonly BinaryReader r; readonly List<object> objs = new(); readonly HashSet<Type> seen = new();
+            readonly BinaryReader r; readonly List<object> objs = new(); readonly HashSet<Type> seen = new(); byte[] buf = new byte[1 << 16];
             readonly Dictionary<Type, (FieldInfo f, Type skip)[]> old = new();   // 서명이 지금과 다른 형: 옛 파일의 필드 차례
             public In(BinaryReader r) => this.r = r;
             // 판 1 파일(v0.2.3)엔 Planet 서명이 없다: 지금 필드에서 그 뒤에 생긴 것만 빼고 읽는다(새 필드는 처음 값 그대로)
@@ -173,7 +176,12 @@ namespace Life
                 {
                     int n = r.ReadInt32(); var e = t.GetElementType();
                     var a = reuse is Array ra && ra.Length == n ? ra : Array.CreateInstance(e, n); objs.Add(a);
-                    if (Bulk(e)) { var b = r.ReadBytes(Buffer.ByteLength(a)); Buffer.BlockCopy(b, 0, a, 0, b.Length); }
+                    if (Bulk(e))
+                    {
+                        int nb = Buffer.ByteLength(a); if (buf.Length < nb) buf = new byte[Math.Max(nb, 2 * buf.Length)];
+                        for (int off = 0; off < nb;) { int k = r.Read(buf, off, nb - off); if (k <= 0) throw new EndOfStreamException(); off += k; }
+                        Buffer.BlockCopy(buf, 0, a, 0, nb);
+                    }
                     else for (int i = 0; i < n; i++) a.SetValue(Value(e, null), i);
                     return a;
                 }

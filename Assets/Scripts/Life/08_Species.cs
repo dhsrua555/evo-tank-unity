@@ -11,7 +11,7 @@ namespace Life
     {
         public int id, parent = -1, clade, born, died = -1;
         public string name;
-        public float[] g, g0;             // 대표 유전체(가장 많은 계통), 창시 유전체(종을 연 계통)
+        public float[] g, g0;             // 대표 유전체(가장 많은 계통), 창시 유전체(종을 연 계통, 멸종하면 null)
         public int rep = -1;              // 대표 계통 slot
         public double biomass, peak;      // mol C
         public int strains;
@@ -99,7 +99,7 @@ namespace Life
             foreach (var sp in species)
             {
                 if (!sp.Alive) continue;
-                if (sp.strains == 0) { sp.died = (int)Day; sp.rep = -1; continue; }
+                if (sp.strains == 0) { sp.died = (int)Day; sp.rep = -1; sp.g0 = null; continue; }   // 창시 유전체는 살아 있는 종 가르기에만 쓴다: 멸종하면 버린다(오래 돈 지구는 멸종 종이 18만 — 메모리·저장·GC)
                 nAliveSp++;
                 sp.role = RoleOf(sp.income, sp.energy);
             }
