@@ -143,6 +143,7 @@ namespace Life
                 if (!ReferenceEquals(v, cur) && !Equals(v, cur)) f.SetValue(o, v);
             }
             // 옛 서명("형이름 수형:필드 …")을 지금 필드에 이름으로 잇는다. 지금 없는 수 필드는 버릴 형만 적는다
+            static string Norm(string s) => System.Text.RegularExpressions.Regex.Replace(s, @", [^\[\]]+\]", "]");   // "[System.Int32, mscorlib, Version=…]" → "[System.Int32]"
             static (FieldInfo, Type)[] Map(Type t, string s)
             {
                 var p = s.Split(' '); var now = new Dictionary<string, FieldInfo>(); foreach (var f in Save.Fields(t)) now[f.Name] = f;
@@ -198,7 +199,7 @@ namespace Life
             {
                 if (!r.ReadBoolean()) { if (!seen.Contains(t)) throw new InvalidDataException($"저장 파일 순서가 다름({t.Name})"); return; }
                 string s = r.ReadString(); seen.Add(t);
-                if (s != Sig(t)) old[t] = Map(t, s);
+                if (s != Sig(t) && Norm(s) != Norm(Sig(t))) old[t] = Map(t, s);   // Norm: 제네릭 형 이름의 어셈블리 꼬리표는 런타임마다 다르다(.NET LifeTest 저장 ↔ 앱 Mono)
             }
             object Prim(Type t) => Type.GetTypeCode(t) switch
             {
