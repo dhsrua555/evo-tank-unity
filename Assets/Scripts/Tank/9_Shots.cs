@@ -26,7 +26,6 @@ namespace Tank
             if (snap.alive.Length > 0)
             {
                 int big = snap.alive.OrderBy(i => -snap.sp[i].biomass).First();
-                open.Add(snap.sp[big].clade);
                 Focus(big); yield return new WaitForSeconds(5); yield return Shot(dir, "2_따라가기");
                 Debug.Log($"[EvoTank] 물속 {run.pl.geo.Name(reg)} 수심 {py:0.0} m 시야 {LenTxt(B)} 보이는 {avs.Count(x => !x.dying)}마리 농축 {F:0.##e0} 따라가기 {(selAv != null ? snap.sp[selAv.sp].name : "없음")} 바다눈 {snap.vPOC[Voxel()]:0.###}");
                 Bt *= 0.6f; yield return new WaitForSeconds(3); yield return Shot(dir, "3_크게");
@@ -42,7 +41,7 @@ namespace Tank
             showTree = true; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "7_계통수"); showTree = false;
             // 태블릿 점검: 사건 메뉴(설명·지금 광합성을 막는 것) · 아래로 내린 종 목록
             showEv = true; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "8_사건메뉴"); showEv = false;
-            foreach (int i in snap.alive) open.Add(snap.sp[i].clade); listScroll.y = 1e5f; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "9_목록아래");
+            listScroll.y = 1e5f; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "9_목록아래");
             Application.Quit();
         }
 

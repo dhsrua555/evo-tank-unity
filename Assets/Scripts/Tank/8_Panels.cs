@@ -13,9 +13,9 @@ namespace Tank
         Font font, fontB;
         GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sBC, sTiny, sWrapL;
         const float INFO_H = 380, INFO_S = 236;   // 정보 판: 자세히(단백질 배분·조상) / 기본(접힘) — 기본이 작아야 좁은 화면에서 종 목록이 눌리지 않는다
-        bool showGraph = true, showTree, showEv, sortNew, infoMore;
+        bool showGraph = true, showTree, showEv, infoMore;
         string search = "", muText = "1";
-        Vector2 listScroll; readonly HashSet<int> open = new();
+        Vector2 listScroll;
         float treeScroll, listWant = 9999; bool treeAll;
 
         void Fonts()
@@ -139,51 +139,63 @@ namespace Tank
         static string Size(double um) => um < 1000 ? $"{um:0.#} μm" : $"{um / 1000:0.#} mm";
         static string Sci(double x) => x <= 0 ? "0" : x >= 0.01 ? x.ToString("0.###") : x.ToString("0.0e0");
 
-        // ── 종 목록 ──
+        // ── 종 목록: 하는 일·몸 꼴로 거르고(갈래로 묶지 않음 — 갈래 하나에 종이 1–3개라 묶어도 줄지 않았다), 줄마다 무엇인지(일·꼴·크기)를 보인다 ──
+        static readonly string[] FORMS = { "단세포", "작은 덩이", "실", "판", "덩어리" }, ROLES = { "광합성", "화학", "포식", "청소", "분해", "혼합" }, SORTS = { "많은 순", "큰 순", "나온 순" };
+        static int FormOf(SpView s) { double n = s.t.MeanCells; return n < 2 ? 0 : n < 8 ? 1 : s.body.dim < 1.5 ? 2 : s.body.dim < 2.3 ? 3 : 4; }   // LifeTest Forms와 같은 경계
+        int fRole = -1, fForm = -1, sortBy; readonly List<int> shown = new();
         void List(Rect r)
         {
-            var s = snap; float y = r.y + 6;
-            var cl = s.alive.GroupBy(i => s.sp[i].clade).ToList();
-            GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), $"살아 있는 종 {s.alive.Length} · 큰 갈래 {cl.Count}", sB); y += 22;
-            search = GUI.TextField(new Rect(r.x + 10, y, r.width - 130, 20), search, sField);
-            if (search.Length == 0) GUI.Label(new Rect(r.x + 14, y + 1, 100, 20), "이름 찾기", sS);
-            if (GUI.Button(new Rect(r.xMax - 114, y, 50, 20), "많은 순", !sortNew ? sOn : sBtn)) sortNew = false;
-            if (GUI.Button(new Rect(r.xMax - 60, y, 50, 20), "나온 순", sortNew ? sOn : sBtn)) sortNew = true;
-            y += 26;
-            var rows = new List<(int kind, int id)>();   // 0 = 갈래 머리, 1 = 종
-            Func<int, double> key = i => sortNew ? s.sp[i].born : -s.sp[i].biomass;
-            if (search.Length > 0)
-                foreach (int i in s.alive.Where(i => s.sp[i].name.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0 || s.clades[s.sp[i].clade].name.Contains(search)).OrderBy(key)) rows.Add((1, i));
-            else
-                foreach (var g in cl.OrderBy(g => sortNew ? s.clades[g.Key].born : -g.Sum(i => s.sp[i].biomass)))
-                {
-                    rows.Add((0, g.Key));
-                    if (open.Contains(g.Key)) foreach (int i in g.OrderBy(key)) rows.Add((1, i));
-                }
-            float rh = Application.isMobilePlatform ? 26 : 21, inner = rows.Count * rh; listWant = y - r.y + inner + 8;
+            var s = snap; float y = r.y + 6, ch = Application.isMobilePlatform ? 24 : 20, rh = Application.isMobilePlatform ? 26 : 21;
+            shown.Clear();
+            foreach (int i in s.alive)
+            {
+                var sp = s.sp[i]; if (sp.body == null || sp.t == null) continue;
+                if (fRole >= 0 && (int)sp.role != fRole || fForm >= 0 && FormOf(sp) != fForm) continue;
+                if (search.Length > 0 && sp.name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0 && s.clades[sp.clade].name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                shown.Add(i);
+            }
+            Func<int, double> key = sortBy == 0 ? i => -s.sp[i].biomass : sortBy == 1 ? i => -s.sp[i].body.size : i => -s.sp[i].born;
+            shown.Sort((a, b) => key(a).CompareTo(key(b)));
+            GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), shown.Count == s.alive.Length ? $"살아 있는 종 {s.alive.Length}" : $"살아 있는 종 {s.alive.Length} 중 {shown.Count}", sB);
+            y += 22;
+            search = GUI.TextField(new Rect(r.x + 10, y, r.width - 20, ch), search, sField);
+            if (search.Length == 0) GUI.Label(new Rect(r.x + 14, y + 1, r.width - 30, 20), Application.isMobilePlatform ? "이름 찾기" : "이름 찾기 · 키 N = 다음 종, Shift+N = 이전", sS);
+            y += ch + 4;
+            y = Chips(r, y, ch, ROLES, ref fRole, true); y = Chips(r, y, ch, FORMS, ref fForm, true); y = Chips(r, y, ch, SORTS, ref sortBy, false) + 2;
+            float inner = shown.Count * rh; listWant = y - r.y + inner + 8;
             DragScroll(1, new Rect(r.x, y, r.width, r.yMax - y), ref listScroll.y, inner - (r.yMax - y));
             listScroll = GUI.BeginScrollView(new Rect(r.x, y, r.width, r.yMax - y), listScroll, new Rect(0, 0, r.width - 16, inner));
+            listView = r.yMax - y;
             float top = listScroll.y - rh, bot = listScroll.y + (r.yMax - y);
-            for (int k = 0; k < rows.Count; k++)
+            for (int k = 0; k < shown.Count; k++)
             {
                 float yy = k * rh; if (yy < top || yy > bot) continue;
-                var (kind, id) = rows[k];
-                if (kind == 0)
-                {
-                    var members = cl.First(g => g.Key == id); int big = members.OrderBy(i => -s.sp[i].biomass).First();
-                    Swatch(new Rect(8, yy + rh / 2 - 5, 10, 10), s.sp[big]);
-                    string mark = open.Contains(id) ? "▼" : "▶";
-                    if (GUI.Button(new Rect(22, yy, r.width - 40, rh - 1), $"{mark} {s.clades[id].name}  ·  {members.Count()}종  ·  {Draw.Mass(members.Sum(i => s.sp[i].biomass))}", sL)) { if (!open.Remove(id)) open.Add(id); }
-                }
-                else
-                {
-                    var sp = s.sp[id];
-                    if (id == sel) { GUI.color = new Color(1, 1, 1, 0.12f); GUI.DrawTexture(new Rect(0, yy, r.width, rh), Texture2D.whiteTexture); GUI.color = Color.white; }
-                    Swatch(new Rect(26, yy + rh / 2 - 5, 10, 10), sp);
-                    if (GUI.Button(new Rect(40, yy, r.width - 58, rh - 1), $"{sp.name}  <size=11><color=#9aa3ad>{Draw.RoleName[(int)sp.role]} · {Draw.Mass(sp.biomass)}</color></size>", sR)) Focus(id);
-                }
+                var sp = s.sp[shown[k]];
+                if (sp.id == sel) { GUI.color = new Color(1, 1, 1, 0.12f); GUI.DrawTexture(new Rect(0, yy, r.width, rh), Texture2D.whiteTexture); GUI.color = Color.white; }
+                Swatch(new Rect(8, yy + rh / 2 - 5, 10, 10), sp);
+                if (GUI.Button(new Rect(22, yy, r.width - 40, rh - 1), $"{sp.name}  <size=11><color=#9aa3ad>{ROLES[(int)sp.role]} · {FORMS[FormOf(sp)]} {Size(sp.body.size)} · {Draw.Mass(sp.biomass)}</color></size>", sR)) Focus(sp.id);
             }
             GUI.EndScrollView();
+        }
+        float listView;
+        // 칩 한 줄: 누르면 그것만, 다시 누르면 '전체'(all = true일 때 맨 앞에 '전체' 칩)
+        float Chips(Rect r, float y, float h, string[] names, ref int v, bool all)
+        {
+            int n = names.Length + (all ? 1 : 0); float w = (r.width - 20) / n;
+            for (int k = 0; k < n; k++)
+            {
+                int val = all ? k - 1 : k; string t = all && k == 0 ? "전체" : names[all ? k - 1 : k];
+                if (GUI.Button(new Rect(r.x + 10 + k * w, y, w - 2, h), t, v == val ? sOn : sBtn)) { v = val; listScroll.y = 0; }
+            }
+            return y + h + 3;
+        }
+        // 다음·이전 종(지금 거른 목록 차례대로): 그 종이 사는 곳으로 가서 하나를 따라가고, 목록도 그 줄로 넘긴다
+        void Step(int d)
+        {
+            if (shown.Count == 0) return;
+            int k = shown.IndexOf(sel); k = k < 0 ? (d > 0 ? 0 : shown.Count - 1) : (k + d + shown.Count) % shown.Count;
+            Focus(shown[k]);
+            float rh = Application.isMobilePlatform ? 26 : 21; listScroll.y = Mathf.Max(0, k * rh - listView / 2);
         }
         // 손가락(마우스)으로 끌어 넘기기: IMGUI 스크롤 뷰는 터치 끌기를 모른다. 판 안에서 누른 채 8 단위 넘게 움직이면 넘기기로 보고 단추 누름을 취소한다
         Vector2 dragAt; float dragFrom; int dragKey = -1; bool dragMoved;
@@ -222,14 +234,16 @@ namespace Tank
         void Info(Rect r)
         {
             var s = snap.sp[sel]; if (s.t == null) return;
-            if (GUI.Button(new Rect(r.xMax - 66, r.y + 4, 58, 26), "닫기 ×", sBtn)) { sel = -1; return; }
+            if (GUI.Button(new Rect(r.xMax - 92, r.y + 4, 26, 26), "◀", sBtn)) { Step(-1); return; }   // 거른 목록의 이전·다음 종
+            if (GUI.Button(new Rect(r.xMax - 64, r.y + 4, 26, 26), "▶", sBtn)) { Step(1); return; }
+            if (GUI.Button(new Rect(r.xMax - 36, r.y + 4, 26, 26), "×", sBtn)) { sel = -1; return; }
             float x = r.x + 10, y = r.y + 8, w = r.width - 126;
             GUI.Label(new Rect(x, y, w, 20), s.name, sB); y += 20;
             GUI.Label(new Rect(x, y, w, 18), $"{snap.clades[s.clade].name} · {(s.Alive ? $"{s.born}일에 나옴" : $"{s.born}–{s.died}일 (멸종)")}", sS); y += 18;
             GUI.Label(new Rect(x, y, w, 18), $"하는 일: {Draw.RoleName[(int)s.role]}", sL); y += 18;
             GUI.Label(new Rect(x, y, w, 18), $"생물량 {Draw.Mass(s.biomass)} · 계통 {s.strains}", sL); y += 18;
             double mc = s.t.MeanCells;
-            GUI.Label(new Rect(x, y, w, 18), mc < 1.5 ? $"단세포 {s.t.dCell:0.#} μm" : $"덩이 세포 {mc:0}개 · {s.body.size:0} μm", sL); y += 18;
+            GUI.Label(new Rect(x, y, w, 18), mc < 1.5 ? $"단세포 {s.t.dCell:0.#} μm" : $"{FORMS[FormOf(s)]} · 세포 {mc:0}개 · {Size(s.body.size)}", sL); y += 18;
             GUI.Label(new Rect(x, y, w, 18), $"최적 {s.t.topt:0} °C (±{s.t.tw:0})", sS); y += 16;
             GUI.Label(new Rect(x, y, w, 18), $"광계 {s.t.eox:+0.00;-0.00} V{(s.t.eox > 0.85 ? " · 물을 쪼갬(산소)" : "")}", sS);
             GUI.Label(new Rect(bodyBox.x, bodyBox.yMax + 1, bodyBox.width, 16), "실제 크기 " + Size(s.body.size), sS);

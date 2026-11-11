@@ -86,6 +86,7 @@ namespace Tank
             bool typing = GUIUtility.keyboardControl != 0;
             if (!typing && Input.GetKeyDown(KeyCode.Escape)) { selAv = null; sel = -1; }
             if (!typing && Input.GetKeyDown(KeyCode.F)) Fit();
+            if (!typing && Input.GetKeyDown(KeyCode.N)) Step(Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? -1 : 1);   // 다음·이전 종
             // 둘러보기·시야
             if (Input.touchCount == 2) TwoFingers();
             else if (Drag(out var d)) { yaw += d.x * 0.25f; pitch = Mathf.Clamp(pitch - d.y * 0.25f, -80, 80); }
@@ -182,6 +183,7 @@ namespace Tank
                 var a = avs[i]; var s = snap.sp[a.sp];
                 a.fade = Mathf.Clamp01(a.fade + (a.dying ? -dt : dt) * 1.5f);
                 if (a.dying && a.fade <= 0 || s.body == null) { if (a == selAv) selAv = null; avs.RemoveAt(i); continue; }
+                if (run.paused) continue;   // 멈춤: 생물도 그 자리에 선다(나타남·사라짐만 그대로)
                 float L = Len(s), mot = (float)s.t.Sat(G.MOT, 0.01);
                 float spd = mot > 0.3f ? Mathf.Min(mot * 15 * L, 3e-3f) : 0, sink = (1 - mot) * Mathf.Min(1.09e5f * L * L / 4, 1e-3f);
                 if (L < 20e-6f) a.p += UnityEngine.Random.insideUnitSphere * Mathf.Sqrt(6 * 2.2e-19f / (L * 0.5f) * dt);
