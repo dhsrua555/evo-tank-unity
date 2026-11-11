@@ -363,8 +363,8 @@ namespace Tank
         {
             TreeLayout();
             var R = TreeRect; float rh = TreeRh, y0 = R.y + 28 - treeScroll, now = (float)Math.Max(1, snap.day), x0 = R.x + 10, w = R.width - 160;
-            GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 180, 20), R.width < 560 ? $"계통수 · 종 {snap.sp.Length} · 살아 있음 {snap.alive.Length}" : $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 † = 멸종 · 누르면 그 종 정보", sB);   // 좁으면 짧게
-            if (GUI.Button(new Rect(R.xMax - 172, R.y + 3, 104, 24), "멸종 곁가지도", treeAll ? sOn : sBtn)) { treeAll = !treeAll; treeScroll = 0; }
+            Fit(new Rect(R.x + 10, R.y + 4, R.width - 194, 20), R.width < 560 ? $"계통수 · 종 {snap.sp.Length} · 살아 있음 {snap.alive.Length}" : $"계통수 · 종 {snap.sp.Length}개(살아 있음 {snap.alive.Length}) · 회색 † = 멸종 · 누르면 그 종 정보", sB);   // 좁으면 짧게
+            if (GUI.Button(new Rect(R.xMax - 184, R.y + 3, 116, 24), (treeAll ? "● " : "○ ") + "멸종 곁가지도", treeAll ? sOn : sBtn)) { treeAll = !treeAll; treeScroll = 0; }
             if (GUI.Button(new Rect(R.xMax - 64, R.y + 3, 58, 24), "닫기 ×", sBtn)) showTree = false;
             DragScroll(2, new Rect(R.x, R.y + 28, R.width, R.height - 28), ref treeScroll, treeN * rh - R.height + 40);
             var ev = UnityEngine.Event.current;
@@ -447,9 +447,11 @@ namespace Tank
         {
             PathLayout(); if (!showPath) return;
             var R = TreeRect; float y0 = R.y + 32 - pathScroll, max = Mathf.Max(0, pathIds.Length * PathRh - (R.height - 36));
-            string head = $"진화 과정 · 첫 생물 → {snap.sp[pathTip].name} · {pathFull.Length}종" + (pathBig ? $" 중 큰 변화 {pathIds.Length}" : "");
-            GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 190, 20), head, sB);
-            if (GUI.Button(new Rect(R.xMax - 172, R.y + 3, 104, 24), "큰 변화만", pathBig ? sOn : sBtn)) { pathBig = !pathBig; pathScroll = 0; }
+            string nm = snap.sp[pathTip].name, head = R.width < 640   // 좁으면(휴대폰·작은 창) 짧게: 단추 셋 옆에 남는 폭이 ~200
+                ? $"→ {nm} · " + (pathBig ? $"큰 변화 {pathIds.Length}/{pathFull.Length}종" : $"{pathFull.Length}종")
+                : $"진화 과정 · 첫 생물 → {nm} · {pathFull.Length}종" + (pathBig ? $" 중 큰 변화 {pathIds.Length}" : "");
+            Fit(new Rect(R.x + 10, R.y + 4, R.width - 194, 20), head, sB);
+            if (GUI.Button(new Rect(R.xMax - 184, R.y + 3, 116, 24), (pathBig ? "● " : "○ ") + "큰 변화만", pathBig ? sOn : sBtn)) { pathBig = !pathBig; pathScroll = 0; }
             if (GUI.Button(new Rect(R.xMax - 64, R.y + 3, 58, 24), "닫기 ×", sBtn)) { showPath = false; return; }
             DragScroll(3, new Rect(R.x, R.y + 30, R.width, R.height - 30), ref pathScroll, max);
             pathScroll = Mathf.Clamp(pathScroll, 0, max);
@@ -466,10 +468,23 @@ namespace Tank
                 float y = y0 + i * PathRh; if (y < R.y + 30 || y + PathRh > R.yMax) continue;
                 var s = snap.sp[pathIds[i]];
                 string when = s.Alive ? $"{s.born}일" : $"{s.born}–{s.died}일 †", skipT = pathSkip[i] > 0 ? $" · 사이 {pathSkip[i]}종" : "";
-                GUI.Label(new Rect(R.x + 58, y + 3, tw, 18), $"{s.name}  <size=11><color=#9aa3ad>{when} · {Draw.RoleName[(int)s.role]} · {FORMS[FormOf(s)]} {Size(s.body.size)}{skipT}</color></size>", sR);
-                GUI.Label(new Rect(R.x + 58, y + 22, tw, 18), pathMile[i] ? $"<color=#ffd966>{pathWhy[i]}</color>" : pathWhy[i], sSR);
+                Fit(new Rect(R.x + 58, y + 3, tw, 18), $"{s.name}  <size=11><color=#9aa3ad>{when} · {Draw.RoleName[(int)s.role]} · {FORMS[FormOf(s)]} {Size(s.body.size)}{skipT}</color></size>", sR);
+                Fit(new Rect(R.x + 58, y + 22, tw, 18), pathMile[i] ? $"<color=#ffd966>{pathWhy[i]}</color>" : pathWhy[i], sSR);
             }
             if (pathIds.Length * PathRh > R.height - 36) GUI.Label(new Rect(R.xMax - 150, R.yMax - 18, 144, 16), "끌거나 휠로 넘기기", sS);
+        }
+
+        // 판보다 긴 줄은 글자를 줄여 끝까지 보이게(9 px까지, 그래도 길면 잘림). 줄일 땐 안의 <size> 꼬리표를 빼 한 크기로
+        void Fit(Rect r, string t, GUIStyle st)
+        {
+            int fs = st.fontSize;
+            if (st.CalcSize(new GUIContent(t)).x > r.width)
+            {
+                if (st.richText) t = t.Replace("<size=11>", "").Replace("</size>", "");
+                var c = new GUIContent(t);
+                while (st.fontSize > 9 && st.CalcSize(c).x > r.width) st.fontSize--;   // 한 칸씩: 글자 폭이 크기에 꼭 비례하지는 않는다
+            }
+            GUI.Label(r, t, st); st.fontSize = fs;
         }
 
         // ── 사건 알림 ──
