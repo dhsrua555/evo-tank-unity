@@ -124,8 +124,8 @@ static class Program
             if (d % every == 0 && pl.history.Count > 0)
             {
                 var h = pl.history[^1];
-                var lay = new double[Cfg.NY + 1];
-                foreach (var st in pl.alive) for (int v = 0; v < pl.V; v++) { if (!pl.live[v]) continue; lay[v >= pl.NV0 ? Cfg.NY : v % Cfg.NY] += pl.B[st.slot * pl.V + v] * pl.vol[v] * 1e-6; }
+                var lay = new double[Cfg.NY + 2];
+                foreach (var st in pl.alive) for (int v = 0; v < pl.V; v++) { if (!pl.live[v]) continue; lay[Lay(pl, v)] += pl.B[st.slot * pl.V + v] * pl.vol[v] * 1e-6; }
                 double W = 0, eox = 0, eoxP = 0, wP = 0, ph = 0, ch = 0, os = 0, pg = 0, sz = 0, tp = 0, rs = 0;
                 foreach (var st in pl.alive) { double w = st.total; W += w; eox += w * st.t.eox; eoxP += w * st.t.phi[G.PHOTO] * st.t.eox; wP += w * st.t.phi[G.PHOTO]; ph += w * st.t.phi[G.PHOTO]; ch += w * st.t.phi[G.CHEMO]; os += w * st.t.phi[G.OSMO]; pg += w * st.t.phi[G.PHAGO]; sz += w * Math.Log10(st.b.size); tp += w * st.t.topt; rs += w * st.t.phi[G.RESP]; }
                 if (W > 0) Console.WriteLine($"        평균 형질: 광계 산화력 {eox / W:0.00} V(광합성 가중 {eoxP / Math.Max(1e-30, wP):0.00}) · 광계 {ph / W:0.000} · 화학합성 {ch / W:0.000} · 흡수 {os / W:0.000} · 포식 {pg / W:0.000} · 호흡 {rs / W:0.000} · 크기 {Math.Pow(10, sz / W):0.0} μm · 최적 {tp / W:0} °C");
@@ -147,13 +147,13 @@ static class Program
                         Console.WriteLine(sb2);
                     }
                 }
-                Console.WriteLine($"        층별 생물(mol) 표층 {lay[0]:0.0e0} · 20–100 m {lay[1]:0.0e0} · 100–500 m {lay[2]:0.0e0} · 심해 {lay[3]:0.0e0} · 열수공 {lay[4]:0.0e0}");
+                Console.WriteLine($"        층별 생물(mol) 표층 {lay[0]:0.0e0} · 20–100 m {lay[1]:0.0e0} · 100–500 m {lay[2]:0.0e0} · 심해 {lay[3]:0.0e0} · 열수공 {lay[4]:0.0e0} · 퇴적면 {lay[5]:0.0e0}");
                 {   // 층별 물(부피 평균 μM): 산소가 어느 층에 쌓이고 어디서 황화수소와 만나는지
-                    var cw = new double[Cfg.NY + 1, 5]; var vw = new double[Cfg.NY + 1]; int[] ps = { P.O2, P.H2S, P.FE2, P.PO4, P.NH4 };
-                    for (int v = 0; v < pl.V; v++) { if (!pl.live[v]) continue; int L = v >= pl.NV0 ? Cfg.NY : v % Cfg.NY; vw[L] += pl.vol[v]; for (int k = 0; k < 5; k++) cw[L, k] += pl.pool[ps[k]][v] * pl.vol[v]; }
+                    var cw = new double[Cfg.NY + 2, 5]; var vw = new double[Cfg.NY + 2]; int[] ps = { P.O2, P.H2S, P.FE2, P.PO4, P.NH4 };
+                    for (int v = 0; v < pl.V; v++) { if (!pl.live[v]) continue; int L = Lay(pl, v); vw[L] += pl.vol[v]; for (int k = 0; k < 5; k++) cw[L, k] += pl.pool[ps[k]][v] * pl.vol[v]; }
                     var sw2 = new System.Text.StringBuilder("        층별 물(μM O2·H2S·Fe2·PO4·NH4):");
-                    string[] ln = { "표층", "20–100 m", "100–500 m", "심해" };
-                    for (int L = 0; L < Cfg.NY; L++) sw2.Append($" {ln[L]} {cw[L, 0] / vw[L]:0.0}·{cw[L, 1] / vw[L]:0.0}·{cw[L, 2] / vw[L]:0.0}·{cw[L, 3] / vw[L]:0.00}·{cw[L, 4] / vw[L]:0.0}");
+                    string[] ln = { "표층", "20–100 m", "100–500 m", "심해", "열수공", "퇴적면" };
+                    for (int L = 0; L < Cfg.NY + 2; L++) if (vw[L] > 0) sw2.Append($" {ln[L]} {cw[L, 0] / vw[L]:0.0}·{cw[L, 1] / vw[L]:0.0}·{cw[L, 2] / vw[L]:0.0}·{cw[L, 3] / vw[L]:0.00}·{cw[L, 4] / vw[L]:0.0}");
                     Console.WriteLine(sw2);
                 }
                 Console.WriteLine($"{h.day,6}일 O2 {h.O2:0.0e0} CO2 {h.CO2:0.0} CH4 {h.CH4:0} T {h.T:0.0} | 생물 {h.bio:0.0e0} 종 {h.nSp} 계통 {h.nStrain} 갈래 {h.nClade} | 산소광합 {h.oxyShare:P0} 덩이 {h.multi:P1} 최대세포 {h.maxCells:0} 크기 {h.maxSize:0} | 호흡 {h.aer:P0} 항산 {h.sod:P0} | 역할 광{h.rPhoto} 화{h.rChemo} 포{h.rPrey} 청{h.rDet} 분{h.rDoc} 수입 광{h.photoSh:P0} 화{h.chemoSh:P0} 포{h.preySh:P0} 청{h.detSh:P0} 분{h.docSh:P0} | 정착 {h.kept} 장부 {h.drift:0e0} | {sw.Elapsed.TotalSeconds / d * 1000:0}ms/일");
@@ -221,7 +221,7 @@ static class Program
             if (sp == null) continue; var st = pl.strains[sp.rep]; if (st == null) continue;
             int v = 0; for (int u = 0; u < pl.V; u++) if (pl.B[st.slot * pl.V + u] > pl.B[st.slot * pl.V + v]) v = u;
             int si = st.slot * pl.V + v; double lim = pl.limA[si] > 0 ? pl.limA[si] : 1;
-            var sb = new System.Text.StringBuilder($"    지형 {role} {sp.name} 칸 {v}{(v >= pl.NV0 ? "(열수공)" : $"(층 {v % Cfg.NY})")} 크기 {st.b.size:0.0} μm 세포 {st.t.MeanCells:0.0} 먹힘 {pl.Eaten(st.t, st.b, v, st.slot):0.000} |");
+            var sb = new System.Text.StringBuilder($"    지형 {role} {sp.name} 칸 {v}({LayName(pl, v)}) 크기 {st.b.size:0.0} μm 세포 {st.t.MeanCells:0.0} 먹힘 {pl.Eaten(st.t, st.b, v, st.slot):0.000} |");
             double r0 = double.NaN;
             foreach (double nA in new[] { 1.0, 2, 4, 8, 32, 128 })
             {
@@ -249,16 +249,16 @@ static class Program
     static void Aer(Planet pl)
     {
         int st = Cfg.SMAX * pl.V; var sb = new System.Text.StringBuilder("    산소 층:");
-        for (int k = 0; k <= Cfg.NY; k++)
+        for (int k = 0; k <= Cfg.NY + 1; k++)
         {
             double o2 = 0, w = 0, fix = 0, doc = 0, cat = 0, aer = 0;
             for (int v = 0; v < pl.V; v++)
             {
-                if (!pl.live[v] || (k < Cfg.NY ? v >= pl.NV0 || v % Cfg.NY != k : v < pl.NV0)) continue;
+                if (!pl.live[v] || Lay(pl, v) != k) continue;
                 o2 += pl.pool[P.O2][v] * pl.vol[v]; w += pl.vol[v];
                 foreach (var s in pl.alive) { int o = s.slot * pl.V + v; fix += pl.inc[o] + pl.inc[st + o]; doc += pl.inc[4 * st + o]; cat += pl.inc[7 * st + o]; aer += pl.inc[6 * st + o]; }
             }
-            sb.Append($" [{(k < Cfg.NY ? "층" + k : "열수공")} O2 {o2 / Math.Max(1, w):0.00}μM 고정 {fix:0.0e0} 흡수 {doc:0.0e0} 태움 {cat:0.0e0} 호흡 {(cat > 0 ? aer / cat : 0):P0}]");
+            sb.Append($" [{(k < Cfg.NY ? "층" + k : k == Cfg.NY ? "열수공" : "퇴적면")} O2 {o2 / Math.Max(1, w):0.00}μM 고정 {fix:0.0e0} 흡수 {doc:0.0e0} 태움 {cat:0.0e0} 호흡 {(cat > 0 ? aer / cat : 0):P0}]");
         }
         Console.WriteLine(sb);
         foreach (var s in pl.alive.OrderByDescending(s => Enumerable.Range(0, pl.V).Sum(v => pl.inc[7 * st + s.slot * pl.V + v])).Take(5))
@@ -287,7 +287,7 @@ static class Program
             int vb = 0; double bb = -1; for (int v = 0; v < pl.V; v++) if (pl.live[v] && pl.B[s.slot * pl.V + v] > bb) { bb = pl.B[s.slot * pl.V + v]; vb = v; }
             int o = s.slot * pl.V + vb; double hb = pl.binB[vb * 125 + s.t.vbin], vm = pl.VirusMort(s.t, s.b, vb);
             double ci = s.cFix + s.cPrey + s.cDet + s.cDoc; string role = ci <= 0 ? "-" : new[] { ("고정", s.cFix), ("포식", s.cPrey), ("청소", s.cDet), ("분해", s.cDoc) }.OrderByDescending(x => x.Item2).First().Item1;
-            Console.WriteLine($"      종 {s.species} 몫 {s.total / W:P0} 세포 {s.t.MeanCells:0.0} 몸 {s.b.size:0} μm 칸 {vb}{(vb >= pl.NV0 ? "(열수공)" : $"(층{vb % Cfg.NY})")} 밀도 {bb:0.00} 수용체 {s.t.vbin} 숙주 {hb:0.00} → 바이러스 {vm:0.000} · 분열 {pl.grow[o]:0.000} 먹힘 {pl.eatenRate[o]:0.000} 자원몫 {pl.limA[o]:0.00} · {role}");
+            Console.WriteLine($"      종 {s.species} 몫 {s.total / W:P0} 세포 {s.t.MeanCells:0.0} 몸 {s.b.size:0} μm 칸 {vb}({LayName(pl, vb)}) 밀도 {bb:0.00} 수용체 {s.t.vbin} 숙주 {hb:0.00} → 바이러스 {vm:0.000} · 분열 {pl.grow[o]:0.000} 먹힘 {pl.eatenRate[o]:0.000} 자원몫 {pl.limA[o]:0.00} · {role}");
         }
     }
     // 광합성 탐침: 층마다 물의 공여체(H2·H2S·Fe2+)와 영양염, 빛 고정이 많은 계통 다섯의 광계 산화력·쓰는 공여체 몫·한 걸음 선택
@@ -410,6 +410,22 @@ static class Program
                 var st = pl.strains[sp.rep]; double raw = Math.Min(Cfg.CELLS_MAX, Math.Pow(1 + st.t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP));
                 Console.WriteLine($"  덩이 종 {sp.id} 몫 {sp.biomass / Math.Max(1e-30, tot):P1} 세포 {st.t.nA:0}(붙음 {raw:0} · 파쇄 {Body.Fracture(st.g, st.t.aspect):0} · 난류 {Body.Shear(st.g, st.t):0}) 세포지름 {st.t.dCell:0.0} μm 가지 {st.g[G.BRANCH]:0.00} 각 {st.g[G.ANGLE] * 180:0}° 길쭉 {st.t.aspect:0.0} 차원 {st.b.dim:0.0} 크기 {st.b.size:0} μm 포식막 {st.t.phi[G.PHAGO]:0.00}");
             }
+        if (Environment.GetEnvironmentVariable("FLOOR") != null)   // 퇴적면 탐침: 생물·사체(g C/m², 자료와 견줌), 위 물 층(깊이)별 넓이·생물·산소·빛, 퇴적면에 많은 계통 5개
+        {
+            double fa = 0, fb = 0, fp = 0; for (int r = 0; r < pl.NR; r++) if (pl.HasFloor(r)) { int f = pl.NF0 + r; fa += pl.area[r]; fp += (pl.pool[P.POC0][f] + pl.pool[P.POC1][f] + pl.pool[P.POC2][f]) * pl.vol[f]; foreach (var s in pl.alive) fb += pl.B[s.slot * pl.V + f] * pl.vol[f]; }
+            if (fa > 0) Console.WriteLine($"  퇴적면: 생물 {fb * 12e-6 / fa:0.000} g C/m² · 사체 {fp * 12e-6 / fa:0.000} g C/m² (자료: 대륙붕 저서 생물 1.3–10, Wei 2010)");
+            for (int k = 0; k < Cfg.NY; k++)
+            {
+                double a = 0, b = 0, o = 0, l = 0; for (int r = 0; r < pl.NR; r++) if (pl.HasFloor(r) && pl.Bottom(r) % Cfg.NY == k) { int f = pl.NF0 + r; a += pl.area[r]; o += pl.pool[P.O2][f] * pl.area[r]; l += pl.light[f] * pl.area[r]; foreach (var s in pl.alive) b += pl.B[s.slot * pl.V + f] * pl.vol[f]; }
+                if (a > 0) Console.WriteLine($"    위 물 층 {k} 퇴적면 넓이 {a / Math.Max(1e-30, fa):P0}: 생물 {b * 12e-6 / a:0.000} g C/m² · O2 {o / a:0.0} μM · 빛 {l / a:0.0000}");
+            }
+            if (fa > 0)
+                foreach (var s in pl.alive.OrderByDescending(s => Enumerable.Range(0, pl.NR).Where(pl.HasFloor).Sum(r => pl.B[s.slot * pl.V + pl.NF0 + r] * pl.vol[pl.NF0 + r])).Take(5))
+                {
+                    double m = Enumerable.Range(0, pl.NR).Where(pl.HasFloor).Sum(r => pl.B[s.slot * pl.V + pl.NF0 + r] * pl.vol[pl.NF0 + r]);
+                    Console.WriteLine($"    퇴적면 계통 {s.species} 몫 {m / Math.Max(1e-30, fb):P0}(제 생물량의 {m / Math.Max(1e-30, Enumerable.Range(0, pl.V).Where(v => pl.live[v]).Sum(v => pl.B[s.slot * pl.V + v] * pl.vol[v])):P0}) 세포 {s.t.MeanCells:0} 지름 {s.t.dCell:0.0} μm 차원 {s.b.dim:0.0} 크기 {s.b.size:0} μm 광 {s.t.phi[G.PHOTO]:0.00} 포식막 {s.t.phi[G.PHAGO]:0.00} 흡수 {s.t.phi[G.OSMO]:0.00} 화학 {s.t.phi[G.CHEMO]:0.00}");
+                }
+        }
         Console.WriteLine("몸 꼴(생물량 몫): " + string.Join(" · ", Enumerable.Range(0, 7).Select(k => $"{nm[k]} {w[k] / Math.Max(1e-30, tot):P0}" + (w[k] > 0 ? $"(나눔 {sh[k] / w[k]:0.00})" : ""))) + $" | 유전자 범위 길쭉함 {aMin:0.00}–{aMax:0.00} 가지 {bMin:0.00}–{bMax:0.00} 각 {nMin:0.00}–{nMax:0.00}");
     }
 
@@ -594,6 +610,9 @@ static class Program
         Console.WriteLine($"다양성: 종 {L.Count} · 실효 종 수 {Math.Exp(H):0.0} · 형태 불일치(분산 합) {disp:0.00} · 크기 폭 {Math.Log10(sMax / sMin):0.0}자리({sMin:0.#}–{sMax:0.#} μm) · 하는 일 {roles.Count}가지({string.Join("·", roles)}) · 표류 {pl.driftN}(몸 꼴 {pl.driftShape}) · 분화 평균 {Dif(L)}(포식 {Dif(L.Where(sp => sp.role == Role.포식).ToList())})");
         string Dif(List<Species> S) { double w = S.Sum(sp => sp.biomass); return w > 0 ? $"{S.Sum(sp => sp.biomass * pl.strains[sp.rep].t.diff) / w:0.00}" : "-"; }   // 생물량 가중
     }
+
+    static int Lay(Planet pl, int v) => v >= pl.NF0 ? Cfg.NY + 1 : v >= pl.NV0 ? Cfg.NY : v % Cfg.NY;   // 층 번호: 물 0–3 · 열수공 4 · 퇴적면 5
+    static string LayName(Planet pl, int v) => v >= pl.NF0 ? "퇴적면" : v >= pl.NV0 ? "열수공" : $"층 {v % Cfg.NY}";
 
     static int Frac()
     {

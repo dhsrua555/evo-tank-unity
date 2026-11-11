@@ -108,7 +108,8 @@ namespace Tank
         {
             sel = id; var s = snap?.sp[id]; if (s?.where == null || s.where.Length == 0) return;
             var p = run.pl; int v = s.where[0];
-            if (v >= p.NV0) DiveTo(p.ventReg[v - p.NV0], p.zTop[v] + p.thick[v] * 0.5, s);
+            if (v >= p.NF0) DiveTo(v - p.NF0, p.zTop[v] + p.thick[v] * 0.5, s);
+            else if (v >= p.NV0) DiveTo(p.ventReg[v - p.NV0], p.zTop[v] + p.thick[v] * 0.5, s);
             else DiveTo(v / Cfg.NY, p.zTop[v] + Math.Min(p.thick[v] * 0.5, 8), s);
         }
 

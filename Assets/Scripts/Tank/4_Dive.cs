@@ -31,12 +31,13 @@ namespace Tank
         float Bottom => (float)run.pl.geo.rDepth[reg];
         bool Micro => B < 2e-3f;
 
-        // 지금 칸: 수심이 든 층(해저 아래 층은 없으니 위로), 바닥 5 m 안이고 이 해역에 열수공이 있으면 열수공 칸
+        // 지금 칸: 수심이 든 층(해저 아래 층은 없으니 위로), 바닥 1 m 안이면 퇴적면 칸, 100 m 안이고 이 해역에 열수공이 있으면 열수공 칸
         int Voxel()
         {
             var p = run.pl; int k = 0;
             while (k < Cfg.NY - 1 && py >= Cfg.ZE[k + 1]) k++;
             while (k > 0 && !p.live[reg * Cfg.NY + k]) k--;
+            if (Bottom - py < 1 && p.HasFloor(reg)) return p.NF0 + reg;   // 바닥 1 m 안 = 퇴적면 칸
             if (Bottom - py < Cfg.VENT_THICK) for   // 열수공 칸 = 바닥 위 100 m 물(Focus는 그 가운데로 간다)
  (int i = 0; i < Cfg.NVENT; i++) if (p.ventReg[i] == reg && p.live[p.NV0 + i]) return p.NV0 + i;
             return reg * Cfg.NY + k;

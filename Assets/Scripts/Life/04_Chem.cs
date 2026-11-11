@@ -7,7 +7,7 @@ namespace Life
 {
     public sealed partial class Planet
     {
-        (int a, int b, double q)[] links;    // 칸 사이 물 교환(L/틱)
+        (int a, int b, double q)[] links, linksP;   // 칸 사이 물 교환(L/틱): 녹은 것 / 입자·생물(퇴적면 ↔ 위 물 칸만 다름: 재부유)
         public int[][] nbr;                  // 칸 → 이웃 칸
         public double inC, outC, inN, outN, inP, outP, inFe, outFe, inS, outS;   // 경계 장부(mol)
         public double[] ledger0;
@@ -32,17 +32,23 @@ namespace Life
                     L.Add((a, b, Math.Min(vol[a], vol[b]) / Cfg.TAU_H));
                 }
             for (int i = 0; i < Cfg.NVENT; i++) if (live[NV0 + i]) L.Add((NV0 + i, ventHost[i], vol[NV0 + i] / Cfg.TAU_VENT));
-            links = new (int, int, double)[L.Count];
+            for (int r = 0; r < NR; r++) if (HasFloor(r)) L.Add((NF0 + r, Bottom(r), vol[NF0 + r] / Cfg.TAU_FLOOR));
+            links = new (int, int, double)[L.Count]; linksP = new (int, int, double)[L.Count];
             var nb = new List<int>[V]; for (int v = 0; v < V; v++) nb[v] = new List<int>();
             foreach (var (a, b, _) in L) { nb[a].Add(b); nb[b].Add(a); }
             nbr = new int[V][]; for (int v = 0; v < V; v++) nbr[v] = nb[v].ToArray();
-            for (int i = 0; i < L.Count; i++) { var (a, b, q) = L[i]; links[i] = (a, b, Math.Min(q * Cfg.DT, 0.2 * Math.Min(vol[a], vol[b]))); }   // 틱당 교환량(L), 안정 상한
+            for (int i = 0; i < L.Count; i++)
+            {
+                var (a, b, q) = L[i]; double k = 1 / vol[a] + 1 / vol[b];   // 퇴적면 ↔ 위 물: 두 칸 정확 해(1 − e^(−q·Δt·k))/k — 틱 상한 없이 빨리 섞여도 넘치지 않음
+                links[i] = (a, b, a >= NF0 ? (1 - Math.Exp(-q * Cfg.DT * k)) / k : Math.Min(q * Cfg.DT, 0.2 * Math.Min(vol[a], vol[b])));
+                linksP[i] = a >= NF0 ? (a, b, Math.Min(vol[a] / Cfg.TAU_RESUSP * Cfg.DT, 0.2 * Math.Min(vol[a], vol[b]))) : links[i];
+            }   // 틱당 교환량(L), 안정 상한
         }
 
         // 섞기: 풀과 생물량을 같은 교환으로
-        void Mix(double[] c, int stride = 0)
+        void Mix(double[] c, (int a, int b, double q)[] lk, int stride = 0)
         {
-            foreach (var (a, b, q) in links)
+            foreach (var (a, b, q) in lk)
             {
                 double d = (c[stride + a] - c[stride + b]) * q;
                 c[stride + a] -= d / vol[a]; c[stride + b] += d / vol[b];
@@ -51,9 +57,9 @@ namespace Life
 
         void Transport()
         {
-            if (links == null) BuildLinks();
-            for (int p = 0; p < P.N; p++) Mix(pool[p]);
-            foreach (var s in Live()) Mix(B, s.slot * V);
+            if (links == null || linksP == null) BuildLinks();
+            for (int p = 0; p < P.N; p++) Mix(pool[p], p >= P.POC0 && p <= P.POC2 || p == P.FE3 ? linksP : links);
+            foreach (var s in Live()) Mix(B, linksP, s.slot * V);
             // 가라앉기: 사체 입자, 철 산화물, 헤엄치지 않는 무거운 생물
             Sink(pool[P.POC0], 0, Cfg.POC_SINK[0]); Sink(pool[P.POC1], 0, Cfg.POC_SINK[1]); Sink(pool[P.POC2], 0, Cfg.POC_SINK[2]);
             Sink(pool[P.FE3], 0, Cfg.FE3_SINK);
@@ -75,6 +81,12 @@ namespace Life
                     double f = Math.Min(0.5, w * Cfg.DT / thick[a]), m = c[off + a] * f * vol[a];
                     c[off + a] -= m / vol[a]; c[off + b] += m / vol[b];
                 }
+            for (int r = 0; r < NR; r++)   // 맨 아래 물 칸 → 퇴적면
+            {
+                if (!HasFloor(r)) continue; int a = Bottom(r), b = NF0 + r;
+                double f = Math.Min(0.5, w * Cfg.DT / thick[a]), m = c[off + a] * f * vol[a];
+                c[off + a] -= m / vol[a]; c[off + b] += m / vol[b];
+            }
         }
 
         double[] buryC, buryFe, buryS, buryP;

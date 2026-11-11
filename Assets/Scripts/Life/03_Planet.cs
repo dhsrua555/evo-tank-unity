@@ -40,6 +40,7 @@ namespace Life
         public double[] ventMul;                // 열수공 세기 배율(사건이 바꾼다)
         public int NV0;                         // 해역 칸 수(NR × NY). 그 뒤 NVENT개가 열수공 칸
         public int[] ventHost, ventReg;         // 열수공 칸 i → 붙은 바닥 칸, 해역
+        public int NF0;                         // 바닥 퇴적면 칸 시작: 해역 r의 퇴적면 = NF0 + r(육지 해역은 없음). 퇴적면 전 저장은 V = NF0라 퇴적면 없이 이어진다
         int nVent0;
 
         // 대기(mol)
@@ -68,7 +69,7 @@ namespace Life
         // 칸 기하
         void Build()
         {
-            NR = geo.NR; NV0 = NR * Cfg.NY; V = NV0 + Cfg.NVENT;
+            NR = geo.NR; NV0 = NR * Cfg.NY; NF0 = NV0 + Cfg.NVENT; V = NF0 + NR;
             ventHost = new int[Cfg.NVENT]; ventReg = new int[Cfg.NVENT]; Array.Fill(ventHost, -1);
             live = new bool[V]; vol = new double[V]; thick = new double[V]; zTop = new double[V]; area = new double[NR]; kind = new byte[NR];
             temp = new double[V]; light = new double[V]; dry = new double[V]; vent = new bool[V]; ventMul = new double[V];
@@ -86,6 +87,11 @@ namespace Life
                     live[v] = true; zTop[v] = top; thick[v] = bot - top; vol[v] = area[r] * thick[v] * 1000;
                     dry[v] = kind[r] == 1 ? 0.3 : kind[r] == 2 ? 0.85 : 0;
                 }
+            }
+            for (int r = 0; r < NR; r++)   // 바닥 퇴적면(Cfg.FLOOR_H)
+            {
+                int h = Bottom(r), f = NF0 + r; if (h < 0 || kind[r] == 2) continue;
+                live[f] = true; thick[f] = Cfg.FLOOR_H; zTop[f] = zTop[h] + thick[h] - Cfg.FLOOR_H; vol[f] = area[r] * Cfg.FLOOR_H * 1000; dry[f] = dry[h];
             }
             // 열수공: 화산 열점이 있는 해역들의 가장 깊은 칸 + 깊은 바다 몇 곳
             var spotRegs = new HashSet<int>(); foreach (int c in geo.spots) { int r = geo.reg[c]; if (r >= 0) spotRegs.Add(r); }
@@ -111,8 +117,9 @@ namespace Life
             return -1;
         }
 
+        public bool HasFloor(int r) => NF0 + r < V && live[NF0 + r];
         public int Bottom(int r) { for (int k = Cfg.NY - 1; k >= 0; k--) if (live[r * Cfg.NY + k]) return r * Cfg.NY + k; return -1; }
-        public bool IsBottom(int v) => v >= NV0 || v % Cfg.NY == Cfg.NY - 1 || !live[v + 1];
+        public bool IsBottom(int v) => v >= NV0 || (v % Cfg.NY == Cfg.NY - 1 || !live[v + 1]) && !HasFloor(v / Cfg.NY);   // 묻히는 곳: 열수공·퇴적면, 퇴적면 없는 해역은 맨 아래 물 칸
 
         void Init()
         {

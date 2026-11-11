@@ -56,6 +56,11 @@ namespace Life
                     double kk = 0.04 + 0.002 * shade[v], top = zTop[v], bot = top + thick[v];
                     light[v] = I0 * (Math.Exp(-kk * top) - Math.Exp(-kk * bot)) / (kk * thick[v]);
                 }
+                if (HasFloor(r))   // 퇴적면: 위 물 칸의 수온, 해저까지 내려온 빛을 퇴적면 생물이 스스로 가림
+                {
+                    int f = NF0 + r, h = Bottom(r); double kh = 0.04 + 0.002 * shade[h], kf = 0.04 + 0.002 * shade[f];
+                    temp[f] = temp[h]; light[f] = I0 * Math.Exp(-kh * (zTop[h] + thick[h])) * (1 - Math.Exp(-kf * thick[f])) / (kf * thick[f]);
+                }
             }
             for (int i = 0; i < Cfg.NVENT; i++) { int v = NV0 + i; if (!live[v]) continue; temp[v] = tDeep + 15 * Math.Min(1, ventMul[v]); light[v] = 0; }
         }

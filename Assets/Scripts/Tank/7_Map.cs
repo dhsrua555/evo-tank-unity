@@ -30,9 +30,9 @@ namespace Tank
                 mapT.Apply();
             }
             var img = new Rect(mapR.x + 8, mapR.y + 8, mapR.height - 16, mapR.height - 16); GUI.DrawTexture(img, mapT);
-            var p = run.pl; var s = snap; int v = vNow < 0 ? Voxel() : vNow; bool vent = v >= p.NV0; int k = vent ? Cfg.NY - 1 : v % Cfg.NY;
+            var p = run.pl; var s = snap; int v = vNow < 0 ? Voxel() : vNow; bool floor = v >= p.NF0, vent = v >= p.NV0 && !floor; int k = v >= p.NV0 ? Cfg.NY - 1 : v % Cfg.NY;
             GUI.Label(new Rect(img.xMax + 10, mapR.y + 6, mapR.xMax - img.xMax - 16, mapR.height - 12),
-                $"<b>{g.Name(reg)}</b>\n북위 {g.rLat[reg]:0}° · 바닥 {Bottom:0} m\n지금 수심 {py:0.0} m · {(vent ? "열수공 곁" : LAYER[k])}\n수온 {s.vT[v]:0.0} °C · 빛 {s.vLight[v] * 100:0.##} %\n" +
+                $"<b>{g.Name(reg)}</b>\n북위 {g.rLat[reg]:0}° · 바닥 {Bottom:0} m\n지금 수심 {py:0.0} m · {(floor ? "바닥 퇴적면" : vent ? "열수공 곁" : LAYER[k])}\n수온 {s.vT[v]:0.0} °C · 빛 {s.vLight[v] * 100:0.##} %\n" +
                 $"O₂ {s.vO2[v]:0.###} · Fe²⁺ {s.vFe2[v]:0.##} μM\nH₂S {s.vH2S[v]:0.##} μM · 바다눈 {s.vPOC[v]:0.##} μM C", sSR);
             if (GUI.Button(img, GUIContent.none, GUIStyle.none))
             {
