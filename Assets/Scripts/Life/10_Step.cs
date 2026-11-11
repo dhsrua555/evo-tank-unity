@@ -44,9 +44,10 @@ namespace Life
                 PredCache();
                 // 칸마다 일이 크게 다르다(계통 수의 제곱): 지난 틱에 무거웠던 칸부터 하나씩 나눠 줘야 마지막에 한 스레드만 남아 돌지 않는다
                 vOrd ??= new int[V]; vKey ??= new double[V];
-                for (int v = 0; v < V; v++) { vOrd[v] = v; vKey[v] = -(double)nV[v] * nV[v]; }
+                for (int v = 0; v < V; v++) { int f = Under(v); double w = nV[v] + (f >= 0 ? nV[f] : 0); vOrd[v] = v; vKey[v] = -w * w; }
                 Array.Sort(vKey, vOrd);
-                Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(vOrd, System.Collections.Concurrent.EnumerablePartitionerOptions.NoBuffering), po, Bio); probe?.Invoke("bio"); Lap(2, ref t0);
+                Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(vOrd, System.Collections.Concurrent.EnumerablePartitionerOptions.NoBuffering), po, v => { if (v >= NF0) return; Bio(v); int f = Under(v); if (f >= 0) Bio(f); });
+                probe?.Invoke("bio"); Lap(2, ref t0);   // 퇴적면은 바로 위 물 칸 다음 차례로 같은 일감에서: 위 물의 떠 있는 먹이를 걸러 먹어 두 칸을 함께 고친다(06 Bio). 다른 칸은 이 둘을 건드리지 않는다
                 Transport(); probe?.Invoke("transport");
                 buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V]; buryP ??= new double[V];
                 Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");

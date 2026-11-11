@@ -22,12 +22,15 @@ namespace Life
 
         sealed class Scratch
         {
-            public int[] slot = new int[Cfg.SMAX + 3];
-            public double[] b = new double[Cfg.SMAX + 3],
-                a = new double[Cfg.SMAX], scale = new double[Cfg.SMAX], loss = new double[Cfg.SMAX + 3], intake = new double[Cfg.SMAX],
+            const int W = 2 * (Cfg.SMAX + 3);   // 먹이 줄: 이 칸 계통 + 사체 세 칸 + 경계층에서 만나는 이웃 칸 계통·사체
+            public int[] slot = new int[W], src = new int[W];
+            public double[] b = new double[W], av = new double[W],
+                a = new double[Cfg.SMAX], scale = new double[Cfg.SMAX], loss = new double[W], intake = new double[Cfg.SMAX],
                 prey = new double[Cfg.SMAX], det = new double[Cfg.SMAX], lim = new double[Cfg.SMAX],
-                eat = new double[Cfg.SMAX + 3], K = new double[Cfg.SMAX + 3], capF = new double[Cfg.SMAX + 3], dc = new double[P.N], lb = new double[2 * LQ];
-            public int[] act = new int[Cfg.SMAX], limK = new int[Cfg.SMAX], col = new int[Cfg.SMAX + 3], capI = new int[Cfg.SMAX + 3];
+                eat = new double[W], capF = new double[W], dc = new double[P.N], lb = new double[2 * LQ];
+            public int[] act = new int[Cfg.SMAX], limK = new int[Cfg.SMAX], col = new int[W], capI = new int[W], cand = new int[Cfg.SMAX], kr4 = new int[4];
+            public readonly double[][] R4 = { new double[W], new double[W], new double[W], new double[W] };   // 먹는 쪽 넷의 계수 줄
+            public readonly double[] e4 = new double[8], s4 = new double[4];
             public Rates[] r = new Rates[Cfg.SMAX];
             public readonly double[] cons = new double[P.N], f = new double[P.N];
         }
@@ -103,6 +106,20 @@ namespace Life
         public double VirusMort(Traits t, Body b, int v) { double hb = binB[v * 125 + t.vbin]; return Cfg.VIRUS * hb / (hb + Cfg.VIRUS_K) * (0.2 + 0.8 * b.exposed) * Cell.Clock(t, b); }   // 병도 몸 시계를 따른다(바이러스는 숙주 세포의 대사로 불어남; 바다 자연 사망 ∝ 몸무게^−0.25, Peterson & Wroblewski 1984). 홀세포는 시계 1이라 그대로
         static int PocClass(double size) => size < 3 ? P.POC0 : size < 30 ? P.POC1 : P.POC2;
 
+        // 먹는 쪽 넷(S.kr4)의 먹이 줄 [i0, i1) 계수를 R4에 적고 섭취 합 e[o + g]에 i 순서로 더한다
+        void Row4(Scratch S, int i0, int i1, int o)
+        {
+            var K = kK; var col = S.col; var b = S.b; double[] r0 = S.R4[0], r1 = S.R4[1], r2 = S.R4[2], r3 = S.R4[3], e = S.e4;
+            int k0 = S.kr4[0], k1 = S.kr4[1], k2 = S.kr4[2], k3 = S.kr4[3]; double a0 = e[o], a1 = e[o + 1], a2 = e[o + 2], a3 = e[o + 3];
+            for (int i = i0; i < i1; i++)
+            {
+                int c = col[i]; double bi = b[i], x0 = K[k0 + c], x1 = K[k1 + c], x2 = K[k2 + c], x3 = K[k3 + c];
+                r0[i] = x0; r1[i] = x1; r2[i] = x2; r3[i] = x3;
+                a0 += x0 * bi; a1 += x1 * bi; a2 += x2 * bi; a3 += x3 * bi;
+            }
+            e[o] = a0; e[o + 1] = a1; e[o + 2] = a2; e[o + 3] = a3;
+        }
+
         void Bio(int v)
         {
             if (!live[v]) return;
@@ -120,34 +137,59 @@ namespace Life
             for (int i = 0; i < n; i++) binB[v * 125 + strains[S.slot[i]].t.vbin] += S.b[i];
             var e = EnvAt(v);
 
-            // 1) 포식·청소: 먹이 = 다른 계통 + 사체 세 칸
+            // 1) 포식·청소: 먹이 = 다른 계통 + 사체 세 칸 (+ 바닥 경계층에서 만나는 이웃 칸). b = 먹는 쪽이 만나는 농도, av = 먹힐 수 있는 전부(이 칸 농도로), src = 덜어 낼 칸
             int np = n;
-            for (int k = 0; k < 3; k++) { S.b[np] = c[P.POC0 + k][v]; S.slot[np] = -1; S.col[np] = Cfg.SMAX + k; np++; }
+            for (int i = 0; i < n; i++) { S.av[i] = S.b[i]; S.src[i] = v; }
+            for (int k = 0; k < 3; k++) { S.b[np] = S.av[np] = c[P.POC0 + k][v]; S.src[np] = v; S.slot[np] = -1; S.col[np] = Cfg.SMAX + k; np++; }
+            // 바닥 경계층(퇴적면 칸의 물 10 cm)은 위 물과 ~0.001일에 섞여(K ≈ 1e-4 m²/s) 떠 있는 생물·사체가 위 물 농도 그대로 있다:
+            // 퇴적면 생물은 그것을 걸러 먹고(바닥 현탁물 섭식 — 청장 동물군의 주류, Dornbos 2005), 위 물 생물은 경계층에 머문 몫(vol 퇴적면/vol 위 칸)만큼 바닥 생물을 만난다.
+            // 가라앉아 쌓인 사체(퇴적면 사체)는 위 물 생물이 못 먹는다. 퇴적면은 위 물 칸이 다 끝난 뒤 차례(10 Step)라 두 칸을 동시에 고치지 않는다
+            int u = v >= NF0 ? Bottom(v - NF0) : Under(v), nq = np;   // nq: 이웃 칸 계통 줄의 끝(그 뒤는 이웃 칸 사체)
+            if (u >= 0)
+            {
+                bool fl = v >= NF0; double R = vol[u] / vol[v];
+                for (int i = 0; i < alive.Count; i++)
+                {
+                    var s = alive[i]; double bu = B[s.slot * V + u]; if (bu <= Cfg.BMIN) continue;
+                    S.b[np] = fl ? bu : bu * R; S.av[np] = bu * R; S.src[np] = u; S.slot[np] = s.slot; S.col[np] = s.slot; np++;
+                }
+                nq = np;
+                if (fl) for (int k = 0; k < 3; k++) { double pu = c[P.POC0 + k][u]; S.b[np] = pu; S.av[np] = pu * R; S.src[np] = u; S.slot[np] = -1; S.col[np] = Cfg.SMAX + k; np++; }
+            }
             double tot = 0; for (int i = 0; i < np; i++) tot += S.b[i];
             // 먹는 쪽 j마다 섭취 E_j = Σ_i K[j,i]·b_i(K는 계통 짝 표 kK에서), 처리 시간 배율, 한 틱 섭취 배율 sb_j를 낸다.
             // 먹이 i가 먹히는 양은 b_i·Σ_j K[j,i]·sb_j(= want_i)라서 같은 줄을 먹이 쪽으로 한 번 더 더해 둔다.
             // 한 틱에 90 %를 넘게 먹히는 먹이만 깎고(L_i), 깎은 몫을 그 먹이를 먹은 쪽들의 섭취에서 뺀다: 짝마다 흐름을 다시 셀 필요가 없다
-            int na = 0; var row = S.K;
+            // 먹는 쪽 넷씩 묶어 돈다: 먹는 쪽마다 섭취를 더하는 차례(i 순서)·먹이 쪽에 더하는 차례(j 순서)가 하나씩 할 때와 같아 결과는 비트까지 같고,
+            // 서로 기다리지 않는 더하기 넷이 함께 돌아 빠르다(칸마다 먹는 쪽 ~500 × 먹이 줄 ~500–1000)
+            int na = 0, nc = 0; var cand = S.cand; var ea = S.e4; var sv = S.s4;
             for (int i = 0; i < np; i++) S.loss[i] = 0;
             for (int j = 0; j < n; j++)
             {
                 var sj = strains[S.slot[j]]; S.scale[j] = 0; S.intake[j] = 0; S.prey[j] = 0; S.det[j] = 0;
-                if (sj.att * tot < 1e-4) continue;
-                int kr = S.slot[j] * KW; double Ep = 0, Ed = 0;
-                for (int i = 0; i < n; i++) { double k = kK[kr + S.col[i]]; row[i] = k; Ep += k * S.b[i]; }
-                for (int i = n; i < np; i++) { double k = kK[kr + S.col[i]]; row[i] = k; Ed += k * S.b[i]; }
-                double E = Ep + Ed; if (E <= 0) continue;
-                S.act[na++] = j;
-                S.scale[j] = 1 / (1 + Cfg.HANDLE / sj.allo * E);
-                double sb = S.scale[j] * S.b[j] * dt;
-                S.prey[j] = Ep * sb; S.det[j] = Ed * sb;
-                for (int i = 0; i < np; i++) S.loss[i] += row[i] * sb;
+                if (sj.att * tot >= 1e-4) cand[nc++] = j;
+            }
+            for (int q = 0; q < nc; q += 4)
+            {
+                int m = Math.Min(4, nc - q);
+                for (int g = 0; g < 4; g++) { S.kr4[g] = S.slot[cand[q + Math.Min(g, m - 1)]] * KW; ea[g] = ea[4 + g] = 0; sv[g] = 0; }   // 넷이 안 되면 마지막 것을 겹쳐 돌리고 버린다
+                Row4(S, 0, n, 0); Row4(S, n, n + 3, 4); Row4(S, n + 3, nq, 0); Row4(S, nq, np, 4);   // 계통 · 사체 · 이웃 계통 · 이웃 사체 (ea[g] = 산 먹이, ea[4 + g] = 사체)
+                for (int g = 0; g < m; g++)
+                {
+                    int j = cand[q + g]; double Ep = ea[g], Ed = ea[4 + g], E = Ep + Ed; if (E <= 0) continue;
+                    S.act[na++] = j;
+                    S.scale[j] = 1 / (1 + Cfg.HANDLE / strains[S.slot[j]].allo * E);
+                    double sb = S.scale[j] * S.b[j] * dt; sv[g] = sb;
+                    S.prey[j] = Ep * sb; S.det[j] = Ed * sb;
+                }
+                double[] r0 = S.R4[0], r1 = S.R4[1], r2 = S.R4[2], r3 = S.R4[3]; double s0 = sv[0], s1 = sv[1], s2 = sv[2], s3 = sv[3];
+                for (int i = 0; i < np; i++) S.loss[i] = S.loss[i] + r0[i] * s0 + r1[i] * s1 + r2[i] * s2 + r3[i] * s3;   // 안 먹은 쪽은 sb 0: 0을 더해 그대로
             }
             int ncap = 0;
             for (int i = 0; i < np; i++)
             {
                 double want = S.loss[i] * S.b[i];
-                if (want > 0.9 * S.b[i]) { S.eat[i] = 0.9 * S.b[i]; S.capI[ncap] = i; S.capF[ncap++] = S.b[i] * (1 - 0.9 * S.b[i] / want); }   // capF = b_i(1 − L_i)
+                if (want > 0.9 * S.av[i]) { S.eat[i] = 0.9 * S.av[i]; S.capI[ncap] = i; S.capF[ncap++] = S.b[i] * (1 - 0.9 * S.av[i] / want); }   // capF = b_i(1 − L_i)
                 else S.eat[i] = want;
             }
             for (int q = 0; q < na; q++)
@@ -156,17 +198,22 @@ namespace Life
                 if (ncap > 0)
                 {
                     int kr = S.slot[j] * KW; double sb = S.scale[j] * S.b[j] * dt, dp = 0, dd = 0;
-                    for (int c2 = 0; c2 < ncap; c2++) { int i = S.capI[c2]; double x = kK[kr + S.col[i]] * S.capF[c2]; if (i < n) dp += x; else dd += x; }
+                    for (int c2 = 0; c2 < ncap; c2++) { int i = S.capI[c2]; double x = kK[kr + S.col[i]] * S.capF[c2]; if (S.col[i] < Cfg.SMAX) dp += x; else dd += x; }
                     S.prey[j] = Math.Max(0, S.prey[j] - dp * sb); S.det[j] = Math.Max(0, S.det[j] - dd * sb);
                 }
                 S.intake[j] = S.prey[j] + S.det[j];
             }
-            // 먹힌 양을 먹이에서 뺀다(사체는 풀에서)
+            // 먹힌 양을 먹이에서 뺀다(사체는 풀에서, 이웃 칸 몫은 그 칸 농도로 바꿔서)
             for (int i = 0; i < np; i++)
             {
                 double eaten = S.eat[i];
                 if (i < n) { eatenRate[S.slot[i] * V + v] = S.b[i] > 0 ? eaten / (S.b[i] * dt) : 0; S.b[i] -= eaten; }
-                else c[P.POC0 + i - n][v] = Math.Max(0, c[P.POC0 + i - n][v] - eaten);
+                else
+                {
+                    int w = S.src[i]; double x = eaten * vol[v] / vol[w];
+                    if (S.slot[i] >= 0) B[S.slot[i] * V + w] = Math.Max(0, B[S.slot[i] * V + w] - x);
+                    else c[S.col[i] - Cfg.SMAX + P.POC0][w] = Math.Max(0, c[S.col[i] - Cfg.SMAX + P.POC0][w] - x);
+                }
             }
 
             // 2) 생리

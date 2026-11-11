@@ -119,6 +119,7 @@ namespace Life
 
         public bool HasFloor(int r) => NF0 + r < V && live[NF0 + r];
         public int Bottom(int r) { for (int k = Cfg.NY - 1; k >= 0; k--) if (live[r * Cfg.NY + k]) return r * Cfg.NY + k; return -1; }
+        public int Under(int v) { if (v >= NV0) return -1; int r = v / Cfg.NY; return HasFloor(r) && Bottom(r) == v ? NF0 + r : -1; }   // 이 물 칸 바로 밑 퇴적면(없으면 −1)
         public bool IsBottom(int v) => v >= NV0 || (v % Cfg.NY == Cfg.NY - 1 || !live[v + 1]) && !HasFloor(v / Cfg.NY);   // 묻히는 곳: 열수공·퇴적면, 퇴적면 없는 해역은 맨 아래 물 칸
 
         void Init()

@@ -36,30 +36,43 @@ namespace Life
             return Math.Max(0, r.g) * lim + Math.Min(0, r.g) - r.mort - eaten;
         }
 
-        // 먹이 섭취(세포 C 1 mol당 /일, 똥 뺀 몫)
+        // 먹이 섭취(세포 C 1 mol당 /일, 똥 뺀 몫). 바닥 경계층에서 만나는 이웃 칸도(06 Bio와 같게): 퇴적면은 위 물의 떠 있는 먹이·사체를 위 물 농도로,
+        // 맨 아래 물 칸은 퇴적면 생물을 경계층 몫(vol 퇴적면/vol 이 칸)만큼
         public double Intake(Traits t, Body b, int v, int self)
         {
             double a = Attack(t, b), me = Mot(t), E = 0, lf = Math.Log10(b.feed), cap = Cfg.PREY_MAX * b.feed; int mySp = strains[self]?.species ?? -1;
-            int n = presOn ? nPres[v] : alive.Count;
-            for (int q = 0; q < n; q++)
+            void From(int u, double w, bool poc)
             {
-                var s = alive[presOn ? pres[v][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.esd > cap) continue; double bi = B[s.slot * V + v]; if (bi <= Cfg.BMIN) continue;
-                double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * Enc(me, s.mot) * bi;   // = Pref(s.b.size, b.feed, t.lr), 로그는 계통에 둔 값
+                int n = presOn ? nPres[u] : alive.Count;
+                for (int q = 0; q < n; q++)
+                {
+                    var s = alive[presOn ? pres[u][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.esd > cap) continue; double bi = B[s.slot * V + u]; if (bi <= Cfg.BMIN) continue;
+                    double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * Enc(me, s.mot) * bi * w;   // = Pref(s.b.size, b.feed, t.lr), 로그는 계통에 둔 값
+                }
+                if (poc) for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * Enc(me, 0) * pool[P.POC0 + k][u] * w;
             }
-            for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * Enc(me, 0) * pool[P.POC0 + k][v];
+            From(v, 1, true);
+            if (v >= NF0) { int h = Bottom(v - NF0); if (h >= 0) From(h, 1, true); }
+            else { int f = Under(v); if (f >= 0) From(f, vol[f] / vol[v], false); }
             return (1 - Cfg.EGEST) * E / (1 + Cfg.HANDLE / Allo(t, b) * E);
         }
 
-        // 먹힘률(/일): 그 칸 포식자들의 지금 섭취 배율로
+        // 먹힘률(/일): 그 칸(과 바닥 경계층에서 만나는 이웃 칸) 포식자들의 지금 섭취 배율로
         public double Eaten(Traits t, Body b, int v, int self)
         {
             double vul = Vul(t), me = Mot(t), loss = 0, ls = Math.Log10(b.esd); int mySp = strains[self]?.species ?? -1;
-            int n = presOn ? nPres[v] : alive.Count;
-            for (int q = 0; q < n; q++)
+            void By(int u, double w)
             {
-                var s = alive[presOn ? pres[v][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || b.esd > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + v; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
-                double x = (ls - s.lfeed + s.t.lr) / Cfg.PREY_SD; if (x * x <= 9) loss += s.att * Math.Exp(-0.5 * x * x) * vul * Enc(s.mot, me) * eatScale[sj] * bj;   // = Attack × Pref, 계통에 둔 값으로
+                int n = presOn ? nPres[u] : alive.Count;
+                for (int q = 0; q < n; q++)
+                {
+                    var s = alive[presOn ? pres[u][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || b.esd > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + u; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
+                    double x = (ls - s.lfeed + s.t.lr) / Cfg.PREY_SD; if (x * x <= 9) loss += s.att * Math.Exp(-0.5 * x * x) * vul * Enc(s.mot, me) * eatScale[sj] * bj * w;   // = Attack × Pref, 계통에 둔 값으로
+                }
             }
+            By(v, 1);
+            if (v >= NF0) { int h = Bottom(v - NF0); if (h >= 0) By(h, 1); }
+            else { int f = Under(v); if (f >= 0) By(f, vol[f] / vol[v]); }
             return loss;
         }
 
