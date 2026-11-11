@@ -83,6 +83,8 @@ namespace Tank
         public readonly ConcurrentQueue<Event> news = new();
         readonly Thread th; volatile bool stop;
         SpView[] cache = new SpView[0];
+        // 사진 만들 때 쓰고 돌려받는 것(시뮬레이션 스레드만): 사진마다 종 수 × 칸 수 배열을 새로 잡으면 앱이 GC로 끊겼다
+        readonly Dictionary<int, double[]> accMap = new(); readonly Stack<double[]> accPool = new(); readonly int[] topBuf = new int[8];
         int nDays, nEv;
 
         public Runner(Planet pl, string savePath)
@@ -135,11 +137,11 @@ namespace Tank
             var s = new Snap { day = p.Day, O2 = p.O2PAL, CO2 = p.CO2PAL, CH4 = p.CH4ppm, T = p.Tglobal, rate = rate, nStrain = p.alive.Count, nSp = p.nAliveSp };
             int ns = p.species.Count;
             if (cache.Length < ns) Array.Resize(ref cache, Math.Max(ns, cache.Length * 2));
-            var acc = new Dictionary<int, double[]>();
+            var acc = accMap; acc.Clear();
             foreach (var st in p.alive)
             {
                 if (st.species < 0) continue;
-                if (!acc.TryGetValue(st.species, out var a)) acc[st.species] = a = new double[V];
+                if (!acc.TryGetValue(st.species, out var a)) { a = accPool.Count > 0 && accPool.Peek().Length == V ? accPool.Pop() : new double[V]; Array.Clear(a, 0, V); acc[st.species] = a; }
                 for (int v = 0; v < V; v++) a[v] += p.B[st.slot * V + v] * p.vol[v];
             }
             var alive = new List<int>();
@@ -154,17 +156,21 @@ namespace Tank
                 if (sp.Alive && acc.TryGetValue(sp.id, out var a))
                 {
                     double tot = 0; for (int v = 0; v < V; v++) tot += a[v];
-                    var top = new List<int>();
-                    for (int v = 0; v < V; v++) if (a[v] > 0) top.Add(v);
-                    top.Sort((x, y) => a[y].CompareTo(a[x]));
-                    if (top.Count > 8) top.RemoveRange(8, top.Count - 8);
-                    w.where = top.ToArray(); w.share = new float[w.where.Length];
+                    int nt = 0; var tb = topBuf;   // 가장 많은 8칸(많은 차례): 다 정렬하지 않고 8칸짜리 줄에 끼워 넣는다
+                    for (int v = 0; v < V; v++)
+                    {
+                        if (!(a[v] > 0) || nt == 8 && a[v] <= a[tb[7]]) continue;
+                        int k = nt < 8 ? nt++ : 7; while (k > 0 && a[tb[k - 1]] < a[v]) { tb[k] = tb[k - 1]; k--; }
+                        tb[k] = v;
+                    }
+                    w.where = new int[nt]; Array.Copy(tb, w.where, nt); w.share = new float[nt];
                     w.conc = new float[V]; for (int v = 0; v < V; v++) if (p.vol[v] > 0) w.conc[v] = (float)(a[v] / p.vol[v]);
                     for (int k = 0; k < w.where.Length; k++) w.share[k] = (float)(a[w.where[k]] / Math.Max(1e-300, tot));
                 }
                 cache[i] = w;
                 if (sp.Alive) alive.Add(i);
             }
+            foreach (var a in acc.Values) accPool.Push(a);
             s.sp = new SpView[ns]; Array.Copy(cache, s.sp, ns);
             s.alive = alive.ToArray();
             s.clades = p.clades.ToArray();

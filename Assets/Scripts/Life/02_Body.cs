@@ -91,37 +91,69 @@ namespace Life
         // 기준 배치(두 갈래 β 0.5, 꺾임 54°, 장단축비 1.2) 100세포의 U에 이르는 세포 수. 256세포 안에서 안 부러지면 1024세포까지 재고, 그래도 안 부러지면 512 → 1024 세포의 U 멱법칙으로 늘린다.
         // 크기와 무관(반지름 1로 잼). 유전자 셋으로만 정해지니 기억해 둔다(ponytail: 4096개 넘으면 통째로 비움 — 값은 유전자로만 정해져 다시 재도 같다)
         static readonly ConcurrentDictionary<(float, float, float), (double cap, double[] q, double ex, double[] rg)> frac = new();
-        static readonly double UC = Strain(0.5, 0.3, 1.2, 100).U[100];
+        static readonly double UC = Overlap(0.5, 0.3, 1.2, 100, 100)[100];
 
-        // U[m] = 앞 m개(≤ nU) 세포의 겹침 에너지(풀기 전), rg[m] = 회전 반지름(푼 뒤, 반지름 1 단위, ≤ n)
-        static (double[] U, double[] rg) Strain(double beta, double ang, double aspect, int n, int nU = int.MaxValue)
+        // 몸표를 잴 때 쓰고 버리는 배열(스레드마다 하나). 진화 후보마다 새로 잡으면 20000일 세상에서 하루 12 MB를 버렸다(앱 GC 끊김)
+        sealed class Scratch
         {
-            var c = Place(beta, Math.PI * ang, 2 * Math.Cbrt(aspect) * 0.95, 1, n); nU = Math.Min(n, nU); var U = new double[nU + 1]; var rg = new double[n + 1]; double sx = 0, sy = 0, sz = 0, s2 = 0;
+            public readonly CellPos[] c = new CellPos[Cfg.CELLS_MAX]; public readonly (double x, double y, double z)[] dir = new (double, double, double)[Cfg.CELLS_MAX];
+            public readonly int[] kids = new int[Cfg.CELLS_MAX], next = new int[Cfg.CELLS_MAX], cell = new int[3 * Cfg.CELLS_MAX], hj = new int[Cfg.CELLS_MAX], head = new int[HB];
+            public readonly double[] U = new double[Cfg.CELLS_MAX + 1], ht = new double[Cfg.CELLS_MAX];
+        }
+        [ThreadStatic] static Scratch scr;
+        const int HB = 4096;
+        static int Hash(int x, int y, int z) => (x * 73856093 ^ y * 19349663 ^ z * 83492791) & (HB - 1);
+
+        // 세포 n개를 (반지름 1로) 놓고 U[m] = 앞 m개(≤ nU) 세포의 겹침 에너지(풀기 전). 배치는 이 스레드의 S.c에 남아 Rg가 이어 쓴다
+        static double[] Overlap(double beta, double ang, double aspect, int n, int nU)
+        {
+            var S = scr ??= new Scratch(); var c = S.c;
+            Place(beta, Math.PI * ang, 2 * Math.Cbrt(aspect) * 0.95, 1, n, c); nU = Math.Min(n, nU); var U = S.U; U[0] = 0;
+            // 1.6보다 가까운 앞 세포만 더한다: 한 변 1.61 격자의 이웃 27칸만 보고, 찾은 것을 j 차례로 더한다(모든 쌍을 훑던 것과 비트까지 같다. 1024세포 몸표가 쌍 52만 개 → 수천 개)
+            Array.Fill(S.head, -1);
             for (int i = 0; i < nU; i++)
             {
-                double s = 0;
-                for (int j = 0; j < i; j++) { double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z, d = Math.Sqrt(dx * dx + dy * dy + dz * dz); if (d < 1.6) s += (1.6 - d) * (1.6 - d); }
+                int gx = (int)Math.Floor(c[i].x / 1.61), gy = (int)Math.Floor(c[i].y / 1.61), gz = (int)Math.Floor(c[i].z / 1.61), nh = 0;
+                for (int ax = gx - 1; ax <= gx + 1; ax++) for (int ay = gy - 1; ay <= gy + 1; ay++) for (int az = gz - 1; az <= gz + 1; az++)
+                    for (int j = S.head[Hash(ax, ay, az)]; j >= 0; j = S.next[j])
+                    {
+                        if (S.cell[3 * j] != ax || S.cell[3 * j + 1] != ay || S.cell[3 * j + 2] != az) continue;   // 같은 통에 섞인 다른 격자 칸
+                        double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z, d = Math.Sqrt(dx * dx + dy * dy + dz * dz); if (d >= 1.6) continue;
+                        int k = nh++; while (k > 0 && S.hj[k - 1] > j) { S.hj[k] = S.hj[k - 1]; S.ht[k] = S.ht[k - 1]; k--; }
+                        S.hj[k] = j; S.ht[k] = (1.6 - d) * (1.6 - d);
+                    }
+                double s = 0; for (int k = 0; k < nh; k++) s += S.ht[k];
                 U[i + 1] = U[i] + s;
+                int h = Hash(gx, gy, gz); S.next[i] = S.head[h]; S.head[h] = i; S.cell[3 * i] = gx; S.cell[3 * i + 1] = gy; S.cell[3 * i + 2] = gz;
             }
-            Relax(c, 1);   // 몸 길이는 겹침을 푼 배치(그리는 몸과 같은 것)에서 잰다: 풀기 전 꼬불꼬불한 실은 풀면 곧게 펴진다
+            return U;
+        }
+
+        // 방금 Overlap이 놓은 n개를 풀고 rg[m] = 앞 m개의 회전 반지름(반지름 1 단위)
+        static double[] Rg(int n)
+        {
+            var c = scr.c; var rg = new double[n + 1]; double sx = 0, sy = 0, sz = 0, s2 = 0;
+            Relax(c, 1, n);   // 몸 길이는 겹침을 푼 배치(그리는 몸과 같은 것)에서 잰다: 풀기 전 꼬불꼬불한 실은 풀면 곧게 펴진다
             for (int i = 0; i < n; i++)
             {
                 sx += c[i].x; sy += c[i].y; sz += c[i].z; s2 += c[i].x * c[i].x + c[i].y * c[i].y + c[i].z * c[i].z; int m = i + 1;
                 rg[m] = Math.Sqrt(Math.Max(0, s2 / m - (sx * sx + sy * sy + sz * sz) / ((double)m * m)));
             }
-            return (U, rg);
+            return rg;
         }
 
         // 배치 하나에서 파쇄 상한과 난류 짐 q(m)(아래 Shear)을 같이 잰다
-        static (double cap, double[] q, double ex, double[] rg) Geo(double beta, double ang, double aspect, int M, int R)   // 겹침은 M세포까지, 회전 반지름은 R세포까지 잰다
+        static (double cap, double[] q, double ex, double[] rg) Geo(double beta, double ang, double aspect, int M, int R, double esc = double.MaxValue)   // 겹침은 M세포까지, 회전 반지름은 R세포까지 잰다. cap > esc면 cap만(더 큰 배치로 다시 잰다)
         {
-            var (U, rg) = Strain(beta, ang, aspect, R, M); double cap = double.NaN;
+            var U = Overlap(beta, ang, aspect, R, M); double cap = double.NaN;
             for (int m = 2; m <= M && double.IsNaN(cap); m++) if (U[m] > UC) cap = m - 1 + (UC - U[m - 1]) / (U[m] - U[m - 1]);   // 넘는 자리 사이를 이어 계단 없이
             if (double.IsNaN(cap))
             {
                 double k = U[M / 2] > 0 ? Math.Max(1, Math.Log(U[M] / U[M / 2]) / Math.Log(2)) : 2;
                 cap = U[M] <= 0 ? Cfg.CELLS_MAX : Math.Min(Cfg.CELLS_MAX, M * Math.Pow(UC / U[M], 1 / k));
             }
+            if (cap > esc) return (cap, null, 0, null);
+            var rg = Rg(R);
             double lu = 2 * Math.Cbrt(aspect) * 0.95; var q = new double[R + 1];
             for (int m = 2; m <= R; m++) q[m] = Math.Max(q[m - 1], Math.Pow(12, 1.5) * rg[m] * rg[m] * rg[m] / (m * lu));   // 누적 최댓값: 처음 넘는 자리를 이분 탐색으로
             double D = Math.Clamp(Math.Log(4) / Math.Log(Math.Max(1.0001, rg[R] / rg[R / 4])), 1, 3);
@@ -135,14 +167,14 @@ namespace Life
             if (frac.Count > 4096) frac.Clear();   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
             return frac.GetOrAdd((g[G.BRANCH], g[G.ANGLE], g[G.ASPECT]), _ =>
             {
-                float b = g[G.BRANCH], an = g[G.ANGLE]; var a = Geo(b, an, aspect, NDRAW, NDRAW);
-                if (a.cap > NDRAW) a = Geo(b, an, aspect, 4 * NDRAW, 4 * NDRAW);
+                float b = g[G.BRANCH], an = g[G.ANGLE]; var a = Geo(b, an, aspect, NDRAW, NDRAW, NDRAW);
+                if (a.cap > NDRAW) a = Geo(b, an, aspect, 4 * NDRAW, 4 * NDRAW, 4 * NDRAW);
                 return a.cap > 4 * NDRAW ? Geo(b, an, aspect, 4 * NDRAW, Cfg.CELLS_MAX) : a;
             });
         }
 
         public static double Fracture(float[] g, double aspect) => GeoOf(g, aspect).cap;   // 부러지기 전 최대 세포 수(겹침이 안 쌓이는 실은 CELLS_MAX)
-        public static double FractureAt(double beta, double ang, double aspect, int M) => Geo(beta, ang, aspect, M, M).cap;
+        public static double FractureAt(double beta, double ang, double aspect, int M) => Geo(beta, ang, aspect, M, M, -1).cap;
 
         // 난류 끊김: 물이 몸을 늘이는 힘은 길이 L의 제곱으로 크고(가는 막대, Batchelor 1971), 그 힘을 가운데 단면의 결합들이 나눠 진다.
         // 단면의 세포 수 k ≈ m × 결합 길이 / L이라 결합 하나의 짐 ∝ L³/m: 곧은 실은 길이²로 커지고, 판은 √m로, 덩어리는 거의 그대로(안 끊김).
@@ -156,11 +188,10 @@ namespace Life
             return lo - 1 + (thr - q[lo - 1]) / (q[lo] - q[lo - 1]);
         }
 
-        static CellPos[] Place(double beta, double theta, double len, double r, int n)   // 풀기 전 배치: 딸세포를 부모에서 len 떨어진 곳에 θ로 꺾어 붙인다
+        static void Place(double beta, double theta, double len, double r, int n, CellPos[] c)   // 풀기 전 배치(c 앞 n칸): 딸세포를 부모에서 len 떨어진 곳에 θ로 꺾어 붙인다
         {
-            var c = new CellPos[n]; var dir = new (double x, double y, double z)[n];
+            var S = scr ??= new Scratch(); var dir = S.dir; var kids = S.kids; Array.Clear(kids, 0, n);
             c[0] = new CellPos { r = (float)r, parent = -1 }; dir[0] = (1, 0, 0);
-            var kids = new int[n];
             for (int i = 1; i < n; i++)
             {
                 int p = Math.Min(i - 1, (int)Math.Floor((i - 1) * beta)); int k = kids[p]++;
@@ -172,12 +203,11 @@ namespace Life
                 dir[i] = nd;
                 c[i] = new CellPos { x = (float)(c[p].x + nd.Item1 * len), y = (float)(c[p].y + nd.Item2 * len), z = (float)(c[p].z + nd.Item3 * len), r = (float)r, parent = p };
             }
-            return c;
         }
 
         static CellPos[] Layout(float[] g, Traits t, int n)
         {
-            double r = t.dCell / 2; var c = Place(g[G.BRANCH], Math.PI * g[G.ANGLE], t.dCell * Math.Cbrt(t.aspect) * 0.95, r, n); Relax(c, r);
+            double r = t.dCell / 2; var c = new CellPos[n]; Place(g[G.BRANCH], Math.PI * g[G.ANGLE], t.dCell * Math.Cbrt(t.aspect) * 0.95, r, n, c); Relax(c, r, n);
             // 겉 세포: 이웃(2.2 r 안)이 적은 세포
             for (int i = 0; i < n; i++)
             {
@@ -188,9 +218,9 @@ namespace Life
             return c;
         }
 
-        static void Relax(CellPos[] c, double r)   // 겹침 풀기: 겹친 세포는 밀어낸다(몇 번만)
+        static void Relax(CellPos[] c, double r, int n)   // 겹침 풀기(앞 n칸): 겹친 세포는 밀어낸다(몇 번만)
         {
-            int n = c.Length; bool moved = true;   // 한 바퀴 동안 아무것도 안 밀렸으면 그 뒤 바퀴도 같다: 멈춘다(결과 같음)
+            bool moved = true;   // 한 바퀴 동안 아무것도 안 밀렸으면 그 뒤 바퀴도 같다: 멈춘다(결과 같음)
             for (int it = 0; it < 12 && n > 2 && moved; it++)
             {
                 moved = false;
