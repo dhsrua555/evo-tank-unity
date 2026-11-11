@@ -1,5 +1,5 @@
 // 8단계 — 판들(물속 화면 위에 반투명으로 뜬다): 윗줄(상태·속도·돌연변이율·사건), 오른쪽 종 목록(살아 있는 종만, 큰 갈래로 접힘, 찾기, 많은 순/나온 순),
-// 고른 종 정보(몸·하는 일·형질·조상), 아래 그래프(O₂·CO₂·기온·종 수), 계통수 창(멸종한 조상까지).
+// 고른 종 정보(몸·하는 일·형질·조상), 아래 그래프(O₂·CO₂·기온·종 수), 계통수 창(멸종한 조상까지), 진화 과정 창(첫 생물 → 고른 종, 단계마다 바뀐 것).
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,7 +13,7 @@ namespace Tank
         Font font, fontB;
         GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sBC, sTiny, sWrapL;
         const float INFO_H = 380, INFO_S = 236;   // 정보 판: 자세히(단백질 배분·조상) / 기본(접힘) — 기본이 작아야 좁은 화면에서 종 목록이 눌리지 않는다
-        bool showGraph = true, showTree, showEv, infoMore;
+        bool showGraph = true, showTree, showPath, showEv, infoMore;
         string search = "", muText = "1";
         Vector2 listScroll;
         float treeScroll, listWant = 9999; bool treeAll;
@@ -48,19 +48,21 @@ namespace Tank
             {
                 Draw.Begin();
                 if (showTree) TreeDraw();
+                if (showPath) PathDraw();
                 Draw.Rect(0, 0, W, topH, GLASS); Draw.Line(0, topH, W, topH, EDGE);
                 Glass(listR);
                 if (showGraph) GraphDraw(graphR);
                 if (sel >= 0) InfoDraw(infoR);
                 Draw.End();
             }
-            if (!showTree) DiveGui();
+            if (!showTree && !showPath) DiveGui();
             TopBar();
             List(listR);
             if (sel >= 0) Info(infoR);
             if (showGraph) GraphText(graphR);
             if (showTree) TreeGui();
-            if (!showTree) Ticker();
+            if (showPath) PathGui();
+            if (!showTree && !showPath) Ticker();
             if (showEv) EventMenu();
             if (Time.unscaledTime < noteUntil) GUI.Label(new Rect((W - panelW) / 2 - 200, topH + 8, 400, 20), note, sSC);   // 물속 화면 가운데 위
         }
@@ -127,7 +129,7 @@ namespace Tank
             // 오른쪽 끝에 붙이되 사건 단추를 덮지 않는다. 그래도 넘치면(세로 화면·휴대폰) 윗줄 오른쪽으로 올리고 상태 글자를 그만큼 줄인다
             bool up = Mathf.Max(x, W - 170) + 164 > W - 4;
             float xr = up ? W - 174 : Mathf.Max(x, W - 170), yb = up ? 2 : y;
-            if (GUI.Button(new Rect(xr, yb, 80, 19), "계통수", showTree ? sOn : sBtn)) showTree = !showTree;
+            if (GUI.Button(new Rect(xr, yb, 80, 19), "계통수", showTree ? sOn : sBtn)) { showTree = !showTree; showPath = false; }
             if (GUI.Button(new Rect(xr + 84, yb, 80, 19), "그래프", showGraph ? sOn : sBtn)) showGraph = !showGraph;
             GUI.Label(new Rect(10, 3, (up ? xr - 6 : W - 10) - 10, 20), t, sB);
         }
@@ -261,6 +263,7 @@ namespace Tank
             if (es > 0) GUI.Label(new Rect(x, y, r.width - 20, 16), $"에너지를 어디서: 빛 {s.energy[0] / es:P0} · 화학 {s.energy[1] / es:P0} · 유기물 태우기 {s.energy[2] / es:P0}", sS);
             y += 18;
             GUI.Label(new Rect(x, y, r.width - 20, 16), $"산소 호흡 {s.t.Sat(G.RESP, 0.02):P0} · 항산화 {s.t.Sat(G.SOD, 0.005):P0} · 세포벽 {s.t.Sat(G.WALL, 0.02):P0} · 편모 {s.t.Sat(G.MOT, 0.01):P0}", sS); y += 18;
+            if (GUI.Button(new Rect(r.xMax - 152, r.y + 214, 74, 18), "진화 과정", showPath ? sOn : sBtn)) { showPath = !showPath; showTree = false; pathTip = sel; pathScroll = 0; }
             if (GUI.Button(new Rect(r.xMax - 74, r.y + 214, 64, 18), infoMore ? "접기 ▲" : "자세히 ▼", sBtn)) infoMore = !infoMore;
             if (!infoMore) return;
             GUI.Label(new Rect(x, r.y + 216, r.width - 20, 16), "단백질 배분", sS);
@@ -362,6 +365,92 @@ namespace Tank
                 GUI.Label(new Rect(x0 + w * (s.Alive ? 1 : s.died / now) + 4, y - 2, 170, rh + 4), s.Alive ? s.name : s.name + " †", s.Alive || i == sel ? sL : sS);
             }
             GUI.color = Color.white;
+        }
+
+        // ── 진화 과정: 첫 생물에서 고른 종까지 조상 줄을 위(옛날)에서 아래로. 줄마다 몸(크기는 로그로)·나온 날·하는 일, 앞 줄에서 바뀐 것 ──
+        // '큰 변화만'(기본): 앞에 보인 줄과 견줘 하는 일·몸 꼴·능력(산소 광합성·편모·포식 막…)·분화가 바뀌거나 크기가 3배 넘게 바뀐 종만. 사이에 거친 종 수를 적는다
+        int pathTip = -1, pathSeenTip = -2; bool pathBig = true, pathSeenBig; float pathScroll, pathAt;
+        int[] pathFull = new int[0], pathIds = new int[0], pathSkip = new int[0]; string[] pathWhy = new string[0]; bool[] pathMile = new bool[0];
+        const float PathRh = 46;
+        static readonly (int g, double k, string name)[] ABIL = { (G.PHOTO, 0.05, "빛 쓰기(광계)"), (G.CHEMO, 0.05, "화학합성"), (G.PHAGO, 0.05, "먹이 삼키기(포식 막)"), (G.RESP, 0.02, "산소 호흡"),
+            (G.MOT, 0.01, "편모(헤엄)"), (G.WALL, 0.02, "세포벽"), (G.NFIX, 0.02, "질소 고정"), (G.DRY, 0.02, "마름 견딤") };
+        static string Change(SpView p, SpView s, out bool big)
+        {
+            var c = new List<string>(); big = false;
+            if (p.role != s.role) { c.Add($"하는 일 {Draw.RoleName[(int)p.role]} → {Draw.RoleName[(int)s.role]}"); big = true; }
+            int fp = FormOf(p), fs = FormOf(s); if (fp != fs) { c.Add($"{FORMS[fp]} → {FORMS[fs]}"); big = true; }
+            if (p.t.eox > 0.85 != s.t.eox > 0.85) { c.Add(s.t.eox > 0.85 ? "물을 쪼개 산소를 냄" : "산소 광합성 잃음"); big = true; }
+            foreach (var (g, k, n) in ABIL) { bool a = p.t.Sat(g, k) >= 0.5, b = s.t.Sat(g, k) >= 0.5; if (a != b) { c.Add(n + (b ? " 생김" : " 잃음")); big = true; } }
+            if (p.t.diff >= 0.5 != s.t.diff >= 0.5) { c.Add(s.t.diff >= 0.5 ? "세포가 일을 나눔(분화)" : "분화 잃음"); big = true; }
+            double rs = s.body.size / p.body.size;
+            if (rs >= 3 || rs <= 1 / 3.0) { c.Add($"크기 {Size(p.body.size)} → {Size(s.body.size)}"); big = true; } else if (rs >= 1.5 || rs <= 1 / 1.5) c.Add($"크기 ×{rs:0.0#}");
+            if (Math.Abs(s.t.topt - p.t.topt) >= 8) c.Add($"최적 온도 {p.t.topt:0} → {s.t.topt:0} °C");
+            if (c.Count == 0)   // 눈에 띄는 것이 없으면 가장 크게 바뀐 단백질 배분 하나
+            {
+                int gi = 0; double best = 0; for (int i = 0; i < G.NA; i++) { double d = Math.Abs(Math.Log(s.t.phi[i] / p.t.phi[i])); if (d > best) { best = d; gi = i; } }
+                c.Add($"{G.Name[gi]} {(s.t.phi[gi] > p.t.phi[gi] ? "늘림" : "줄임")} ×{Math.Exp(best):0.0#}");
+            }
+            return string.Join(" · ", c);
+        }
+        void PathLayout()
+        {
+            int n = snap.sp.Length; if (pathTip < 0 || pathTip >= n) { showPath = false; return; }
+            if (sel >= 0 && sel != pathTip && Array.IndexOf(pathFull, sel) < 0) { pathTip = sel; pathScroll = 0; }   // 다른 종을 고르면 그 종의 과정으로(줄 안의 조상을 누르면 그대로)
+            if (pathSeenTip == pathTip && pathSeenBig == pathBig && Time.unscaledTime - pathAt < 1) return;   // 살아 있는 종 값은 1초마다 새로
+            pathSeenTip = pathTip; pathSeenBig = pathBig; pathAt = Time.unscaledTime;
+            var chain = new List<int>(); for (int a = pathTip; a >= 0 && a < n && chain.Count < 100000; a = snap.sp[a].parent) if (snap.sp[a].t != null) chain.Add(a);
+            chain.Reverse(); pathFull = chain.ToArray();
+            var ids = new List<int>(); var why = new List<string>(); var mile = new List<bool>(); var skip = new List<int>(); int k = 0; SpView prev = null;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                var s = snap.sp[chain[i]]; bool big = false; string w = prev == null ? "처음 생물" : Change(prev, s, out big);
+                if (pathBig && prev != null && !big && i < chain.Count - 1) { k++; continue; }
+                ids.Add(chain[i]); why.Add(w); mile.Add(big); skip.Add(k); k = 0; prev = s;
+            }
+            pathIds = ids.ToArray(); pathWhy = why.ToArray(); pathMile = mile.ToArray(); pathSkip = skip.ToArray();
+        }
+        static float PathR(SpView s) => Mathf.Clamp(6 + 5 * Mathf.Log10((float)Math.Max(1, s.body.size)), 6, 21);   // 몸 그림 반지름: 1 μm 6 · 100 μm 16 · 1 mm 21
+        void PathDraw()
+        {
+            PathLayout(); if (!showPath) return; var R = TreeRect;
+            Draw.Rect(R.x, R.y, R.width, R.height, new Color(0.03f, 0.05f, 0.08f, 0.9f));
+            float y0 = R.y + 32 - pathScroll;
+            for (int i = 0; i < pathIds.Length; i++)
+            {
+                float y = y0 + i * PathRh; if (y < R.y + 30 || y + PathRh > R.yMax) continue;
+                var s = snap.sp[pathIds[i]];
+                if (pathIds[i] == sel) Draw.Rect(R.x + 4, y, R.width - 8, PathRh - 3, new Color(1, 1, 1, 0.07f));
+                if (i > 0) Draw.Line(R.x + 30, y - 3, R.x + 30, y + 2, new Color(1, 1, 1, 0.25f));
+                Draw.Body(Draw.ShapeOf(s.body, s.t), R.x + 30, y + PathRh / 2 - 1, PathR(s), Time.time * 0.1f, Draw.Of(s.t, s.id), s.Alive ? 1 : 0.6f);
+            }
+        }
+        void PathGui()
+        {
+            PathLayout(); if (!showPath) return;
+            var R = TreeRect; float y0 = R.y + 32 - pathScroll, max = Mathf.Max(0, pathIds.Length * PathRh - (R.height - 36));
+            string head = $"진화 과정 · 첫 생물 → {snap.sp[pathTip].name} · {pathFull.Length}종" + (pathBig ? $" 중 큰 변화 {pathIds.Length}" : "");
+            GUI.Label(new Rect(R.x + 10, R.y + 4, R.width - 190, 20), head, sB);
+            if (GUI.Button(new Rect(R.xMax - 172, R.y + 3, 104, 24), "큰 변화만", pathBig ? sOn : sBtn)) { pathBig = !pathBig; pathScroll = 0; }
+            if (GUI.Button(new Rect(R.xMax - 64, R.y + 3, 58, 24), "닫기 ×", sBtn)) { showPath = false; return; }
+            DragScroll(3, new Rect(R.x, R.y + 30, R.width, R.height - 30), ref pathScroll, max);
+            pathScroll = Mathf.Clamp(pathScroll, 0, max);
+            var ev = UnityEngine.Event.current;
+            if (ev.type == EventType.ScrollWheel && R.Contains(ev.mousePosition)) { pathScroll = Mathf.Clamp(pathScroll + ev.delta.y * 20, 0, max); ev.Use(); }
+            if (ev.type == EventType.MouseUp && R.Contains(ev.mousePosition) && ev.mousePosition.y > R.y + 30)
+            {
+                int row = (int)((ev.mousePosition.y - y0) / PathRh); if (row >= 0 && row < pathIds.Length) sel = pathIds[row];
+                ev.Use();
+            }
+            float tw = R.width - 70;
+            for (int i = 0; i < pathIds.Length; i++)
+            {
+                float y = y0 + i * PathRh; if (y < R.y + 30 || y + PathRh > R.yMax) continue;
+                var s = snap.sp[pathIds[i]];
+                string when = s.Alive ? $"{s.born}일" : $"{s.born}–{s.died}일 †", skipT = pathSkip[i] > 0 ? $" · 사이 {pathSkip[i]}종" : "";
+                GUI.Label(new Rect(R.x + 58, y + 3, tw, 18), $"{s.name}  <size=11><color=#9aa3ad>{when} · {Draw.RoleName[(int)s.role]} · {FORMS[FormOf(s)]} {Size(s.body.size)}{skipT}</color></size>", sR);
+                GUI.Label(new Rect(R.x + 58, y + 22, tw, 18), pathMile[i] ? $"<color=#ffd966>{pathWhy[i]}</color>" : pathWhy[i], sSR);
+            }
+            if (pathIds.Length * PathRh > R.height - 36) GUI.Label(new Rect(R.xMax - 150, R.yMax - 18, 144, 16), "끌거나 휠로 넘기기", sS);
         }
 
         // ── 사건 알림 ──

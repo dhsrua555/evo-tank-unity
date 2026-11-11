@@ -1,5 +1,5 @@
 // 9단계 — 점검 사진: EvoTank.x86_64 -shots <폴더> [-days N] [-seed S] → 최대 속도로 N일(기본 1500)까지 간 뒤
-// 처음 화면 · 가장 많은 종 따라가기 · 그 종 크게 · 둘째 종 · 가장 얕은 바다 1.25 m(물속 20 cm 시야) · 표층 현미경 · 계통수 · 사건 메뉴 · 내린 종 목록을 찍고 끝낸다. 로그 줄은 "[EvoTank] …".
+// 처음 화면 · 가장 많은 종 따라가기 · 그 종 크게 · 둘째 종 · 가장 얕은 바다 1.25 m(물속 20 cm 시야) · 표층 현미경 · 계통수 · 사건 메뉴 · 내린 종 목록 · 진화 과정(큰 변화만·전체)을 찍고 끝낸다. 로그 줄은 "[EvoTank] …".
 using System;
 using System.Collections;
 using System.IO;
@@ -42,6 +42,15 @@ namespace Tank
             // 태블릿 점검: 사건 메뉴(설명·지금 광합성을 막는 것) · 아래로 내린 종 목록
             showEv = true; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "8_사건메뉴"); showEv = false;
             listScroll.y = 1e5f; yield return new WaitForSeconds(0.5f); yield return Shot(dir, "9_목록아래");
+            // 진화 과정: 조상 줄이 가장 긴 살아 있는 종
+            if (snap.alive.Length > 0)
+            {
+                int Depth(int i) { int d = 0; for (int q = i; q >= 0; q = snap.sp[q].parent) d++; return d; }
+                int deep = snap.alive.OrderBy(i => -Depth(i)).First(); sel = deep; showPath = true; pathTip = deep; pathScroll = 0; pathBig = true;
+                yield return new WaitForSeconds(1.5f); yield return Shot(dir, "10_진화과정");
+                Debug.Log($"[EvoTank] 진화 과정 {snap.sp[deep].name}: 조상 {pathFull.Length}종, 큰 변화 {pathIds.Length}");
+                pathBig = false; yield return new WaitForSeconds(1.5f); yield return Shot(dir, "11_진화과정_전체"); showPath = false;
+            }
             Application.Quit();
         }
 

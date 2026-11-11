@@ -87,7 +87,7 @@ namespace Tank
             snap = run.snap; bool fresh = snap != lastSnap; lastSnap = snap;
             if (snap == null) return;
             mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y) / Draw.ui;
-            inView = !showTree && !OverPanel(mouse);
+            inView = !showTree && !showPath && !OverPanel(mouse);
             long t = Perf.T(); DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh); Perf.Add(0, t); Perf.Frame(avs.Count);
         }
 
