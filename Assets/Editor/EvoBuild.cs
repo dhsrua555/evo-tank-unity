@@ -12,8 +12,8 @@ public static class EvoBuild
 {
     const string Scene = "Assets/Main.unity";
     // 판: 올릴 때 둘 다 바꾼다(안드로이드 번호는 늘기만 해야 덮어 설치된다). README 내려받기 링크의 판 번호도 함께
-    public const string Version = "0.2.5";
-    const int VersionCode = 9;
+    public const string Version = "0.2.6";
+    const int VersionCode = 10;
 
     static void Build(BuildTarget target, string path)
     {
