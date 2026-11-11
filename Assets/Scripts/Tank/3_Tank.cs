@@ -56,7 +56,7 @@ namespace Tank
         }
 
         void OnDestroy() => run?.Stop();
-        void OnApplicationQuit() { run?.Stop(); run?.SaveNow(); }
+        void OnApplicationQuit() { run?.Stop(); run?.SaveNow(true); }
         void Note(string s) { note = s; noteUntil = Time.unscaledTime + 6; }
 
         // 새 지구: 지금 시뮬레이션을 멈추고 저장 파일을 지운 뒤, 화면(Tank)째로 새로 만든다(물속 위치·고른 종·그래프도 처음부터)
@@ -75,7 +75,7 @@ namespace Tank
         }
 
         // 휴대폰·태블릿: 내리면 바로 저장(그대로 꺼져도 이어진다). 내려가 있던 동안의 날은 따라잡지 않고, 다시 열면 멈춘 곳에서 이어 간다
-        void OnApplicationPause(bool p) { if (p) run?.SaveNow(); }
+        void OnApplicationPause(bool p) { if (p) run?.SaveNow(true); }
 
         void Update()
         {

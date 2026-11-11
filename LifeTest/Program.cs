@@ -328,10 +328,10 @@ static class Program
     // 저장 시험: 저장 → 불러오기 → 다시 저장한 파일이 바이트까지 같은지, 둘을 300일 더 나란히 돌려 매일 같은지
     static int SaveCheck(Planet pl, string path)
     {
-        var sw = Stopwatch.StartNew(); Save.Write(pl, path, 1); double tw = sw.Elapsed.TotalSeconds;
+        var sw = Stopwatch.StartNew(); var m = Save.Snap(pl, 1); double ts = sw.Elapsed.TotalSeconds; Save.Flush(m, path); double tw = sw.Elapsed.TotalSeconds;
         sw.Restart(); var q = Save.Read(path, out var h); double tr = sw.Elapsed.TotalSeconds;
         q.po.MaxDegreeOfParallelism = pl.po.MaxDegreeOfParallelism;
-        Console.WriteLine($"저장 {tw:0.00} s · 불러오기 {tr:0.00} s · 파일 {new FileInfo(path).Length / 1e6:0.00} MB · {h.day}일 · 시드 {h.seed}");
+        Console.WriteLine($"저장 {tw:0.00} s(담기 {ts:0.00} s, 시뮬레이션은 이것만 멈춤) · 불러오기 {tr:0.00} s · 파일 {new FileInfo(path).Length / 1e6:0.00} MB · {h.day}일 · 시드 {h.seed}");
         Save.Write(q, path + "2", 1);
         static byte[] Body(string f) { using var z = new System.IO.Compression.GZipStream(File.OpenRead(f), System.IO.Compression.CompressionMode.Decompress); var m = new MemoryStream(); z.CopyTo(m); return m.ToArray()[36..]; }   // 머리(시각) 36바이트 뺌
         Say("저장 되살림(다시 저장한 파일이 바이트까지 같음)", Body(path).AsSpan().SequenceEqual(Body(path + "2")), $"{Body(path).Length / 1e6:0.0} MB(압축 전)");

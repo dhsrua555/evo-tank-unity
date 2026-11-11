@@ -20,14 +20,22 @@ namespace Life
 
         public sealed class Head { public int seed; public double day, rate; public DateTime at; }   // rate: 저장할 때 정한 속도(일/초, 0 = 최대). 지금은 읽기만 하고 안 씀(옛 '멈춘 동안 따라잡기' 자리, 파일 형식은 그대로)
 
-        public static void Write(Planet pl, string path, double rate)
+        public static void Write(Planet pl, string path, double rate) => Flush(Snap(pl, rate), path);
+
+        // 저장 = 담기(Snap: 행성을 압축 없이 메모리에, 시뮬레이션을 멈춘 동안) + 쓰기(Flush: 압축해 파일로, 시뮬레이션과 함께 돌아도 됨)
+        public static MemoryStream Snap(Planet pl, double rate, MemoryStream m = null)
+        {
+            m ??= new MemoryStream(); m.SetLength(0);
+            var w = new BinaryWriter(m);
+            w.Write(MAGIC); w.Write(VER); w.Write(pl.seed); w.Write(pl.Day); w.Write(rate); w.Write(DateTime.UtcNow.Ticks);
+            new Out(w).Root(pl); w.Flush();
+            return m;
+        }
+
+        public static void Flush(MemoryStream m, string path)
         {
             string tmp = path + ".tmp";
-            using (var w = new BinaryWriter(new GZipStream(File.Create(tmp), CompressionLevel.Fastest)))
-            {
-                w.Write(MAGIC); w.Write(VER); w.Write(pl.seed); w.Write(pl.Day); w.Write(rate); w.Write(DateTime.UtcNow.Ticks);
-                new Out(w).Root(pl);
-            }
+            using (var z = new GZipStream(File.Create(tmp), CompressionLevel.Fastest)) z.Write(m.GetBuffer(), 0, (int)m.Length);
             if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);   // 다 쓴 뒤에 바꿔 끼운다: 쓰다 꺼져도 옛 파일은 멀쩡
         }
 

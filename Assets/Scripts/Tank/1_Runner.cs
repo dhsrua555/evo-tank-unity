@@ -1,10 +1,11 @@
 // 1단계 — 시뮬레이션 스레드. 화면(메인 스레드)과 따로 돌아서 창을 내리거나 다른 작업 공간에 있어도 계속 간다.
 // 화면은 잠금 없이 '사진'(Snap)만 읽는다. 화면에서 바꾸는 것(손잡이·사건)은 cmds 줄에 넣으면 틱 사이에 처리한다.
-// 자동 저장: 2분마다(실제 시간) 행성 전체를 savePath에 쓴다(Life/11_Save). 앱을 내리거나 끌 때도 화면 쪽이 SaveNow를 부른다.
+// 자동 저장: 5분마다(실제 시간) 행성 전체를 savePath에 쓴다(Life/11_Save). 시뮬레이션은 메모리에 담는 동안만 멈추고 압축·쓰기는 뒤 스레드가 한다. 앱을 내리거나 끌 때도 화면 쪽이 SaveNow(true)를 부른다.
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -86,7 +87,7 @@ namespace Tank
         public double speed;                    // 목표 속도(일/초), 0 = 최대
         public volatile bool paused;
         public readonly string savePath;        // null = 저장 안 함(시드·사진 시험 실행)
-        const double SAVE_EVERY = 120;          // 자동 저장 간격(초, 실제 시간)
+        const double SAVE_EVERY = 300;          // 자동 저장 간격(초, 실제 시간). 내릴 때·끌 때는 따로 저장하므로 갑자기 꺼질 때만 이만큼 잃는다
         public readonly ConcurrentQueue<Action<Planet>> cmds = new();
         public readonly ConcurrentQueue<DayStat> days = new();
         public readonly ConcurrentQueue<Event> news = new();
@@ -107,12 +108,29 @@ namespace Tank
 
         public void Stop() { stop = true; th.Join(2000); }
 
-        // 틱 사이에만 쓴다(gate): 시뮬레이션 스레드의 자동 저장, 화면 스레드의 '내릴 때·끌 때' 저장 둘 다
-        public void SaveNow()
+        // 틱 사이에만 담는다(gate): 시뮬레이션 스레드의 자동 저장, 화면 스레드의 '내릴 때·끌 때' 저장(wait = 파일까지 다 쓰고 돌아옴) 둘 다.
+        // 시뮬레이션은 메모리에 담는 동안만 멈추고, 압축·파일 쓰기는 낮은 우선순위 스레드가 뒤에서 한다(전엔 18만 종 세계에서 2분마다 4–7초 멈춤)
+        readonly object saveLock = new(); MemoryStream saveBuf; Thread saver;
+        public void SaveNow(bool wait = false)
         {
             if (savePath == null) return;
-            try { var sw = Stopwatch.StartNew(); lock (pl.gate) Save.Write(pl, savePath, speed); UnityEngine.Debug.Log($"[EvoTank] 저장 {pl.Day:0}일 · {sw.ElapsedMilliseconds} ms"); }
-            catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 저장 실패: " + e.Message); }
+            lock (saveLock)
+                try
+                {
+                    saver?.Join();   // 앞 저장이 아직 쓰는 중이면 기다림(버퍼를 같이 쓴다)
+                    var sw = Stopwatch.StartNew(); double day;
+                    lock (pl.gate) { saveBuf = Save.Snap(pl, speed, saveBuf); day = pl.Day; }
+                    long snapMs = sw.ElapsedMilliseconds; var m = saveBuf;
+                    saver = new Thread(() =>
+                    {
+                        Low.Me();
+                        try { Save.Flush(m, savePath); UnityEngine.Debug.Log($"[EvoTank] 저장 {day:0}일 · 멈춤 {snapMs} ms · 다 씀 {sw.ElapsedMilliseconds} ms · {m.Length / 1e6:0} MB"); }
+                        catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 저장 실패: " + e.Message); }
+                    }) { IsBackground = true, Name = "save" };
+                    saver.Start();
+                    if (wait) saver.Join();
+                }
+                catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 저장 실패: " + e.Message); }
         }
 
         void Loop()
