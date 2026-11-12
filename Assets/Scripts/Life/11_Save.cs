@@ -146,14 +146,14 @@ namespace Life
             public void Fields(object o)
             {
                 if (!old.TryGetValue(o.GetType(), out var L)) { foreach (var f in Save.Fields(o.GetType())) Put(o, f); return; }
-                foreach (var (f, skip) in L) if (f != null) Put(o, f); else Prim(skip);
+                foreach (var (f, skip) in L) if (f != null) Put(o, f); else Value(skip, null);   // 지금 없는 필드: 읽고 버린다(참조 번호는 이어지게 객체도 읽는다)
             }
             void Put(object o, FieldInfo f)
             {
                 object cur = f.GetValue(o), v = Value(f.FieldType, f.IsInitOnly ? cur : null);
                 if (!ReferenceEquals(v, cur) && !Equals(v, cur)) f.SetValue(o, v);
             }
-            // 옛 서명("형이름 수형:필드 …")을 지금 필드에 이름으로 잇는다. 지금 없는 수 필드는 버릴 형만 적는다
+            // 옛 서명("형이름 수형:필드 …")을 지금 필드에 이름으로 잇는다. 지금 없는 필드는 버릴 형만 적는다
             static string Norm(string s) => System.Text.RegularExpressions.Regex.Replace(s, @", [^\[\]]+\]", "]");   // "[System.Int32, mscorlib, Version=…]" → "[System.Int32]"
             static (FieldInfo, Type)[] Map(Type t, string s)
             {
@@ -163,9 +163,9 @@ namespace Life
                 for (int i = 1; i < p.Length; i++)
                 {
                     int k = p[i].IndexOf(':'); string tn = p[i][..k], nm = p[i][(k + 1)..];
-                    var pt = Type.GetType("System." + tn);
+                    var pt = Type.GetType("System." + tn) ?? Type.GetType("Life." + tn);
                     if (now.TryGetValue(nm, out var f) && f.FieldType.Name == tn) L[i - 1] = (f, null);
-                    else if (!now.ContainsKey(nm) && pt != null && pt.IsPrimitive) L[i - 1] = (null, pt);
+                    else if (!now.ContainsKey(nm) && pt != null) L[i - 1] = (null, pt);
                     else throw new InvalidDataException($"저장 파일의 {t.Name}.{nm} 형식이 지금과 다름");
                 }
                 return L;
