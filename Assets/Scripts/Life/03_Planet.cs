@@ -74,6 +74,7 @@ namespace Life
             live = new bool[V]; vol = new double[V]; thick = new double[V]; zTop = new double[V]; area = new double[NR]; kind = new byte[NR];
             temp = new double[V]; light = new double[V]; dry = new double[V]; vent = new bool[V]; ventMul = new double[V];
             pool = new double[P.N][]; for (int p = 0; p < P.N; p++) pool[p] = new double[V];
+            alk = new double[V]; Array.Fill(alk, Cfg.ALK); caco3 = new double[NR];   // 저장에 없으면(탄산칼슘 전) 이 값 그대로
             B = new double[Cfg.SMAX * V]; AllocBio();
             for (int r = 0; r < NR; r++)
             {
@@ -136,7 +137,7 @@ namespace Life
                 pool[P.H2S][v] = vent[v] ? 20 : deep ? 0.5 : 0; pool[P.SO4][v] = Cfg.SO4_0;
                 pool[P.NH4][v] = Cfg.NH4_0; pool[P.PO4][v] = Cfg.PO4_0; pool[P.DOC][v] = Cfg.DOC_0;
             }
-            Climate();
+            Climate(); ToDic();   // 처음 CO2(aq) = 대기 30 PAL과 평형 → 그만큼의 DIC
             // 원시 세포: 열수공 칸에만 아주 조금(1 μm 세포 약 10/mL)
             var g = Genome.Primordial();
             var s = NewStrain(g, -1, -1);

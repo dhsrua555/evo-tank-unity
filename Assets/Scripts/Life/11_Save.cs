@@ -45,8 +45,8 @@ namespace Life
             int ver = r.ReadInt32() == MAGIC ? r.ReadInt32() : -1;
             if (ver != 1 && ver != VER) throw new InvalidDataException("저장 파일 형식이 다름");
             h = new Head { seed = r.ReadInt32(), day = r.ReadDouble(), rate = r.ReadDouble(), at = new DateTime(r.ReadInt64(), DateTimeKind.Utc) };
-            var pl = new Planet(h.seed);
-            new In(r).Root(pl, ver >= 2);
+            var pl = new Planet(h.seed); pl.dic = false;   // 저장에 dic가 없으면(탄산 완충 전) false로 남는다
+            new In(r).Root(pl, ver >= 2); pl.ToDic();
             if (pl.pool[0].Length == pl.V && pl.B.Length % pl.V == 0 && pl.B.Length / pl.V < Cfg.SMAX) Widen(pl, pl.B.Length / pl.V);
             if (pl.B.Length != Cfg.SMAX * pl.V || pl.pool[0].Length != pl.V) throw new InvalidDataException("저장 파일의 칸 수가 지금 설정과 다름");
             foreach (var sp in pl.species) if (!sp.Alive) sp.g0 = null;   // 08 Speciate: 멸종 종의 창시 유전체는 안 쓴다(그 고침 전 저장)

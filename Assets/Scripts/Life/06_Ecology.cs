@@ -84,7 +84,7 @@ namespace Life
         public Env EnvAt(int v)
         {
             var c = pool; var q = seen; int k = V;
-            return new Env { T = temp[v], light = light[v], dry = dry[v], CO2 = c[P.CO2][v] * q[P.CO2 * k + v], O2 = c[P.O2][v] * q[P.O2 * k + v], H2 = c[P.H2][v] * q[P.H2 * k + v],
+            return new Env { T = temp[v], light = light[v], dry = dry[v], CO2 = Aq(c[P.CO2][v] * q[P.CO2 * k + v], alk[v], temp[v]), O2 = c[P.O2][v] * q[P.O2 * k + v], H2 = c[P.H2][v] * q[P.H2 * k + v],
                 CH4 = c[P.CH4][v] * q[P.CH4 * k + v], H2S = c[P.H2S][v] * q[P.H2S * k + v], FE2 = c[P.FE2][v] * q[P.FE2 * k + v], SO4 = c[P.SO4][v] * q[P.SO4 * k + v],
                 NH4 = c[P.NH4][v] * q[P.NH4 * k + v], PO4 = c[P.PO4][v] * q[P.PO4 * k + v], DOC = c[P.DOC][v] * q[P.DOC * k + v] };
         }

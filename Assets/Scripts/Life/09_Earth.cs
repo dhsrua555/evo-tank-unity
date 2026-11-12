@@ -141,6 +141,7 @@ namespace Life
                                 double sum = 0; for (int k = 0; k < Cfg.NY; k++) if (live[v0 + k]) sum += pool[p][v0 + k] * vol[v0 + k];
                                 for (int k = 0; k < Cfg.NY; k++) if (live[v0 + k]) pool[p][v0 + k] = sum / vt;
                             }
+                            { double sum = 0; for (int k = 0; k < Cfg.NY; k++) if (live[v0 + k]) sum += alk[v0 + k] * vol[v0 + k]; for (int k = 0; k < Cfg.NY; k++) if (live[v0 + k]) alk[v0 + k] = sum / vt; }
                             pUp += p0 > 0 ? pool[P.PO4][v0] / p0 : 1;
                         }
                         e.text = $"해역 {n}곳 물기둥이 뒤섞임 · 해수면 인 평균 {pUp / n:0.0}배"; break;

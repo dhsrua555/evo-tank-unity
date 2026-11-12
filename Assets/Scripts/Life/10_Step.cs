@@ -50,7 +50,7 @@ namespace Life
                 probe?.Invoke("bio"); Lap(2, ref t0);   // 퇴적면은 바로 위 물 칸 다음 차례로 같은 일감에서: 위 물의 떠 있는 먹이를 걸러 먹어 두 칸을 함께 고친다(06 Bio). 다른 칸은 이 둘을 건드리지 않는다
                 Transport(); probe?.Invoke("transport");
                 buryC ??= new double[V]; buryFe ??= new double[V]; buryS ??= new double[V]; buryP ??= new double[V];
-                Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); probe?.Invoke("abiotic");
+                Parallel.For(0, V, po, v => { if (live[v]) Abiotic(v); }); SumBurial(); Carbonate(); probe?.Invoke("abiotic");
                 Gas(); probe?.Invoke("gas");
                 Boundary(); SpeedP(); probe?.Invoke("boundary"); Lap(3, ref t0);
                 Evolve(); probe?.Invoke("evolve"); Lap(4, ref t0);

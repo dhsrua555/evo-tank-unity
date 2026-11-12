@@ -11,6 +11,8 @@ namespace Life
         public int[][] nbr;                  // 칸 → 이웃 칸
         public double inC, outC, inN, outN, inP, outP, inFe, outFe, inS, outS;   // 경계 장부(mol)
         public double[] ledger0;
+        public double[] alk, caco3;          // 칸별 알칼리도(μM), 해역 바닥에 새로 쌓인 탄산칼슘(mol, 녹아 줄면 음수: 처음부터 있던 것 CACO3_0 × 넓이까지)
+        public bool dic;                     // 풀 CO2가 녹은 무기 탄소 전체(DIC)인가. 이 필드 전 저장은 CO2(aq)였다 → 불러올 때 ToDic
         public double buriedC;               // 누적 유기 탄소 매몰(mol) = 길게 보면 대기 산소의 원천
         public double weatherO2;             // 누적 산화 풍화가 쓴 산소(mol)
         public double redB;                  // 경계로 들어온 환원력 누적(전자 mol, CO2·SO4·Fe3+·H2O 기준): 열수공·화산·풍화 +, 매몰·수소 탈출 −. 산화환원 장부(Red)와 맞춰 본다
@@ -59,6 +61,7 @@ namespace Life
         {
             if (links == null || linksP == null) BuildLinks();
             for (int p = 0; p < P.N; p++) Mix(pool[p], p >= P.POC0 && p <= P.POC2 || p == P.FE3 ? linksP : links);
+            Mix(alk, links);
             foreach (var s in Live()) Mix(B, linksP, s.slot * V);
             // 가라앉기: 사체 입자, 철 산화물, 헤엄치지 않는 무거운 생물
             Sink(pool[P.POC0], 0, Cfg.POC_SINK[0]); Sink(pool[P.POC1], 0, Cfg.POC_SINK[1]); Sink(pool[P.POC2], 0, Cfg.POC_SINK[2]);
@@ -144,23 +147,23 @@ namespace Life
         void Gas()
         {
             // 대기가 바다보다 훨씬 작아서 명시적으로 풀면 출렁인다 → 대기 새 값을 암시적으로 푼다(질량 보존, 늘 안정)
-            atmO2 = Ex(P.O2, atmO2, Cfg.O2_SAT / Cfg.O2_PAL_MOL, 0.02); atmCO2 = Ex(P.CO2, atmCO2, Cfg.CO2_SAT / Cfg.CO2_PAL_MOL, 0.03);
+            atmO2 = Ex(P.O2, atmO2, Cfg.O2_SAT / Cfg.O2_PAL_MOL, 0.02); atmCO2 = Ex(P.CO2, atmCO2, Cfg.CO2_SAT / Cfg.CO2_PAL_MOL, 0.03, true);
             atmCH4 = Ex(P.CH4, atmCH4, Cfg.CH4_SAT / Cfg.PPM_MOL, 0.02); atmH2 = Ex(P.H2, atmH2, Cfg.H2_SAT / Cfg.PPM_MOL, 0.02);
-            double Ex(int p, double atm, double hPerMol, double tc)
+            double Ex(int p, double atm, double hPerMol, double tc, bool aq = false)   // aq: 풀이 DIC라 물 쪽 기체 농도는 CO2(aq)
             {
                 double A = 0, C = 0;
                 for (int r = 0; r < NR; r++)
                 {
                     int v = r * Cfg.NY; if (!live[v]) continue;
                     double f = Math.Min(0.5, Cfg.PISTON / thick[v] * Cfg.DT) * (1 - ice[r]), L = vol[v] * 1e-6, h = hPerMol * Math.Exp(-tc * (temp[v] - 15));
-                    A += f * h * L; C += f * pool[p][v] * L;
+                    A += f * h * L; C += f * (aq ? Aq(pool[p][v], alk[v], temp[v]) : pool[p][v]) * L;
                 }
                 double na = (atm + C) / (1 + A);
                 for (int r = 0; r < NR; r++)
                 {
                     int v = r * Cfg.NY; if (!live[v]) continue;
                     double f = Math.Min(0.5, Cfg.PISTON / thick[v] * Cfg.DT) * (1 - ice[r]), h = hPerMol * Math.Exp(-tc * (temp[v] - 15));
-                    pool[p][v] += f * (h * na - pool[p][v]);
+                    pool[p][v] += f * (h * na - (aq ? Aq(pool[p][v], alk[v], temp[v]) : pool[p][v]));
                 }
                 return na;
             }
@@ -238,6 +241,7 @@ namespace Life
         public double[] Ledger()
         {
             double C = atmCO2 + atmCH4, N = 0, Pp = 0, Fe = 0, S = 0;
+            for (int r = 0; r < NR; r++) C += caco3[r];
             for (int v = 0; v < V; v++)
             {
                 if (!live[v]) continue;
@@ -248,6 +252,72 @@ namespace Life
                 Fe += (pool[P.FE2][v] + pool[P.FE3][v]) * L; S += (pool[P.H2S][v] + pool[P.SO4][v]) * L;
             }
             return new[] { C - inC + outC, N - inN + outN, Pp - inP + outP, Fe - inFe + outFe, S - inS + outS };
+        }
+
+        // 탄산 완충: 풀 CO2 = 녹은 무기 탄소 전체(DIC = CO2(aq) + HCO3⁻ + CO3²⁻). 생물과 기체 교환이 겪는 CO2(aq)는 알칼리도(00 ALK)와 수온으로 정해진다.
+        // 바다 탄소 대부분이 HCO3⁻로 잡혀 있어 표층 DIC를 10 % 빼도 CO2(aq)는 ~2.5배만 준다(레벨 인자 ~10). 이게 없을 땐 생물 펌프가 표층 CO2를 1/5–1/18로 빨았고
+        // 심해는 처음 300 μM 그대로여서, 바다 뒤집힘 사건이 대기 CO2를 며칠 만에 2 → 90 PAL(기온 +25 °C)로 올렸다(진단 17)
+        static (double K1, double K2) Kc(double T)   // 바닷물(염분 35) pK1·pK2: 0 °C 6.10·9.38, 25 °C 5.86·8.92(Lueker 2000)에 직선
+        {
+            double t = Math.Clamp(T, -2, 40); return (Math.Pow(10, -(6.10 - 0.0096 * t)), Math.Pow(10, -(9.38 - 0.0184 * t)));
+        }
+        static double H(double dic, double alk, double K1, double K2)   // [H+]: a·h² + b·h + c = 0의 양의 근(a = ALK/DIC, 빼기에서 자릿수를 잃지 않는 쪽)
+        {
+            double a = Math.Clamp(alk / dic, 1e-6, 1.999);   // a ≥ 2면 탄산이 모두 CO3²⁻(CO2(aq) → 0)
+            double b = (a - 1) * K1, c = (a - 2) * K1 * K2, D = Math.Sqrt(b * b - 4 * a * c);
+            return b >= 0 ? -2 * c / (b + D) : (-b + D) / (2 * a);
+        }
+        public static double Aq(double dic, double alk, double T)   // DIC → CO2(aq)(μM)
+        {
+            if (dic <= 0) return 0;
+            var (K1, K2) = Kc(T); double h = H(dic, alk, K1, K2);
+            return dic / (1 + K1 / h + K1 * K2 / (h * h));
+        }
+        public static double Omega(double dic, double alk, double T)   // 칼사이트 포화도 = Ca²⁺·CO3²⁻ / Ksp
+        {
+            if (dic <= 0) return 0;
+            var (K1, K2) = Kc(T); double h = H(dic, alk, K1, K2);
+            return Cfg.CA * dic / (h * h / (K1 * K2) + h / K2 + 1) / Cfg.KSP;
+        }
+        public static double Dic(double aq, double alk, double T)   // CO2(aq) → DIC(μM)
+        {
+            var (K1, K2) = Kc(T); aq = Math.Max(aq, 1e-9);
+            double h = (aq * K1 + Math.Sqrt(aq * aq * K1 * K1 + 8 * alk * aq * K1 * K2)) / (2 * alk);
+            return aq * (1 + K1 / h + K1 * K2 / (h * h));
+        }
+        // 탄산칼슘을 x μM 빼면(2 ALK : 1 DIC, x < 0이면 녹여 더함) Ω가 target이 되는 x(Ω는 x에 대해 줄기만 한다)
+        static double ToOmega(double dic, double alk, double T, double target)
+        {
+            double lo = -4000, hi = Math.Min(dic, alk / 2) * 0.999;
+            if (Omega(dic - hi, alk - 2 * hi, T) >= target) return hi;
+            if (Omega(dic - lo, alk - 2 * lo, T) <= target) return lo;
+            for (int i = 0; i < 50; i++) { double m = (lo + hi) / 2; if (Omega(dic - m, alk - 2 * m, T) > target) lo = m; else hi = m; }
+            return (lo + hi) / 2;
+        }
+        // 탄산칼슘: 표층 물이 Ω_P를 넘으면 무기 침전(2 ALK : 1 DIC를 빼 CO2(aq)가 오른다 — 생물이 빤 CO2를 일부 되돌림). 그 CaCO3는 해역 바닥에 쌓이고(가라앉는 시간 무시),
+        // 바닥 물이 Ω < 1(호흡 CO2로 산성)이면 쌓인 만큼까지 녹아 2 ALK : 1 DIC를 더한다(탄산염 보상: 심해 CO2(aq)를 Ω 1 수준으로 묶음).
+        // 이게 없을 땐 알칼리도가 고정이라 심해 DIC가 알칼리도를 넘어 CO2(aq) 300 μM(대기 30 PAL 평형)을 들고 있었고, 바다 뒤집힘이 그걸 대기로 뿜었다(시험 21).
+        // 알칼리도 + 2 × 쌓인 CaCO3는 그대로(풍화·매몰 없음). ponytail: Ksp 수온·수압 의존, 풍화 알칼리도, 탄산염 매몰은 뺌
+        void Carbonate()
+        {
+            for (int r = 0; r < NR; r++)
+            {
+                int s = r * Cfg.NY; if (!live[s]) continue;
+                double x = ToOmega(pool[P.CO2][s], alk[s], temp[s], Cfg.OMEGA_P);
+                if (x > 0) { x *= Cfg.DT / Cfg.TAU_PREC; pool[P.CO2][s] -= x; alk[s] -= 2 * x; caco3[r] += x * vol[s] * 1e-6; }
+                int f = Bottom(r); double have = caco3[r] + Cfg.CACO3_0 * area[r]; if (f < 0 || have <= 0) continue;
+                double y = -ToOmega(pool[P.CO2][f], alk[f], temp[f], 1);
+                if (y > 0) { y = Math.Min(y * Cfg.DT / Cfg.TAU_DISS, have / (vol[f] * 1e-6)); pool[P.CO2][f] += y; alk[f] += 2 * y; caco3[r] -= y * vol[f] * 1e-6; }
+            }
+        }
+        // 풀 CO2를 CO2(aq)에서 DIC로: 새 지구(03 Init)와 이 필드 전 저장(11 Read). 더해진 탄소는 처음 장부에도 더한다(장부 어긋남이 튀지 않게)
+        public void ToDic()
+        {
+            if (dic) return;
+            double add = 0;
+            for (int v = 0; v < V; v++) { if (!live[v]) continue; double d = Dic(pool[P.CO2][v], alk[v], temp[v]); add += (d - pool[P.CO2][v]) * vol[v] * 1e-6; pool[P.CO2][v] = d; }
+            if (ledger0 != null) ledger0[0] += add;
+            dic = true;
         }
     }
 }

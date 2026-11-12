@@ -46,6 +46,11 @@ namespace Life
         public const double O2_PAL_MOL = 2.9e18 * ATM, CO2_PAL_MOL = 3.9e15 * ATM, PPM_MOL = 1.4e13 * ATM;
         public const double PISTON = 3.0;             // 기체 교환 피스톤 속도(m/일)
         public const double O2_SAT = 250, CO2_SAT = 10, CH4_SAT = 0.0014, H2_SAT = 0.0008;   // 1 PAL(또는 1 ppm)에 녹는 양(μM)
+        public const double ALK = 2300;               // 처음 바다 알칼리도(μM, 지금 바다 값): 탄산 완충(04 Aq). 칸마다 움직인다(04 alk: 탄산칼슘 침전·용해)
+        public const double CA = 10300, KSP = 4.27e5;  // 바닷물 Ca²⁺(μM, 지금 바다), 칼사이트 용해도곱(μM², 25 °C 염분 35: 10^−6.37 mol²/kg², Mucci 1983). ponytail: 수온·수압 의존 뺌
+        public const double OMEGA_P = 5;              // 표층 무기 탄산칼슘 침전 문턱(칼사이트 포화도 Ω)
+        public const double TAU_PREC = 30, TAU_DISS = 300;   // 침전(표층이 문턱까지)·용해(바닥 물이 Ω 1까지) 시간(일, 가정)
+        public const double CACO3_0 = 2.7e4;          // 처음부터 바닥에 있는 탄산칼슘(mol/m², 석회암 약 1 m). 가정: 모든 해역 바닥에 — 실제 캄브리아 심해 바닥엔 적었을 수 있다(석회질 플랑크톤 전)
         public const double H_ESCAPE = 2e-3;          // 대기 H2(CH4의 H 포함)가 우주로 빠지는 비율(/일)
         public const double CH4_OX = 0.02;            // 대기 CH4 광화학 산화(/일 × √O2_PAL)
 

@@ -34,6 +34,24 @@ static class Program
                 last = L;
             };
         }
+        if (Environment.GetEnvironmentVariable("DEEP") is string dp)   // 탐침: 층별 부피 평균 DIC·CO2(aq)·수온. DEEP=N이면 N일 돌리며 4번. DEEPSET: 심해(층 3)를 바로 위 층 값으로 바꾸고 시작
+        {
+            if (Environment.GetEnvironmentVariable("DEEPSET") != null) { for (int r = 0; r < pl.NR; r++) { int v = r * Cfg.NY + 3; if (pl.live[v]) pl.pool[P.CO2][v] = pl.pool[P.CO2][v - 1]; } pl.ledger0 = pl.Ledger(); }
+            void Show()
+            {
+                var sb = new System.Text.StringBuilder($"{pl.Day:0}일 대기 {pl.CO2PAL:0.00} PAL |");
+                for (int k = 0; k < Cfg.NY; k++)
+                {
+                    double vs = 0, d = 0, q = 0, al = 0, om = 0;
+                    for (int r = 0; r < pl.NR; r++) { int v = r * Cfg.NY + k; if (!pl.live[v]) continue; vs += pl.vol[v]; d += pl.pool[P.CO2][v] * pl.vol[v]; q += Planet.Aq(pl.pool[P.CO2][v], pl.alk[v], pl.temp[v]) * pl.vol[v]; al += pl.alk[v] * pl.vol[v]; om += Planet.Omega(pl.pool[P.CO2][v], pl.alk[v], pl.temp[v]) * pl.vol[v]; }
+                    sb.Append($" 층{k} DIC {d / vs:0} ALK {al / vs:0} aq {q / vs:0.0} Ω {om / vs:0.00}");
+                }
+                sb.Append($" | CaCO3 {pl.caco3.Sum():0.0e0} mol"); Console.WriteLine(sb);
+            }
+            Show(); int N = int.Parse(dp);
+            for (int d = 1; d <= N; d++) { for (int k = 0; k < Cfg.TPD; k++) pl.Step(); if (d % Math.Max(1, N / 4) == 0) Show(); }
+            return 0;
+        }
         if (Environment.GetEnvironmentVariable("BENCH") != null) { Bench(pl); return 0; }
         if (Environment.GetEnvironmentVariable("OXCAL") != null) return OxCal(pl);   // 몸 속 산소 맞춤 확인(Payne 2009)   // 진화 후보 하나에 드는 시간(한 스레드): 형질·몸·섭취·먹힘
         if (Environment.GetEnvironmentVariable("CELL") != null)
