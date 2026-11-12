@@ -92,6 +92,7 @@ namespace Tank
         public readonly ConcurrentQueue<DayStat> days = new();
         public readonly ConcurrentQueue<Event> news = new();
         readonly Thread th; volatile bool stop;
+        int[] lastAlive = new int[0]; int lastNs;   // 지난 사진의 살아 있는 종·종 수: 그 뒤 바뀔 수 있는 종은 이것뿐이다(멸종 종 30만은 다시 안 훑음)
         SpView[] cache = new SpView[0]; Clade[] cladeArr = new Clade[0];
         // 사진 만들 때 쓰고 돌려받는 것(시뮬레이션 스레드만): 사진마다 종 수 × 칸 수 배열을 새로 잡으면 앱이 GC로 끊겼다
         readonly Dictionary<int, double[]> accMap = new(); readonly Stack<double[]> accPool = new(); readonly int[] topBuf = new int[8];
@@ -172,8 +173,9 @@ namespace Tank
                 for (int v = 0; v < V; v++) a[v] += p.B[st.slot * V + v] * p.vol[v];
             }
             var alive = new List<int>();
-            for (int i = 0; i < ns; i++)
+            for (int k = 0; k < lastAlive.Length + ns - lastNs; k++)   // 지난번에 살아 있던 종, 그다음 새 종(번호 차례 그대로)
             {
+                int i = k < lastAlive.Length ? lastAlive[k] : lastNs + k - lastAlive.Length;
                 var sp = p.species[i]; var old = cache[i];
                 if (!sp.Alive && old != null && !old.Alive) continue;
                 var w = new SpView { id = sp.id, parent = sp.parent, clade = sp.clade, born = sp.born, died = sp.died, strains = sp.strains, name = sp.name, role = sp.role, biomass = sp.biomass, peak = sp.peak, g = sp.g, income = (double[])sp.income.Clone(), energy = (double[])sp.energy.Clone() };
@@ -199,7 +201,7 @@ namespace Tank
             }
             foreach (var a in acc.Values) accPool.Push(a);
             s.sp = new SpTable(cache, ns);
-            s.alive = alive.ToArray();
+            s.alive = lastAlive = alive.ToArray(); lastNs = ns;
             if (cladeArr.Length != p.clades.Count) cladeArr = p.clades.ToArray();   // 갈래는 붙기만 한다(같은 객체를 화면이 읽음)
             s.clades = cladeArr;
             s.vO2 = new float[V]; s.vH2S = new float[V]; s.vFe2 = new float[V]; s.vLight = new float[V]; s.vT = new float[V]; s.vPOC = new float[V];

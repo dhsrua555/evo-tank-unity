@@ -26,6 +26,8 @@ namespace Life
     public sealed partial class Planet
     {
         public readonly List<Species> species = new();     // id = 번호(멸종해도 남김: 계통수 창에서만 보임)
+        [NonSerialized] List<Species> liveSp;              // 살아 있는 종(번호 차례). 오래 돈 지구는 멸종 종이 30만: 날마다 전체를 훑던 것이 하루 일의 대부분이었다
+        List<Species> LiveSp => liveSp ??= species.FindAll(sp => sp.Alive);
         public readonly List<Clade> clades = new();
         public int nAliveSp;
 
@@ -48,7 +50,7 @@ namespace Life
                 var c = clades[species[parent].clade];
                 sp.clade = Genome.Dist(g, c.g) > Cfg.D_CLADE ? NewClade(sp, c.id) : c.id;
             }
-            species.Add(sp); return sp;
+            LiveSp.Add(sp); species.Add(sp); return sp;   // 산 종 줄을 먼저(비어 있으면 아직 안 넣은 species에서 만든다)
         }
 
         int NewClade(Species founder, int parent)
@@ -75,7 +77,7 @@ namespace Life
         void Speciate()
         {
             var order = new List<Strain>(alive); order.Sort((a, b) => b.total.CompareTo(a.total));
-            foreach (var sp in species) if (sp.Alive) { sp.biomass = 0; sp.strains = 0; sp.rep = -1; Array.Clear(sp.income, 0, 5); Array.Clear(sp.energy, 0, 3); }
+            foreach (var sp in LiveSp) { sp.biomass = 0; sp.strains = 0; sp.rep = -1; Array.Clear(sp.income, 0, 5); Array.Clear(sp.energy, 0, 3); }
             foreach (var s in order) if (s.species >= 0) species[s.species].biomass += s.total;
             foreach (var s in order)
             {
@@ -83,10 +85,10 @@ namespace Life
                 var sp = species[s.species];
                 if (Genome.Dist(s.g, sp.g0) <= Cfg.D_SP || s.total < 0.03 * sp.biomass) continue;
                 Species best = null; double bd = Cfg.D_SP;
-                foreach (var o in species) { if (!o.Alive || o == sp) continue; double d = Genome.Dist(s.g, o.g0); if (d <= bd) { bd = d; best = o; } }
+                foreach (var o in LiveSp) { if (o == sp) continue; double d = Genome.Dist(s.g, o.g0); if (d <= bd) { bd = d; best = o; } }
                 s.species = (best ?? NewSpecies(sp.id, (float[])s.g.Clone())).id;
             }
-            foreach (var sp in species) if (sp.Alive) sp.biomass = 0;
+            foreach (var sp in LiveSp) sp.biomass = 0;
             foreach (var s in order)
             {
                 var sp = species[s.species]; sp.biomass += s.total; sp.strains++;
@@ -94,15 +96,15 @@ namespace Life
                 for (int q = 0; q < 5; q++) { double x = 0; for (int v = 0; v < V; v++) x += inc[(q * Cfg.SMAX + s.slot) * V + v]; sp.income[q] += x; }
                 for (int q = 0; q < 3; q++) { double x = 0; for (int v = 0; v < V; v++) x += inc[((8 + q) * Cfg.SMAX + s.slot) * V + v]; sp.energy[q] += x; }
             }
-            foreach (var sp in species) if (sp.Alive) sp.peak = Math.Max(sp.peak, sp.biomass);
+            foreach (var sp in LiveSp) sp.peak = Math.Max(sp.peak, sp.biomass);
             nAliveSp = 0;
-            foreach (var sp in species)
+            foreach (var sp in LiveSp)
             {
-                if (!sp.Alive) continue;
                 if (sp.strains == 0) { sp.died = (int)Day; sp.rep = -1; sp.g0 = null; continue; }   // 창시 유전체는 살아 있는 종 가르기에만 쓴다: 멸종하면 버린다(오래 돈 지구는 멸종 종이 18만 — 메모리·저장·GC)
                 nAliveSp++;
                 sp.role = RoleOf(sp.income, sp.energy);
             }
+            LiveSp.RemoveAll(sp => !sp.Alive);
         }
     }
 }

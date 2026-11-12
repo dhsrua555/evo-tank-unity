@@ -96,9 +96,9 @@ namespace Life
             double fix = sh[0] + sh[1]; d.oxyShare = fix > 0 ? (float)(o2 / fix) : 0;
             if (inc5 > 0) { d.photoSh = (float)(sh[0] / inc5); d.chemoSh = (float)(sh[1] / inc5); d.preySh = (float)(sh[2] / inc5); d.detSh = (float)(sh[3] / inc5); d.docSh = (float)(sh[4] / inc5); }
             int nc = 0; var cl = new HashSet<int>();
-            foreach (var sp in species)
+            foreach (var sp in LiveSp)
             {
-                if (!sp.Alive) continue; cl.Add(sp.clade);
+                cl.Add(sp.clade);
                 switch (sp.role) { case Role.광합성: d.rPhoto++; break; case Role.화학합성: d.rChemo++; break; case Role.포식: d.rPrey++; break; case Role.청소: d.rDet++; break; case Role.분해: d.rDoc++; break; }
             }
             d.nClade = cl.Count;

@@ -130,7 +130,7 @@ namespace Life
             Parallel.For(0, nc, po, k =>
             {
                 ref var c = ref cand[k]; int slot = c.si / V, v = c.si % V; var par = strains[slot]; int gene = c.gene;
-                c.t = Traits.Of(c.g);
+                c.t = Traits.Of(c.g, gene != G.BRANCH && gene != G.ANGLE && gene != G.ASPECT);
                 bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH || gene == G.DIFF || gene < G.NA;
                 c.body = shape ? Body.Of(c.g, c.t, gene != G.BRANCH && gene != G.ANGLE && gene != G.SIZE && gene != G.ASPECT) : par.b;
                 bool sameI = Attack(c.t, c.body) == par.att && c.body.feed == par.b.feed && c.t.lr == par.t.lr && Mot(c.t) == par.mot, sameE = Vul(c.t) == par.vul && c.body.esd == par.b.esd && Mot(c.t) == par.mot;

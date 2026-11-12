@@ -34,7 +34,7 @@ namespace Life
         public int vbin;        // 바이러스 수용체 칸(5×5×5)
         public double lr;       // 먹이 크기 선호: log10(먹는 쪽 ÷ 먹이). 0 = 자기만 한 먹이(와편모류), 0.5 = 1/3(작은 편모류), 1.3 = 1/18(요각류), 1.7 = 1/50(지각류·부유 유생 — 걸러 먹는 무리, Hansen 1994의 가장 큰 무리 값이 상한)
 
-        public static Traits Of(float[] g)
+        public static Traits Of(float[] g, bool remember = true)   // remember: 몸표를 기억해 둘지(02 Body.GeoOf)
         {
             var t = new Traits(); double sum = 0;
             for (int i = 0; i < G.NA; i++) { t.phi[i] = Math.Exp(Cfg.KAPPA * g[i]); sum += t.phi[i]; }
@@ -52,7 +52,7 @@ namespace Life
             // 문턱이 없어 붙음 단백질을 조금만 늘려도 덩이가 조금 커진다. 한 걸음(φ ×1.17)에 세포 수 ×1.6 이하
             // 덩이는 붙는 힘이 아니라 포장 변형으로 부러진다(02 Body.Fracture): 붙음을 아무리 늘려도 그 세포 수를 못 넘는다
             // 가는 실은 난류에 끊긴다(02 Body.Shear)
-            t.nA = Math.Clamp(Math.Min(Math.Min(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), Body.Fracture(g, t.aspect)), Body.Shear(g, t)), 1, Cfg.CELLS_MAX);
+            t.nA = Math.Clamp(Math.Min(Math.Min(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), Body.Fracture(g, t.aspect, remember)), Body.Shear(g, t, remember)), 1, Cfg.CELLS_MAX);
             t.n0 = Math.Max(1, t.nA * 0.5 * g[G.PROP]);
             t.diff = g[G.DIFF];
             t.lr = 1.7 * g[G.PREY];
