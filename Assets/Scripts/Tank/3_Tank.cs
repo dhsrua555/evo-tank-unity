@@ -88,7 +88,7 @@ namespace Tank
             if (snap == null) return;
             mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y) / Draw.ui;
             inView = !showTree && !showPath && !OverPanel(mouse);
-            long t = Perf.T(); DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh); Perf.Add(0, t); Perf.Frame(avs.Count);
+            long t = Perf.T(); DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh); Perf.Add(0, t); Perf.Frame(avs.Count, snap.day);
         }
 
         void Layout()
@@ -128,13 +128,14 @@ namespace Tank
             if (!On) return; double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             lock (sum) { sum[k] += ms; max[k] = Math.Max(max[k], ms); cnt[k]++; }
         }
-        public static void Frame(int avs)
+        static double day0 = -1;
+        public static void Frame(int avs, double day)   // day: 지구 날짜(시뮬 속도 = 5초 동안 간 날 수)
         {
             if (!On) return; double f = Time.unscaledDeltaTime * 1000; fSum += f; fMax = Math.Max(fMax, f); frames++;
             if (Time.unscaledTime - t0 < 5) return;
-            var sb = new System.Text.StringBuilder($"[EvoTank] 성능 {frames / (Time.unscaledTime - t0):0} fps · 프레임 평균 {fSum / frames:0.0} 최대 {fMax:0} ms · GC {GC.CollectionCount(0) - gc0}회 · 개체 {avs} |");
+            var sb = new System.Text.StringBuilder($"[EvoTank] 성능 {frames / (Time.unscaledTime - t0):0} fps · 시뮬 {(day0 < 0 ? 0 : (day - day0) / (Time.unscaledTime - t0)):0.00}일/초 · 프레임 평균 {fSum / frames:0.0} 최대 {fMax:0} ms · GC {GC.CollectionCount(0) - gc0}회 · 개체 {avs} |");
             lock (sum) for (int k = 0; k < N.Length; k++) { if (cnt[k] > 0) sb.Append($" {N[k]} {sum[k] / frames:0.00}/{max[k]:0.0}ms×{cnt[k]}"); sum[k] = max[k] = 0; cnt[k] = 0; }
-            Debug.Log(sb.ToString()); fSum = fMax = 0; frames = 0; gc0 = GC.CollectionCount(0); t0 = Time.unscaledTime;
+            Debug.Log(sb.ToString()); fSum = fMax = 0; frames = 0; gc0 = GC.CollectionCount(0); t0 = Time.unscaledTime; day0 = day;
         }
     }
 }

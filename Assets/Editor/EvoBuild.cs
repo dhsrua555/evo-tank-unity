@@ -42,15 +42,19 @@ public static class EvoBuild
         return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
     }
 
-    static void Pc(BuildTarget target, string path)
+    static void Pc(BuildTarget target, string path, bool mono = false)
     {
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
         PlayerSettings.defaultScreenWidth = 1600; PlayerSettings.defaultScreenHeight = 900;
         PlayerSettings.resizableWindow = true;
+        // 리눅스는 IL2CPP(C#을 C++로 옮겨 컴파일): 시뮬 계산이 Mono JIT보다 빠르다. 윈도우 IL2CPP는 윈도우에서만 빌드돼 Mono로 둔다(모듈이 없으면 리눅스도 Mono)
+        bool il2cpp = !mono && target == BuildTarget.StandaloneLinux64 && System.IO.Directory.Exists(BuildPipeline.GetPlaybackEngineDirectory(target, BuildOptions.None) + "/Variations/linux64_player_nondevelopment_il2cpp");
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, il2cpp ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
         Build(target, path);
     }
 
     [MenuItem("EvoTank/Build Linux")] public static void Linux() => Pc(BuildTarget.StandaloneLinux64, "Builds/Linux/EvoTank.x86_64");
+    [MenuItem("EvoTank/Build Linux (Mono, 속도 비교용)")] public static void LinuxMono() => Pc(BuildTarget.StandaloneLinux64, "Builds/LinuxMono/EvoTank.x86_64", true);
     [MenuItem("EvoTank/Build Windows")] public static void Win() => Pc(BuildTarget.StandaloneWindows64, "Builds/Windows/EvoTank.exe");
 
     // 휴대폰용 APK: 64비트 ARM(요즘 휴대폰 전부). 안드로이드에서 Mono는 32비트만 돼서 IL2CPP로 만든다. 가로 화면만
