@@ -16,13 +16,18 @@ namespace Tank
     public sealed partial class Tank
     {
         const float FLAG = 1, WOB = 6, STREAM = 7;   // 움직임 종류(EvoAnim.cginc와 같음): 편모, 막 출렁임, 세포질 흐름
-        readonly Dictionary<(Body, int), Mesh> bodyMeshes = new();
+        // 종마다 그물 하나: 대표 계통의 몸이 바뀌면 다시 만들되 같은 종은 1초에 한 번까지(중립 표류·정착으로 몸이 사진마다 바뀌기도 한다).
+        // 예전엔 몸마다 따로 두어 표가 금세 400을 넘어 통째로 비우고 보이는 종을 다 다시 만들었다: 사용자 지구에서 5초에 300번, 프레임 20–40 ms,
+        // 그물 재료 할당 ~200 MB/s → Boehm GC가 시뮬 스레드까지 늦춤(GC를 끄면 시뮬 +50 %). 재료 줄(MB)도 하나를 비워 다시 쓴다
+        sealed class BM { public Body body; public Mesh m; public float built; public int used; }
+        readonly Dictionary<int, BM> bodyMeshes = new(); readonly MB mb = new(); readonly List<int> stale = new();
 
         sealed class MB
         {
             public readonly List<Vector3> v = new(), n = new(), d = new(); public readonly List<Color> c = new(); public readonly List<Vector4> a = new(); public readonly List<int> t = new();
             public void V(Vector3 p, Vector3 nn, Color col, Vector4 anim, Vector3 dir) { v.Add(p); n.Add(nn); c.Add(col); a.Add(anim); d.Add(dir); }
             public void Tri(int i, int j, int k) { t.Add(i); t.Add(j); t.Add(k); }
+            public void Clear() { v.Clear(); n.Clear(); d.Clear(); c.Clear(); a.Clear(); t.Clear(); }
             public Mesh Mesh()
             {
                 var m = new Mesh(); if (v.Count > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
@@ -33,14 +38,18 @@ namespace Tank
 
         Mesh BodyMesh(SpView s)
         {
-            var key = (s.body, s.id);
-            if (bodyMeshes.TryGetValue(key, out var m)) return m;
+            float now = Time.unscaledTime; int f = Time.frameCount;
+            if (bodyMeshes.TryGetValue(s.id, out var e) && (e.body == s.body || now - e.built < 1)) { e.used = f; return e.m; }
             long t0 = Perf.T(); try {
-            if (bodyMeshes.Count > 400) { foreach (var x in bodyMeshes.Values) Destroy(x); bodyMeshes.Clear(); }
+            if (e == null && bodyMeshes.Count > 400)   // 2초 넘게 안 그린 종의 그물을 버린다
+            {
+                stale.Clear(); foreach (var kv in bodyMeshes) if (now - kv.Value.built > 2 && f - kv.Value.used > 60) stale.Add(kv.Key);
+                foreach (int k in stale) { Destroy(bodyMeshes[k].m); bodyMeshes.Remove(k); }
+            }
             var t = s.t; var c = s.body.cells; int n = Mathf.Clamp(Mathf.RoundToInt((float)t.MeanCells), 1, c.Length);
             Vector3 cen = Vector3.zero; for (int i = 0; i < n; i++) cen += new Vector3(c[i].x, c[i].y, c[i].z); cen /= n;
             int detail = n <= 8 ? 2 : n <= 64 ? 1 : 0;
-            var b = new MB(); var r = new System.Random(s.id * 31 + n); Color col = Draw.Of(t, s.id);
+            var b = mb; b.Clear(); var r = new System.Random(s.id * 31 + n); Color col = Draw.Of(t, s.id);
             for (int i = 0; i < n; i++)
             {
                 var o = new Vector3(c[i].x, c[i].y, c[i].z) - cen;
@@ -51,7 +60,9 @@ namespace Tank
                 float asp = n == 1 ? (float)t.aspect : 1 + ((float)t.aspect - 1) * 0.4f;
                 Cell(b, o, c[i].r, asp, q, detail, t, cc, r, n == 1, outDir, !inner && detail > 0);
             }
-            m = b.Mesh(); bodyMeshes[key] = m; return m;
+            var m = b.Mesh();
+            if (e == null) bodyMeshes[s.id] = e = new BM(); else Destroy(e.m);
+            e.body = s.body; e.m = m; e.built = now; e.used = f; return m;
             } finally { Perf.Add(6, t0); }
         }
 
