@@ -100,9 +100,9 @@ namespace Life
         }
 
         // 돌연변이: 유전자 하나를 정규분포 한 걸음만큼(경계에서 반사)
-        public static float[] Mutate(float[] p, ref Evo.Rng r, out int gene)
+        public static float[] Mutate(float[] p, ref Evo.Rng r, out int gene, float[] into = null)   // into: 다시 쓸 배열(진화 후보 자리)
         {
-            var g = (float[])p.Clone();
+            var g = into ?? new float[p.Length]; Array.Copy(p, g, p.Length);
             gene = (int)(r.U() * G.N);
             bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH;
             double v = g[gene] + (shape ? Cfg.STEP_SHAPE : Cfg.STEP) * Step(ref r);

@@ -2,6 +2,7 @@
 // 들고 나는 길은 경계뿐: 열수공·화산·풍화로 들어오고, 매몰·풍화(탄산염)·수소 탈출로 나간다. 장부(Ledger)로 매일 확인한다.
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Life
 {
@@ -60,19 +61,25 @@ namespace Life
         void Transport()
         {
             if (links == null || linksP == null) BuildLinks();
-            for (int p = 0; p < P.N; p++) Mix(pool[p], p >= P.POC0 && p <= P.POC2 || p == P.FE3 ? linksP : links);
-            Mix(alk, links);
-            foreach (var s in Live()) Mix(B, linksP, s.slot * V);
-            // 가라앉기: 사체 입자, 철 산화물, 헤엄치지 않는 무거운 생물
+            // 풀·알칼리도·계통 줄마다 따로(병렬): 섞기·가라앉기는 배열(계통 줄) 하나 안에서만 차례가 있고 서로 다른 칸을 안 건드려 결과가 같다
+            int np = P.N + 1;
+            Parallel.For(0, np + alive.Count, po, j =>
+            {
+                if (j < P.N) Mix(pool[j], j >= P.POC0 && j <= P.POC2 || j == P.FE3 ? linksP : links);
+                else if (j == P.N) Mix(alk, links);
+                else
+                {
+                    var s = alive[j - np]; Mix(B, linksP, s.slot * V);
+                    // 가라앉기: 헤엄치지 않는 무거운 생물
+                    // Stokes: 무게(세포 부피 합) ÷ 끌림(몸의 끌림 반지름) → 세포 하나 값 ÷ (길쭉함 × 나눠 쓰는 몫). 곧은 실 65세포는 홀로 있는 세포의 약 5배, 같은 수의 덩어리는 약 14배
+                    // (예전엔 몸 길이를 공 지름으로 써서 실이 수천 배 빨리 가라앉았다)
+                    double r = s.t.dCell / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * r * r / 1.0e-3 * 86400 / (s.t.elong * s.b.share) * (1 - s.t.Sat(G.MOT, 0.01));   // m/일
+                    if (w > 0.01) Sink(B, s.slot * V, w);
+                }
+            });
+            // 가라앉기: 사체 입자, 철 산화물
             Sink(pool[P.POC0], 0, Cfg.POC_SINK[0]); Sink(pool[P.POC1], 0, Cfg.POC_SINK[1]); Sink(pool[P.POC2], 0, Cfg.POC_SINK[2]);
             Sink(pool[P.FE3], 0, Cfg.FE3_SINK);
-            foreach (var s in Live())
-            {
-                // Stokes: 무게(세포 부피 합) ÷ 끌림(몸의 끌림 반지름) → 세포 하나 값 ÷ (길쭉함 × 나눠 쓰는 몫). 곧은 실 65세포는 홀로 있는 세포의 약 5배, 같은 수의 덩어리는 약 14배
-                // (예전엔 몸 길이를 공 지름으로 써서 실이 수천 배 빨리 가라앉았다)
-                double r = s.t.dCell / 2 * 1e-6, w = 2.0 / 9 * 50 * 9.81 * r * r / 1.0e-3 * 86400 / (s.t.elong * s.b.share) * (1 - s.t.Sat(G.MOT, 0.01));   // m/일
-                if (w > 0.01) Sink(B, s.slot * V, w);
-            }
         }
 
         void Sink(double[] c, int off, double w)
@@ -300,15 +307,15 @@ namespace Life
         // 알칼리도 + 2 × 쌓인 CaCO3는 그대로(풍화·매몰 없음). ponytail: Ksp 수온·수압 의존, 풍화 알칼리도, 탄산염 매몰은 뺌
         void Carbonate()
         {
-            for (int r = 0; r < NR; r++)
+            Parallel.For(0, NR, po, r =>   // 해역마다 따로(표층 칸·바닥 칸·쌓인 CaCO3가 해역마다 달라 결과가 같다)
             {
-                int s = r * Cfg.NY; if (!live[s]) continue;
+                int s = r * Cfg.NY; if (!live[s]) return;
                 double x = ToOmega(pool[P.CO2][s], alk[s], temp[s], Cfg.OMEGA_P);
                 if (x > 0) { x *= Cfg.DT / Cfg.TAU_PREC; pool[P.CO2][s] -= x; alk[s] -= 2 * x; caco3[r] += x * vol[s] * 1e-6; }
-                int f = Bottom(r); double have = caco3[r] + Cfg.CACO3_0 * area[r]; if (f < 0 || have <= 0) continue;
+                int f = Bottom(r); double have = caco3[r] + Cfg.CACO3_0 * area[r]; if (f < 0 || have <= 0) return;
                 double y = -ToOmega(pool[P.CO2][f], alk[f], temp[f], 1);
                 if (y > 0) { y = Math.Min(y * Cfg.DT / Cfg.TAU_DISS, have / (vol[f] * 1e-6)); pool[P.CO2][f] += y; alk[f] += 2 * y; caco3[r] -= y * vol[f] * 1e-6; }
-            }
+            });
         }
         // 풀 CO2를 CO2(aq)에서 DIC로: 새 지구(03 Init)와 이 필드 전 저장(11 Read). 더해진 탄소는 처음 장부에도 더한다(장부 어긋남이 튀지 않게)
         public void ToDic()

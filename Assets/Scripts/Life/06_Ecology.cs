@@ -41,36 +41,38 @@ namespace Life
         const int KW = Cfg.SMAX + 3;
         static readonly double[] PocLsz = { Math.Log10(Cfg.POC_SIZE[0]), Math.Log10(Cfg.POC_SIZE[1]), Math.Log10(Cfg.POC_SIZE[2]) };
         [NonSerialized] int[] nV;   // 칸마다 지난 틱 계통 수(병렬 순서용)
-        [NonSerialized] Strain[] kOwn; [NonSerialized] int[] kSp; [NonSerialized] bool[] kNew; [NonSerialized] double[] kK;
+        [NonSerialized] Strain[] kOwn; [NonSerialized] int[] kSp; [NonSerialized] bool[] kNew; [NonSerialized] double[] kK; [NonSerialized] int[] kNewL; [NonSerialized] int nNew;
         void PredCache()
         {
-            if (kK == null) { kK = new double[Cfg.SMAX * KW]; kOwn = new Strain[Cfg.SMAX]; kSp = new int[Cfg.SMAX]; kNew = new bool[Cfg.SMAX]; }
-            bool any = false;
+            if (kK == null) { kK = new double[Cfg.SMAX * KW]; kOwn = new Strain[Cfg.SMAX]; kSp = new int[Cfg.SMAX]; kNew = new bool[Cfg.SMAX]; kNewL = new int[Cfg.SMAX]; }
+            nNew = 0;
             for (int s = 0; s < Cfg.SMAX; s++)
             {
                 var st = strains[s]; kNew[s] = kOwn[s] != st || st != null && kSp[s] != st.species;
-                if (kNew[s]) { kOwn[s] = st; kSp[s] = st?.species ?? 0; any = true; }
+                if (kNew[s]) { kOwn[s] = st; kSp[s] = st?.species ?? 0; kNewL[nNew++] = s; }
             }
-            if (any) Parallel.For(0, Cfg.SMAX, po, PredRow);
+            if (nNew > 0) Parallel.For(0, Cfg.SMAX, po, PredRow);
         }
+        // 먹는 쪽이 바뀐 행은 전부, 그대로인 행은 바뀐 먹이 열만(사체 열은 그대로) 다시 센다
         void PredRow(int j)
         {
-            var sj = strains[j]; if (sj == null) return; int r = j * KW;
-            for (int i = 0; i < KW; i++)
+            var sj = strains[j]; if (sj == null) return;
+            if (kNew[j]) for (int i = 0; i < KW; i++) PredCell(sj, j, i);
+            else for (int q = 0; q < nNew; q++) PredCell(sj, j, kNewL[q]);
+        }
+        void PredCell(Strain sj, int j, int i)
+        {
+            int r = j * KW; double sz, lsz, vul, mi = 0;
+            if (i < Cfg.SMAX)
             {
-                if (!kNew[j] && (i >= Cfg.SMAX || !kNew[i])) continue;   // 먹는 쪽도 먹이도 그대로면 그대로
-                double sz, lsz, vul, mi = 0;
-                if (i < Cfg.SMAX)
-                {
-                    var si = strains[i];
-                    if (si == null || i == j || si.species == sj.species && si.species >= 0) { kK[r + i] = 0; continue; }   // 자기·같은 종(친척)은 먹지 않는다
-                    sz = si.b.esd; lsz = si.lsz; vul = si.vul; mi = si.mot;
-                }
-                else { sz = Cfg.POC_SIZE[i - Cfg.SMAX]; lsz = PocLsz[i - Cfg.SMAX]; vul = 1; }
-                double k = 0;
-                if (sz <= Cfg.PREY_MAX * sj.b.feed) { double x = (lsz - sj.lfeed + sj.t.lr) / Cfg.PREY_SD; if (x * x <= 9) k = sj.att * Math.Exp(-0.5 * x * x) * vul * Enc(sj.mot, mi); }   // 사체는 안 움직이는 먹이
-                kK[r + i] = k;
+                var si = strains[i];
+                if (si == null || i == j || si.species == sj.species && si.species >= 0) { kK[r + i] = 0; return; }   // 자기·같은 종(친척)은 먹지 않는다
+                sz = si.b.esd; lsz = si.lsz; vul = si.vul; mi = si.mot;
             }
+            else { sz = Cfg.POC_SIZE[i - Cfg.SMAX]; lsz = PocLsz[i - Cfg.SMAX]; vul = 1; }
+            double k = 0;
+            if (sz <= Cfg.PREY_MAX * sj.b.feed) { double x = (lsz - sj.lfeed + sj.t.lr) / Cfg.PREY_SD; if (x * x <= 9) k = sj.att * Math.Exp(-0.5 * x * x) * vul * Enc(sj.mot, mi); }   // 사체는 안 움직이는 먹이
+            kK[r + i] = k;
         }
 
         void AllocBio()

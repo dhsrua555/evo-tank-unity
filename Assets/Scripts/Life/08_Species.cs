@@ -2,6 +2,7 @@
 // 큰 갈래: 갈래를 연 종에서 D_CLADE 넘게 멀어진 종이 새 갈래를 연다. 하는 일(먹이 역할)은 오늘 탄소를 어디서 얻었는지로 매일 판정.
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Life
 {
@@ -74,6 +75,7 @@ namespace Life
         }
 
         // 가까운 살아 있는 종에 들어가거나 새 종을 연다(부모 = 원래 종). 사슬처럼 이어 붙이지 않으므로 종이 한 덩어리로 뭉치지 않는다.
+        [NonSerialized] double[] sInc;
         void Speciate()
         {
             var order = new List<Strain>(alive); order.Sort((a, b) => b.total.CompareTo(a.total));
@@ -89,12 +91,19 @@ namespace Life
                 s.species = (best ?? NewSpecies(sp.id, (float[])s.g.Clone())).id;
             }
             foreach (var sp in LiveSp) sp.biomass = 0;
+            // 계통마다 칸 합(병렬): 수입 0–4, 에너지 8–10. 종에 더하는 차례는 아래 그대로라 결과가 같다
+            if (sInc == null) sInc = new double[Cfg.SMAX * 8];
+            Parallel.For(0, alive.Count, po, i =>
+            {
+                int o = alive[i].slot;
+                for (int q = 0; q < 8; q++) { int qq = q < 5 ? q : q + 3; double x = 0; for (int v = 0; v < V; v++) x += inc[(qq * Cfg.SMAX + o) * V + v]; sInc[o * 8 + q] = x; }
+            });
             foreach (var s in order)
             {
                 var sp = species[s.species]; sp.biomass += s.total; sp.strains++;
                 if (sp.rep < 0) { sp.rep = s.slot; sp.g = s.g; }     // 가장 많은 계통이 대표
-                for (int q = 0; q < 5; q++) { double x = 0; for (int v = 0; v < V; v++) x += inc[(q * Cfg.SMAX + s.slot) * V + v]; sp.income[q] += x; }
-                for (int q = 0; q < 3; q++) { double x = 0; for (int v = 0; v < V; v++) x += inc[((8 + q) * Cfg.SMAX + s.slot) * V + v]; sp.energy[q] += x; }
+                for (int q = 0; q < 5; q++) sp.income[q] += sInc[s.slot * 8 + q];
+                for (int q = 0; q < 3; q++) sp.energy[q] += sInc[s.slot * 8 + 5 + q];
             }
             foreach (var sp in LiveSp) sp.peak = Math.Max(sp.peak, sp.biomass);
             nAliveSp = 0;

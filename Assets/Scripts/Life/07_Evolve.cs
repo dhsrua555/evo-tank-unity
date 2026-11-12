@@ -3,6 +3,7 @@
 // 목표·적합도 점수는 없다: 그 칸에서 더 빨리 불어나는(덜 죽는) 변이가 남을 뿐이다.
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Life
@@ -132,7 +133,8 @@ namespace Life
                 while (lo < hi) { int mid = (lo + hi) / 2; if (supW[mid] < x) lo = mid + 1; else hi = mid; }
                 int si = supI[lo], v = si % V; var par = strains[si / V]; if (par == null) continue;
                 ref var c = ref cand[nc++];
-                c.si = si; c.pg = par.g; c.g = Genome.Mutate(par.g, ref rng, out c.gene);
+                if (gPool == null || gPool.Length != cand.Length) { gPool = new float[cand.Length][]; tPool = new Traits[cand.Length]; bPool = new Body[cand.Length]; }
+                c.si = si; c.pg = par.g; c.g = Genome.Mutate(par.g, ref rng, out c.gene, gPool[nc - 1] ??= new float[par.g.Length]);
                 c.u = nbr[v].Length > 0 ? nbr[v][(int)(rng.U() * nbr[v].Length)] : -1;
             }
             // 2) 부모와 변이체를 같은 식으로 잰다(병렬). 모두 이 틱 시작의 상태로 잰다: 앞 후보가 정착해도 뒤 후보가 보는 이웃은 그대로(한 틱 = 8시간 안의 근사)
@@ -149,10 +151,15 @@ namespace Life
                 pI[key] = Intake(par.t, par.b, v, slot); pE[key] = Eaten(par.t, par.b, v, slot); pR[key] = FitWith(par.t, par.b, v, l, pI[key], pE[key]);
             });
             ELap(1, ref e0);
-            if (tPool == null || tPool.Length != cand.Length) { tPool = new Traits[cand.Length]; bPool = new Body[cand.Length]; }
-            Parallel.For(0, nc, po, k =>
+            // 무거운 후보부터(몸 꼴 유전자 → 몸표·배치를 새로 잰다, 세포 수만큼 든다): 끝에 큰 몸 몇 개만 남아 다른 스레드가 노는 꼬리를 줄인다. 후보끼리 독립이라 차례는 결과와 상관없다
+            if (cOrd == null || cOrd.Length != cand.Length) { cOrd = new int[cand.Length]; cKey = new double[cand.Length]; }
+            for (int k = 0; k < nc; k++) { int gn = cand[k].gene; cOrd[k] = k; cKey[k] = -(gn == G.BRANCH || gn == G.ANGLE || gn == G.ASPECT ? 4 : gn == G.SIZE ? 1 : 0) * strains[cand[k].si / V].t.MeanCells; }
+            Array.Sort(cKey, cOrd, 0, nc);
+            // 한 개씩 집어 간다: Parallel.For는 이어진 구간을 스레드에 나눠 줘서 무거운 것이 앞에 몰리면 한 스레드가 다 떠안았다(16 스레드 후보 9 → 13.6 ms)
+            int next = -1, nw = po.MaxDegreeOfParallelism > 0 ? po.MaxDegreeOfParallelism : Environment.ProcessorCount;
+            Parallel.For(0, nw, po, _ => { for (int i; (i = Interlocked.Increment(ref next)) < nc;)
             {
-                ref var c = ref cand[k]; int slot = c.si / V, v = c.si % V; var par = strains[slot]; int gene = c.gene;
+                int k = cOrd[i]; ref var c = ref cand[k]; int slot = c.si / V, v = c.si % V; var par = strains[slot]; int gene = c.gene;
                 c.t = Traits.Of(c.g, gene != G.BRANCH && gene != G.ANGLE && gene != G.ASPECT, tPool[k] ??= new Traits());
                 bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH || gene == G.DIFF || gene < G.NA;
                 c.body = shape ? Body.Of(c.g, c.t, gene != G.BRANCH && gene != G.ANGLE && gene != G.SIZE && gene != G.ASPECT, bPool[k] ??= new Body()) : par.b;
@@ -160,7 +167,7 @@ namespace Life
                 double l = limA[c.si] > 0 ? limA[c.si] : 1;
                 c.rp = pR[c.si]; c.rm = FitWith(c.t, c.body, v, l, sameI ? pI[c.si] : Intake(c.t, c.body, v, slot), sameE ? pE[c.si] : Eaten(c.t, c.body, v, slot));
                 if (c.u >= 0) { int su = slot * V + c.u; double lu = limA[su] > 0 ? limA[su] : 1; c.rpu = pR[su]; c.rmu = FitWith(c.t, c.body, c.u, lu, sameI ? pI[su] : Intake(c.t, c.body, c.u, slot), sameE ? pE[su] : Eaten(c.t, c.body, c.u, slot)); }
-            });
+            } });
             presOn = false; ELap(2, ref e0);
             // 3) 정착: 차례대로(난수·계통 칸을 쓴다)
             // 후보 하나가 대표하는 변이체 수를 10 × 돌연변이율로 묶는다 — 중립 변이가 칸을 다 채우지 않게. 공급이 적을 땐 그대로.
@@ -204,10 +211,10 @@ namespace Life
             ELap(3, ref e0);
         }
 
-        // 후보 자리마다 다시 쓰는 형질·몸: 앱(IL2CPP)의 Boehm GC는 할당마다 전역 잠금이라 16 스레드가 후보마다 형질·몸을 새로 잡으면 서로 기다렸다(잠금 대기 nanosleep).
+        // 후보 자리마다 다시 쓰는 유전체·형질·몸: 앱(IL2CPP)의 Boehm GC는 할당마다 전역 잠금이라 16 스레드가 후보마다 형질·몸을 새로 잡으면 서로 기다렸다(잠금 대기 nanosleep).
         // 계통이 가져가면(정착·표류) 그 자리는 다음 틱에 새로 만든다
-        [NonSerialized] Traits[] tPool; [NonSerialized] Body[] bPool;
-        void Own(int k) { if (ReferenceEquals(cand[k].t, tPool[k])) tPool[k] = null; if (ReferenceEquals(cand[k].body, bPool[k])) bPool[k] = null; }
+        [NonSerialized] Traits[] tPool; [NonSerialized] Body[] bPool; [NonSerialized] float[][] gPool; [NonSerialized] int[] cOrd; [NonSerialized] double[] cKey;
+        void Own(int k) { if (ReferenceEquals(cand[k].t, tPool[k])) tPool[k] = null; if (ReferenceEquals(cand[k].body, bPool[k])) bPool[k] = null; if (ReferenceEquals(cand[k].g, gPool[k])) gPool[k] = null; }
 
         // 후보 하나: 고른 (부모 계통, 칸), 돌연변이 유전체(pg = 그때 부모 유전체), 흘러갈 이웃 칸(없으면 −1), 부모·변이체의 순증가율(그 칸, 이웃 칸)
         struct Cand { public int si, u, gene; public float[] g, pg; public Traits t; public Body body; public double rp, rm, rpu, rmu; }
@@ -220,14 +227,19 @@ namespace Life
         void BuildPresent()
         {
             if (pres == null || pres.Length != V) { pres = new Pre[V][]; nPres = new int[V]; for (int v = 0; v < V; v++) pres[v] = new Pre[Cfg.SMAX]; }
-            Array.Clear(nPres, 0, V);
-            foreach (var s in alive)
+            // 칸 여덟 개씩 따로(병렬, 계통 줄의 캐시 줄 하나 = 칸 8개): 칸마다 줄은 alive 차례 그대로라 결과가 같다. 한 스레드로 훑을 땐 앱 틱의 ~9 %였다
+            Parallel.For(0, (V + 7) / 8, po, j =>
             {
-                int o = s.slot * V;
-                for (int v = 0; v < V; v++)
-                    if (B[o + v] > Cfg.BMIN)
-                        pres[v][nPres[v]++] = new Pre { slot = s.slot, sp = s.species, esd = s.b.esd, feed = s.b.feed, lsz = s.lsz, lfeed = s.lfeed, lr = s.t.lr, vul = s.vul, att = s.att, mot = s.mot, bm = B[o + v], eat = eatScale[o + v] };
-            }
+                int v0 = j * 8, v1 = Math.Min(V, v0 + 8);
+                for (int v = v0; v < v1; v++) nPres[v] = 0;
+                for (int i = 0; i < alive.Count; i++)
+                {
+                    var s = alive[i]; int o = s.slot * V;
+                    for (int v = v0; v < v1; v++)
+                        if (B[o + v] > Cfg.BMIN)
+                            pres[v][nPres[v]++] = new Pre { slot = s.slot, sp = s.species, esd = s.b.esd, feed = s.b.feed, lsz = s.lsz, lfeed = s.lfeed, lr = s.t.lr, vul = s.vul, att = s.att, mot = s.mot, bm = B[o + v], eat = eatScale[o + v] };
+                }
+            });
         }
         [NonSerialized] double[] pR, pI, pE; [NonSerialized] int[] pStamp, pKeys; [NonSerialized] int stamp;   // 이 틱 부모 값: 순증가율·섭취·먹힘, 잰 틱 표시
 
