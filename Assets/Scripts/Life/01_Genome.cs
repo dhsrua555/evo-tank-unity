@@ -103,11 +103,15 @@ namespace Life
             var g = (float[])p.Clone();
             gene = (int)(r.U() * G.N);
             bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH;
-            double v = g[gene] + (shape ? Cfg.STEP_SHAPE : Cfg.STEP) * r.Gauss();
+            double v = g[gene] + (shape ? Cfg.STEP_SHAPE : Cfg.STEP) * Step(ref r);
             if (v < 0) v = -v; if (v > 1) v = 2 - v;
             g[gene] = (float)Math.Clamp(v, 0, 1);
             return g;
         }
+
+        // 걸음 모양: 라플라스(크기 |d| 지수분포, 평균 제곱 1 = 정규 걸음과 같은 돌연변이 분산). 첨도 6(정규 3) — 대부분 작고 드물게 큼.
+        // 자료: 초파리 자연 돌연변이 효과 첨도 날개 길이 4.9 · 복부 강모 9.3 · 생존력 6.7 · 적합도 6.7 (García-Dorado 1999 표 2, 정규 = 3)
+        public static double Step(ref Evo.Rng r) { double a = -Math.Log(1 - r.U()) * 0.70710678118654752; return r.U() < 0.5 ? -a : a; }
 
         public static double Dist(float[] a, float[] b)
         {

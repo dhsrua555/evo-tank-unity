@@ -12,6 +12,7 @@ static class Program
     static int Main(string[] a)
     {
         if (Environment.GetEnvironmentVariable("FRAC") != null) return Frac();   // 덩이 파쇄 세포 수 표(02 Body.Fracture)와 기준 확인
+        if (Environment.GetEnvironmentVariable("MUTCHK") != null) return MutChk();   // 돌연변이 걸음 분포 확인(평균 제곱 1, 첨도 6)
         int days = a.Length > 0 ? int.Parse(a[0]) : 100, seed = a.Length > 1 ? int.Parse(a[1]) : 1, every = a.Length > 2 ? int.Parse(a[2]) : 10;
         var pl = Environment.GetEnvironmentVariable("LOAD") is string ld ? Save.Read(ld, out _) : new Planet(seed);   // LOAD=파일: 저장한 지구에서 이어서(속도 재기 등)
         if (a.Length > 3) pl.knobs.mu = double.Parse(a[3]);
@@ -667,6 +668,14 @@ static class Program
         Console.WriteLine($"후보 하나(μs, 한 스레드): 형질 {tT / n * 1e3:0.0} · 몸 {tB / n * 1e3:0.0}(배치 세포 평균 {cells / n:0}, 덩이 {multi * 100 / n}%) · 섭취 {tI / n * 1e3:0.0} · 먹힘 {tE / n * 1e3:0.0} · Fit 전체 {tF / n * 1e3:0.0} | 산 계통 {pl.alive.Count}");
     }
 
+    static int MutChk()
+    {
+        var r = new Evo.Rng(7); int n = 2_000_000; double s2 = 0, s4 = 0, big = 0, small = 0;
+        for (int i = 0; i < n; i++) { double d = Life.Genome.Step(ref r); s2 += d * d; s4 += d * d * d * d; if (Math.Abs(d) > 3) big++; if (Math.Abs(d) < 0.25) small++; }
+        double m2 = s2 / n, ku = s4 / n / (m2 * m2), kuT = 6;
+        Console.WriteLine($"라플라스 걸음: 평균 제곱 {m2:0.000}(1), 첨도 {ku:0.00}(이론 {kuT:0.00}, 정규 3), |d| > 3 {big / n:P2}(정규 0.27 %), |d| < 0.25 {small / n:P1}(정규 19.7 %)");
+        bool ok = Math.Abs(m2 - 1) < 0.01 && Math.Abs(ku / kuT - 1) < 0.05; Say("돌연변이 걸음", ok, ""); return ok ? 0 : 1;
+    }
     static void Say(string what, bool ok, string detail) => Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what} — {detail}");
     // 몸 속 산소(05 OxicFrac) 확인: 지름 10 μm 세포로 된 공을 키우며 산소가 가운데까지 닿는 가장 큰 몸을 찾고, 풀이가 식을 만족하는지 본다.
     // 동물 조직(몸 탄소당 하루 0.01 호흡)이면 10 % PAL(25 μM)에서 지름 1 mm 안팎이어야 한다(Payne 2010: 원통 두께 1 mm)
