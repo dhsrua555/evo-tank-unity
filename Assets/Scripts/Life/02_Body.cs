@@ -131,17 +131,16 @@ namespace Life
             return U;
         }
 
-        // 방금 Overlap이 놓은 n개를 풀고 rg[m] = 앞 m개의 회전 반지름(반지름 1 단위)
-        static double[] Rg(int n)
+        // 방금 Overlap이 놓은 n개를 풀고 rg[m] = 앞 m개의 회전 반지름(반지름 1 단위)을 rg(n+1칸)에 채운다
+        static void Rg(int n, double[] rg)
         {
-            var c = scr.c; var rg = new double[n + 1]; double sx = 0, sy = 0, sz = 0, s2 = 0;
+            var c = scr.c; double sx = 0, sy = 0, sz = 0, s2 = 0;
             Relax(c, 1, n);   // 몸 길이는 겹침을 푼 배치(그리는 몸과 같은 것)에서 잰다: 풀기 전 꼬불꼬불한 실은 풀면 곧게 펴진다
             for (int i = 0; i < n; i++)
             {
                 sx += c[i].x; sy += c[i].y; sz += c[i].z; s2 += c[i].x * c[i].x + c[i].y * c[i].y + c[i].z * c[i].z; int m = i + 1;
                 rg[m] = Math.Sqrt(Math.Max(0, s2 / m - (sx * sx + sy * sy + sz * sz) / ((double)m * m)));
             }
-            return rg;
         }
 
         // 앞 M세포의 겹침 U에서 파쇄 상한
@@ -153,10 +152,16 @@ namespace Life
         }
 
         // 방금 놓은 R세포 배치에서 회전 반지름과 난류 짐 q(m)(아래 Shear)
-        static (double cap, double[] q, double ex, double[] rg) Tables(double cap, double aspect, int R)
+        // 진화 후보 것(keep = false)은 이 스레드의 크기별 표 둘을 다시 쓴다: 그 후보를 재는 동안만 읽히고(lastV), 계통이 되면 형질·몸을 받아 가므로 표는 안 남는다.
+        // 후보마다 4097칸 표 둘(64 KB)을 새로 잡으면 틱마다 ~5 MB라 앱(Boehm GC)이 자주 멈췄다. 표의 0·1칸은 안 쓰고(0 그대로) 나머지는 매번 다 덮어 결과는 같다
+        [ThreadStatic] static double[][] spare;
+        static (double cap, double[] q, double ex, double[] rg) Tables(double cap, double aspect, int R, bool keep)
         {
-            var rg = Rg(R);
-            double lu = 2 * Math.Cbrt(aspect) * 0.95; var q = new double[R + 1];
+            double[] q, rg;
+            if (keep) { q = new double[R + 1]; rg = new double[R + 1]; }
+            else { int k = R == NDRAW ? 0 : R == 4 * NDRAW ? 2 : 4; var sp = spare ??= new double[6][]; q = sp[k] ??= new double[R + 1]; rg = sp[k + 1] ??= new double[R + 1]; }
+            Rg(R, rg);
+            double lu = 2 * Math.Cbrt(aspect) * 0.95;
             for (int m = 2; m <= R; m++) q[m] = Math.Max(q[m - 1], Math.Pow(12, 1.5) * rg[m] * rg[m] * rg[m] / (m * lu));   // 누적 최댓값: 처음 넘는 자리를 이분 탐색으로
             double D = Math.Clamp(Math.Log(4) / Math.Log(Math.Max(1.0001, rg[R] / rg[R / 4])), 1, 3);
             return (cap, q, 3 / D - 1, rg);
@@ -173,12 +178,12 @@ namespace Life
             if (frac.TryGetValue(key, out var a)) return a;
             if (lastV.q != null && lastK == key) return lastV;
             float b = g[G.BRANCH], an = g[G.ANGLE]; var U = Overlap(b, an, aspect, 0, NDRAW, NDRAW); double cap = Cap(U, NDRAW);
-            if (cap <= NDRAW) a = Tables(cap, aspect, NDRAW);
+            if (cap <= NDRAW) a = Tables(cap, aspect, NDRAW, remember);
             else
             {
                 Overlap(b, an, aspect, NDRAW, 4 * NDRAW, 4 * NDRAW); cap = Cap(U, 4 * NDRAW);   // 앞 256세포는 그대로 두고 이어 놓는다
-                if (cap <= 4 * NDRAW) a = Tables(cap, aspect, 4 * NDRAW);
-                else { Overlap(b, an, aspect, 4 * NDRAW, Cfg.CELLS_MAX, 0); a = Tables(cap, aspect, Cfg.CELLS_MAX); }
+                if (cap <= 4 * NDRAW) a = Tables(cap, aspect, 4 * NDRAW, remember);
+                else { Overlap(b, an, aspect, 4 * NDRAW, Cfg.CELLS_MAX, 0); a = Tables(cap, aspect, Cfg.CELLS_MAX, remember); }
             }
             if (remember) { if (frac.Count > 4096) frac.Clear(); frac[key] = a; }   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
             lastK = key; lastV = a; return a;
