@@ -27,9 +27,9 @@ namespace Life
         // ponytail: 8192개를 넘으면 통째로 비운다(배치 하나 ≈ 세포 수 × 40 B, 65세포면 2.6 KB)
         static readonly ConcurrentDictionary<(float, float, float, float, int), (CellPos[] cells, double[] inv)> memo = new();
 
-        public static Body Of(float[] g, Traits t, bool remember = true)
+        public static Body Of(float[] g, Traits t, bool remember = true, Body into = null)   // into: 다시 쓸 객체(모든 칸을 덮어씀)
         {
-            var b = new Body();
+            var b = into ?? new Body();
             int n = (int)Math.Clamp(Math.Ceiling(t.MeanCells), 1, NDRAW);   // 평균 덩이를 사이에 끼울 만큼(크기를 세포 수 사이에서 이어 붙이려고)
             int nd = (int)Math.Clamp(Math.Round(t.nA), 1, NDRAW), nl = Math.Max(n, nd);
             var key = (g[G.BRANCH], g[G.ANGLE], g[G.SIZE], g[G.ASPECT], nl);

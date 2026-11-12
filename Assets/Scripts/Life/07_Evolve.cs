@@ -99,8 +99,12 @@ namespace Life
             return (1 - Math.Exp(-2 * s)) / (1 - Math.Exp(-2 * s * Cfg.NFOUND));
         }
 
+        // 진화 단계 안 누적 시간(초): 고르기, 부모 재기, 후보 재기, 정착 (-perf 줄·시험기 PROF 줄). 저장 안 함 — 불러온 뒤 처음 쓸 때 만든다
+        [NonSerialized] public double[] tEvo;
+        void ELap(int k, ref long t0) { long t = System.Diagnostics.Stopwatch.GetTimestamp(); tEvo[k] += (t - t0) / (double)System.Diagnostics.Stopwatch.Frequency; t0 = t; }
         void Evolve()
         {
+            tEvo ??= new double[4]; long e0 = System.Diagnostics.Stopwatch.GetTimestamp();
             // 공급 가중치: (계통, 칸)마다 분열 속도 × min(개체 수, NCAP) × 틱 × 돌연변이율
             int m = 0, cap = alive.Count * V;
             if (supW.Length < cap) { supW = new double[cap]; supI = new int[cap]; }
@@ -134,6 +138,7 @@ namespace Life
             // 2) 부모와 변이체를 같은 식으로 잰다(병렬). 모두 이 틱 시작의 상태로 잰다: 앞 후보가 정착해도 뒤 후보가 보는 이웃은 그대로(한 틱 = 8시간 안의 근사)
             // 부모 값은 (계통, 칸)마다 한 번만 잰다: 후보 여럿이 같은 부모를 고른다(돌연변이율 10이면 후보 1600개에 부모 칸은 수백 개).
             // 섭취·먹힘(산 계통 전체를 훑는 값)은 변이체의 먹고 먹히는 값이 부모와 똑같으면 부모 것을 쓴다 — 결과는 다시 센 것과 비트까지 같다
+            ELap(0, ref e0);
             int SV = Cfg.SMAX * V; if (pR == null || pR.Length != SV) { pR = new double[SV]; pI = new double[SV]; pE = new double[SV]; pStamp = new int[SV]; pKeys = new int[cand.Length * 2]; }
             stamp++; int nk = 0; BuildPresent(); presOn = true;
             void Need(int key) { if (pStamp[key] != stamp) { pStamp[key] = stamp; pKeys[nk++] = key; } }
@@ -143,18 +148,20 @@ namespace Life
                 int key = pKeys[k], slot = key / V, v = key % V; var par = strains[slot]; double l = limA[key] > 0 ? limA[key] : 1;
                 pI[key] = Intake(par.t, par.b, v, slot); pE[key] = Eaten(par.t, par.b, v, slot); pR[key] = FitWith(par.t, par.b, v, l, pI[key], pE[key]);
             });
+            ELap(1, ref e0);
+            if (tPool == null || tPool.Length != cand.Length) { tPool = new Traits[cand.Length]; bPool = new Body[cand.Length]; }
             Parallel.For(0, nc, po, k =>
             {
                 ref var c = ref cand[k]; int slot = c.si / V, v = c.si % V; var par = strains[slot]; int gene = c.gene;
-                c.t = Traits.Of(c.g, gene != G.BRANCH && gene != G.ANGLE && gene != G.ASPECT);
+                c.t = Traits.Of(c.g, gene != G.BRANCH && gene != G.ANGLE && gene != G.ASPECT, tPool[k] ??= new Traits());
                 bool shape = gene == G.SIZE || gene == G.ASPECT || gene == G.BRANCH || gene == G.ANGLE || gene == G.PROP || gene == G.ADH || gene == G.DIFF || gene < G.NA;
-                c.body = shape ? Body.Of(c.g, c.t, gene != G.BRANCH && gene != G.ANGLE && gene != G.SIZE && gene != G.ASPECT) : par.b;
+                c.body = shape ? Body.Of(c.g, c.t, gene != G.BRANCH && gene != G.ANGLE && gene != G.SIZE && gene != G.ASPECT, bPool[k] ??= new Body()) : par.b;
                 bool sameI = Attack(c.t, c.body) == par.att && c.body.feed == par.b.feed && c.t.lr == par.t.lr && Mot(c.t) == par.mot, sameE = Vul(c.t) == par.vul && c.body.esd == par.b.esd && Mot(c.t) == par.mot;
                 double l = limA[c.si] > 0 ? limA[c.si] : 1;
                 c.rp = pR[c.si]; c.rm = FitWith(c.t, c.body, v, l, sameI ? pI[c.si] : Intake(c.t, c.body, v, slot), sameE ? pE[c.si] : Eaten(c.t, c.body, v, slot));
                 if (c.u >= 0) { int su = slot * V + c.u; double lu = limA[su] > 0 ? limA[su] : 1; c.rpu = pR[su]; c.rmu = FitWith(c.t, c.body, c.u, lu, sameI ? pI[su] : Intake(c.t, c.body, c.u, slot), sameE ? pE[su] : Eaten(c.t, c.body, c.u, slot)); }
             });
-            presOn = false;
+            presOn = false; ELap(2, ref e0);
             // 3) 정착: 차례대로(난수·계통 칸을 쓴다)
             // 후보 하나가 대표하는 변이체 수를 10 × 돌연변이율로 묶는다 — 중립 변이가 칸을 다 채우지 않게. 공급이 적을 땐 그대로.
             // ponytail: 큰 개체군에서는 이 상한이 정착 수를 정하므로 돌연변이율에 비례하게 둔다(그래야 손잡이가 듣는다). 실제로는 클론 간섭으로 비례보다 덜 는다
@@ -180,7 +187,7 @@ namespace Life
                 if (sc < 1 / Cfg.NFOUND)
                 {
                     if (drift && dest == v && rm > 0 && ReferenceEquals(par.g, c.pg) && rng.U() < Pfix(sc) * per)
-                    { driftN++; if (!ReferenceEquals(body, par.b)) driftShape++; SetGenome(par, g, t, body); }
+                    { driftN++; if (!ReferenceEquals(body, par.b)) driftShape++; SetGenome(par, g, t, body); Own(k); }
                     continue;
                 }
                 bool up = g[G.ADH] > par.g[G.ADH];
@@ -188,13 +195,19 @@ namespace Life
                 if (rng.U() >= Pk) continue;
                 if (gene == G.ADH) adhDbg[up ? 2 : 4]++;
                 evoDbg[0]++; if ((dest == v ? rm : c.rmu) <= 0) evoDbg[1]++;
-                var ch = NewStrain(g, slot, gene, t, body); if (ch == null) continue;
+                var ch = NewStrain(g, slot, gene, t, body); if (ch == null) continue; Own(k);
                 double f = B[si] * Cfg.FOUND; B[si] -= f; B[ch.slot * V + dest] += f * vol[v] / vol[dest];   // 농도(μM)를 옮기므로 부피 비로(몰 보존)
                 ch.jump = ShapeDist(par, t, body); ch.sel = sc; ch.prev = f * vol[v] * 1e-6;
                 if (jumps.Count >= 4096) jumps.RemoveAt(0); jumps.Add(ch.jump);
                 keptToday++;
             }
+            ELap(3, ref e0);
         }
+
+        // 후보 자리마다 다시 쓰는 형질·몸: 앱(IL2CPP)의 Boehm GC는 할당마다 전역 잠금이라 16 스레드가 후보마다 형질·몸을 새로 잡으면 서로 기다렸다(잠금 대기 nanosleep).
+        // 계통이 가져가면(정착·표류) 그 자리는 다음 틱에 새로 만든다
+        [NonSerialized] Traits[] tPool; [NonSerialized] Body[] bPool;
+        void Own(int k) { if (ReferenceEquals(cand[k].t, tPool[k])) tPool[k] = null; if (ReferenceEquals(cand[k].body, bPool[k])) bPool[k] = null; }
 
         // 후보 하나: 고른 (부모 계통, 칸), 돌연변이 유전체(pg = 그때 부모 유전체), 흘러갈 이웃 칸(없으면 −1), 부모·변이체의 순증가율(그 칸, 이웃 칸)
         struct Cand { public int si, u, gene; public float[] g, pg; public Traits t; public Body body; public double rp, rm, rpu, rmu; }

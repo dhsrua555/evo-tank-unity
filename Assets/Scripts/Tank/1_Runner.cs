@@ -62,7 +62,7 @@ namespace Tank
         // 느린 E코어에 간 몫이 병렬 단계 끝을 붙잡지 않는다(사용자 지구, 시험기: 30 스레드 아무 데나 26.5 ms/틱 → P코어 16 스레드 20–22 ms. E코어를 더해도 안 빨라짐).
         // 화면 스레드는 묶지 않아 E코어도 쓴다. 그 목록이 없는 컴퓨터(하이브리드 아님·윈도우·휴대폰)는 예전처럼 코어 수 − 2
         static readonly (ulong[] mask, int n) fast = Fast();
-        public static readonly int N = fast.n > 0 ? fast.n : Math.Max(1, Environment.ProcessorCount - 2);
+        public static readonly int N = int.TryParse(Environment.GetEnvironmentVariable("EVOTANK_THREADS"), out int e) && e > 0 ? e : fast.n > 0 ? fast.n : Math.Max(1, Environment.ProcessorCount - 2);   // EVOTANK_THREADS: 속도 재기용
         public static readonly TaskScheduler Sched = new S(N);
         [ThreadStatic] static bool mine;
         [DllImport("libc")] static extern int gettid();

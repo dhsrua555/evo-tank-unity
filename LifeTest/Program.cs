@@ -65,11 +65,11 @@ static class Program
         {
             if (Environment.GetEnvironmentVariable("THREADS") == null) pl.po.MaxDegreeOfParallelism = 1;
             int nt = int.Parse(pf); for (int i = 0; i < 6; i++) pl.Step();
-            Array.Clear(pl.tStage, 0, 5); var w0 = Stopwatch.StartNew();
+            Array.Clear(pl.tStage, 0, 5); if (pl.tEvo != null) Array.Clear(pl.tEvo, 0, 4); var w0 = Stopwatch.StartNew();
             for (int i = 0; i < nt; i++) pl.Step();
             double tot = w0.Elapsed.TotalMilliseconds / nt;
             int pairs = 0; for (int v = 0; v < pl.V; v++) foreach (var st in pl.alive) if (pl.B[st.slot * pl.V + v] > Cfg.BMIN) pairs++;
-            Console.WriteLine($"{pl.Day:0}일 계통 {pl.alive.Count} (계통·칸) {pairs}: 틱 {tot:0.00} ms = 하루 {pl.tStage[0] * 1000 / nt:0.00} 기후 {pl.tStage[1] * 1000 / nt:0.00} 생태 {pl.tStage[2] * 1000 / nt:0.00} 물질 {pl.tStage[3] * 1000 / nt:0.00} 진화 {pl.tStage[4] * 1000 / nt:0.00} · {1000 / (3 * tot):0} 일/초");
+            Console.WriteLine($"{pl.Day:0}일 계통 {pl.alive.Count} (계통·칸) {pairs}: 틱 {tot:0.00} ms = 하루 {pl.tStage[0] * 1000 / nt:0.00} 기후 {pl.tStage[1] * 1000 / nt:0.00} 생태 {pl.tStage[2] * 1000 / nt:0.00} 물질 {pl.tStage[3] * 1000 / nt:0.00} 진화 {pl.tStage[4] * 1000 / nt:0.00}{(pl.tEvo is double[] e ? $"(고르기 {e[0] * 1000 / nt:0.00} 부모 {e[1] * 1000 / nt:0.00} 후보 {e[2] * 1000 / nt:0.00} 정착 {e[3] * 1000 / nt:0.00})" : "")} · {1000 / (3 * tot):0} 일/초");
             return 0;
         }
         var sw = Stopwatch.StartNew(); int ev = 0;

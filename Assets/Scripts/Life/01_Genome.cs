@@ -34,9 +34,9 @@ namespace Life
         public int vbin;        // 바이러스 수용체 칸(5×5×5)
         public double lr;       // 먹이 크기 선호: log10(먹는 쪽 ÷ 먹이). 0 = 자기만 한 먹이(와편모류), 0.5 = 1/3(작은 편모류), 1.3 = 1/18(요각류), 1.7 = 1/50(지각류·부유 유생 — 걸러 먹는 무리, Hansen 1994의 가장 큰 무리 값이 상한)
 
-        public static Traits Of(float[] g, bool remember = true)   // remember: 몸표를 기억해 둘지(02 Body.GeoOf)
+        public static Traits Of(float[] g, bool remember = true, Traits into = null)   // remember: 몸표를 기억해 둘지(02 Body.GeoOf). into: 다시 쓸 객체(모든 칸을 덮어씀)
         {
-            var t = new Traits(); double sum = 0;
+            var t = into ?? new Traits(); double sum = 0;
             for (int i = 0; i < G.NA; i++) { t.phi[i] = Math.Exp(Cfg.KAPPA * g[i]); sum += t.phi[i]; }
             for (int i = 0; i < G.NA; i++) t.phi[i] *= (1 - Cfg.PHI_Q) / sum;
             t.eox = -0.5 + 2.0 * g[G.EOX];
