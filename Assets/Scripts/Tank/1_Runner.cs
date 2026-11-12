@@ -173,9 +173,9 @@ namespace Tank
                 for (int v = 0; v < V; v++) a[v] += p.B[st.slot * V + v] * p.vol[v];
             }
             var alive = new List<int>();
-            for (int k = 0; k < lastAlive.Length + ns - lastNs; k++)   // 지난번에 살아 있던 종, 그다음 새 종(번호 차례 그대로)
+            for (int ix = 0; ix < lastAlive.Length + ns - lastNs; ix++)   // 지난번에 살아 있던 종, 그다음 새 종(번호 차례 그대로)
             {
-                int i = k < lastAlive.Length ? lastAlive[k] : lastNs + k - lastAlive.Length;
+                int i = ix < lastAlive.Length ? lastAlive[ix] : lastNs + ix - lastAlive.Length;
                 var sp = p.species[i]; var old = cache[i];
                 if (!sp.Alive && old != null && !old.Alive) continue;
                 var w = new SpView { id = sp.id, parent = sp.parent, clade = sp.clade, born = sp.born, died = sp.died, strains = sp.strains, name = sp.name, role = sp.role, biomass = sp.biomass, peak = sp.peak, g = sp.g, income = (double[])sp.income.Clone(), energy = (double[])sp.energy.Clone() };
