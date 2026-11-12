@@ -58,16 +58,41 @@ namespace Tank
     // 시뮬이 화면 스레드의 CPU를 뺏지 않게 하고, 한가하면 그대로 다 쓴다. 바쁜 루프 16개와 같이 재 보니 바꾸기 전 프레임 최대 55–250 ms
     static class Low
     {
-        public static readonly TaskScheduler Sched = new S(Math.Max(1, Environment.ProcessorCount - 2));
+        // 빠른 코어에만: 인텔 하이브리드(P·E 코어) 리눅스는 /sys/devices/cpu_core/cpus에 P코어 목록이 있다. 시뮬 스레드를 거기에만 두면
+        // 느린 E코어에 간 몫이 병렬 단계 끝을 붙잡지 않는다(사용자 지구, 시험기: 30 스레드 아무 데나 26.5 ms/틱 → P코어 16 스레드 20–22 ms. E코어를 더해도 안 빨라짐).
+        // 화면 스레드는 묶지 않아 E코어도 쓴다. 그 목록이 없는 컴퓨터(하이브리드 아님·윈도우·휴대폰)는 예전처럼 코어 수 − 2
+        static readonly (ulong[] mask, int n) fast = Fast();
+        public static readonly int N = fast.n > 0 ? fast.n : Math.Max(1, Environment.ProcessorCount - 2);
+        public static readonly TaskScheduler Sched = new S(N);
         [ThreadStatic] static bool mine;
         [DllImport("libc")] static extern int gettid();
         [DllImport("libc")] static extern int setpriority(int which, int who, int prio);
+        [DllImport("libc")] static extern int sched_setaffinity(int pid, IntPtr size, ulong[] mask);
+        static (ulong[], int) Fast()
+        {
+            try
+            {
+                if (UnityEngine.Application.platform != UnityEngine.RuntimePlatform.LinuxPlayer || !File.Exists("/sys/devices/cpu_core/cpus")) return (null, 0);
+                var m = new ulong[16]; int n = 0;
+                foreach (var part in File.ReadAllText("/sys/devices/cpu_core/cpus").Trim().Split(','))   // "0-15" 또는 "0-7,16-23"
+                {
+                    var ab = part.Split('-'); int a = int.Parse(ab[0]), b = ab.Length > 1 ? int.Parse(ab[1]) : a;
+                    for (int c = a; c <= b && c < 1024; c++) { m[c / 64] |= 1UL << (c % 64); n++; }
+                }
+                if (n < 2) return (null, 0);
+                UnityEngine.Debug.Log($"[EvoTank] 시뮬 스레드 {n}개를 P코어({File.ReadAllText("/sys/devices/cpu_core/cpus").Trim()})에 묶음");
+                return (m, n);
+            }
+            catch (Exception e) { UnityEngine.Debug.LogWarning("[EvoTank] P코어 목록 못 읽음: " + e.Message); return (null, 0); }
+        }
         public static void Me()
         {
             mine = true;
             try { Thread.CurrentThread.Priority = System.Threading.ThreadPriority.BelowNormal; } catch { }
             if (UnityEngine.Application.platform is UnityEngine.RuntimePlatform.LinuxPlayer or UnityEngine.RuntimePlatform.Android)
                 try { setpriority(0, gettid(), 10); } catch (Exception e) { UnityEngine.Debug.LogWarning("[EvoTank] 시뮬 스레드 우선순위 못 낮춤: " + e.Message); }   // Linux는 nice가 스레드마다
+            if (fast.mask != null)
+                try { if (sched_setaffinity(gettid(), (IntPtr)(fast.mask.Length * 8), fast.mask) != 0) UnityEngine.Debug.LogWarning("[EvoTank] 시뮬 스레드 P코어에 못 묶음"); } catch (Exception e) { UnityEngine.Debug.LogWarning("[EvoTank] 시뮬 스레드 P코어에 못 묶음: " + e.Message); }
         }
         sealed class S : TaskScheduler
         {
@@ -143,7 +168,7 @@ namespace Tank
                 if (!cmds.IsEmpty) lock (pl.gate) while (cmds.TryDequeue(out var a)) a(pl);
                 double now = sw.Elapsed.TotalSeconds;
                 if (savePath != null && now - lastSave > SAVE_EVERY && pl.Day != savedDay) { SaveNow(); lastSave = now; savedDay = pl.Day; }
-                pl.po.MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2);   // 화면 몫으로 둘을 남긴다
+                pl.po.MaxDegreeOfParallelism = Low.N;   // P코어 수(하이브리드 리눅스) 또는 코어 수 − 2(화면 몫으로 둘을 남긴다)
                 if (paused) { Thread.Sleep(30); if (now - lastSnap > 0.3) { MakeSnap(rate = 0); lastSnap = now; } t0 = now; d0 = pl.Day; continue; }
                 // 목표 속도보다 앞서면 쉰다
                 if (speed > 0 && pl.Day - d0 > (now - t0) * speed) { Thread.Sleep(5); continue; }
