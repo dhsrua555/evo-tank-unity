@@ -52,7 +52,9 @@ namespace Life
             // 문턱이 없어 붙음 단백질을 조금만 늘려도 덩이가 조금 커진다. 한 걸음(φ ×1.17)에 세포 수 ×1.6 이하
             // 덩이는 붙는 힘이 아니라 포장 변형으로 부러진다(02 Body.Fracture): 붙음을 아무리 늘려도 그 세포 수를 못 넘는다
             // 가는 실은 난류에 끊긴다(02 Body.Shear)
-            t.nA = Math.Clamp(Math.Min(Math.Min(Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP), Body.Fracture(g, t.aspect, remember)), Body.Shear(g, t, remember)), 1, Cfg.CELLS_MAX);
+            // 진화 후보(remember = false)의 끊김은 A보다 2칸 더까지만 잰다(02 GeoOf need): A보다 큰 끊김은 어차피 안 쓰인다 — 결과는 끝까지 잰 것과 비트까지 같다
+            double A = Math.Pow(1 + t.phi[G.ADH] / Cfg.ADH0, Cfg.ADH_EXP); int need = (int)Math.Min(Cfg.CELLS_MAX, Math.Ceiling(A)) + 2;
+            t.nA = Math.Clamp(Math.Min(Math.Min(A, Body.Fracture(g, t.aspect, remember, need)), Body.Shear(g, t, remember, need)), 1, Cfg.CELLS_MAX);
             t.n0 = Math.Max(1, t.nA * 0.5 * g[G.PROP]);
             t.diff = g[G.DIFF];
             t.lr = 1.7 * g[G.PREY];
