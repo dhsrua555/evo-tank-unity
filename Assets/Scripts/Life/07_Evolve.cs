@@ -43,10 +43,18 @@ namespace Life
             double a = Attack(t, b), me = Mot(t), E = 0, lf = Math.Log10(b.feed), cap = Cfg.PREY_MAX * b.feed; int mySp = strains[self]?.species ?? -1;
             void From(int u, double w, bool poc)
             {
-                int n = presOn ? nPres[u] : alive.Count;
-                for (int q = 0; q < n; q++)
+                if (presOn)   // 진화 단계: 칸에 베껴 둔 줄(아래와 같은 식·차례)
                 {
-                    var s = alive[presOn ? pres[u][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.esd > cap) continue; double bi = B[s.slot * V + u]; if (bi <= Cfg.BMIN) continue;
+                    var ps = pres[u];
+                    for (int q = 0, n = nPres[u]; q < n; q++)
+                    {
+                        ref var s = ref ps[q]; if (s.slot == self || (s.sp == mySp && mySp >= 0) || s.esd > cap) continue; double bi = s.bm; if (bi <= Cfg.BMIN) continue;
+                        double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * Enc(me, s.mot) * bi * w;
+                    }
+                }
+                else foreach (var s in alive)
+                {
+                    if (s.slot == self || (s.species == mySp && mySp >= 0) || s.b.esd > cap) continue; double bi = B[s.slot * V + u]; if (bi <= Cfg.BMIN) continue;
                     double x = (s.lsz - lf + t.lr) / Cfg.PREY_SD; if (x * x <= 9) E += a * Math.Exp(-0.5 * x * x) * s.vul * Enc(me, s.mot) * bi * w;   // = Pref(s.b.size, b.feed, t.lr), 로그는 계통에 둔 값
                 }
                 if (poc) for (int k = 0; k < 3; k++) E += a * Pref(Cfg.POC_SIZE[k], b.feed, t.lr) * Enc(me, 0) * pool[P.POC0 + k][u] * w;
@@ -63,10 +71,18 @@ namespace Life
             double vul = Vul(t), me = Mot(t), loss = 0, ls = Math.Log10(b.esd); int mySp = strains[self]?.species ?? -1;
             void By(int u, double w)
             {
-                int n = presOn ? nPres[u] : alive.Count;
-                for (int q = 0; q < n; q++)
+                if (presOn)   // 진화 단계: 칸에 베껴 둔 줄(아래와 같은 식·차례)
                 {
-                    var s = alive[presOn ? pres[u][q] : q]; if (s.slot == self || (s.species == mySp && mySp >= 0) || b.esd > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + u; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
+                    var ps = pres[u];
+                    for (int q = 0, n = nPres[u]; q < n; q++)
+                    {
+                        ref var s = ref ps[q]; if (s.slot == self || (s.sp == mySp && mySp >= 0) || b.esd > Cfg.PREY_MAX * s.feed) continue; double bj = s.bm; if (bj <= Cfg.BMIN || s.eat <= 0) continue;
+                        double x = (ls - s.lfeed + s.lr) / Cfg.PREY_SD; if (x * x <= 9) loss += s.att * Math.Exp(-0.5 * x * x) * vul * Enc(s.mot, me) * s.eat * bj * w;
+                    }
+                }
+                else foreach (var s in alive)
+                {
+                    if (s.slot == self || (s.species == mySp && mySp >= 0) || b.esd > Cfg.PREY_MAX * s.b.feed) continue; int sj = s.slot * V + u; double bj = B[sj]; if (bj <= Cfg.BMIN || eatScale[sj] <= 0) continue;
                     double x = (ls - s.lfeed + s.t.lr) / Cfg.PREY_SD; if (x * x <= 9) loss += s.att * Math.Exp(-0.5 * x * x) * vul * Enc(s.mot, me) * eatScale[sj] * bj * w;   // = Attack × Pref, 계통에 둔 값으로
                 }
             }
@@ -184,12 +200,21 @@ namespace Life
         struct Cand { public int si, u, gene; public float[] g, pg; public Traits t; public Body body; public double rp, rm, rpu, rmu; }
         [NonSerialized] readonly Cand[] cand = new Cand[Cfg.EVAL * 10];
         // 칸마다 이 틱에 사는 계통(alive 차례 그대로). 진화 단계의 섭취·먹힘은 이 목록만 훑는다: 없는 계통은 원래도 건너뛰므로 결과는 같고, 칸마다 사는 계통은 전체의 일부라 빠르다
-        [NonSerialized] int[][] pres; [NonSerialized] int[] nPres; [NonSerialized] bool presOn;
+        // 섭취·먹힘이 읽는 값은 칸마다 한 줄로 베껴 둔다(계통 → 몸·형질 객체를 따라가지 않게): 진화 단계 동안 B·eatScale·포식 값은 안 바뀌어 값·차례가 같다(결과 비트 같음).
+        // IL2CPP 앱에서 이 두 훑기가 진화 단계 표본의 ⅓이었다(List 읽기·객체 따라가기)
+        struct Pre { public int slot, sp; public double esd, feed, lsz, lfeed, lr, vul, att, mot, bm, eat; }
+        [NonSerialized] Pre[][] pres; [NonSerialized] int[] nPres; [NonSerialized] bool presOn;
         void BuildPresent()
         {
-            if (pres == null || pres.Length != V) { pres = new int[V][]; nPres = new int[V]; for (int v = 0; v < V; v++) pres[v] = new int[Cfg.SMAX]; }
+            if (pres == null || pres.Length != V) { pres = new Pre[V][]; nPres = new int[V]; for (int v = 0; v < V; v++) pres[v] = new Pre[Cfg.SMAX]; }
             Array.Clear(nPres, 0, V);
-            for (int i = 0; i < alive.Count; i++) { int o = alive[i].slot * V; for (int v = 0; v < V; v++) if (B[o + v] > Cfg.BMIN) pres[v][nPres[v]++] = i; }
+            foreach (var s in alive)
+            {
+                int o = s.slot * V;
+                for (int v = 0; v < V; v++)
+                    if (B[o + v] > Cfg.BMIN)
+                        pres[v][nPres[v]++] = new Pre { slot = s.slot, sp = s.species, esd = s.b.esd, feed = s.b.feed, lsz = s.lsz, lfeed = s.lfeed, lr = s.t.lr, vul = s.vul, att = s.att, mot = s.mot, bm = B[o + v], eat = eatScale[o + v] };
+            }
         }
         [NonSerialized] double[] pR, pI, pE; [NonSerialized] int[] pStamp, pKeys; [NonSerialized] int stamp;   // 이 틱 부모 값: 순증가율·섭취·먹힘, 잰 틱 표시
 
