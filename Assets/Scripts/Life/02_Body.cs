@@ -35,7 +35,7 @@ namespace Life
             var key = (g[G.BRANCH], g[G.ANGLE], g[G.SIZE], g[G.ASPECT], nl);
             if (!memo.TryGetValue(key, out var L))
             {
-                var c = Layout(g, t, nl); L = (c, Inv(c, t.dCell / 2));
+                L = Layout(g, t, nl);
                 if (remember) { if (memo.Count > 8192) memo.Clear(); memo[key] = L; }
             }
             b.cells = L.cells;
@@ -69,19 +69,6 @@ namespace Life
             double cap = mean <= N ? Cap(m0) + (Cap(m1) - Cap(m0)) * Math.Clamp(mean - m0, 0, 1) : Cap(N) * Math.Pow(mean / N, 1 / b.dim);
             b.share = Math.Min(1, cap / (mean * rc));
             return b;
-        }
-
-        // inv[m] = Σ_{i<j<m} 1/d_ij (Kirkwood 합, 거리는 세포 반지름 rc 밑으로 안 내려감)
-        static double[] Inv(CellPos[] cells, double rc)
-        {
-            int N = cells.Length; var inv = new double[N + 1];
-            for (int j = 1; j < N; j++)
-            {
-                double sum = 0; var cj = cells[j];
-                for (int i = 0; i < j; i++) { double dx = cj.x - cells[i].x, dy = cj.y - cells[i].y, dz = cj.z - cells[i].z; sum += 1 / Math.Max(rc, Math.Sqrt(dx * dx + dy * dy + dz * dz)); }
-                inv[j + 1] = inv[j] + sum;
-            }
-            return inv;
         }
 
         // 세포 i의 부모 = floor((i−1)·β). 방향은 부모 방향을 θ만큼 꺾되 꺾는 축을 황금각씩 돌린다(잎차례처럼 3차원으로 퍼짐)
@@ -166,8 +153,8 @@ namespace Life
             if (keep) { q = new double[R + 1]; rg = new double[R + 1]; }
             else { int k = R == NDRAW ? 0 : R == 4 * NDRAW ? 2 : 4; var sp = spare ??= new double[6][]; q = sp[k] ??= new double[R + 1]; rg = sp[k + 1] ??= new double[R + 1]; }
             Rg(K, rg);
-            double lu = 2 * Math.Cbrt(aspect) * 0.95;
-            for (int m = 2; m <= K; m++) q[m] = Math.Max(q[m - 1], Math.Pow(12, 1.5) * rg[m] * rg[m] * rg[m] / (m * lu));   // 누적 최댓값: 처음 넘는 자리를 이분 탐색으로
+            double lu = 2 * Math.Cbrt(aspect) * 0.95, c12 = Math.Pow(12, 1.5);
+            for (int m = 2; m <= K; m++) q[m] = Math.Max(q[m - 1], c12 * rg[m] * rg[m] * rg[m] / (m * lu));   // 누적 최댓값: 처음 넘는 자리를 이분 탐색으로
             double D = Math.Clamp(Math.Log(4) / Math.Log(Math.Max(1.0001, rg[K] / rg[K / 4])), 1, 3);
             return (cap, q, 3 / D - 1, rg, K);
         }
@@ -232,24 +219,32 @@ namespace Life
             }
         }
 
-        static CellPos[] Layout(float[] g, Traits t, int n)
+        static (CellPos[] cells, double[] inv) Layout(float[] g, Traits t, int n)
         {
             double r = t.dCell / 2; var c = new CellPos[n]; Place(g[G.BRANCH], Math.PI * g[G.ANGLE], t.dCell * Math.Cbrt(t.aspect) * 0.95, r, n, c); Relax(c, r, n);
-            // 겉 세포: 이웃(2.2 r 안)이 적은 세포
-            for (int i = 0; i < n; i++)
+            // 겉 세포: 이웃(2.2 r 안)이 적은 세포. Kirkwood 합 inv[m] = Σ_{i<j<m} 1/d_ij(거리는 세포 반지름 r 밑으로 안 내려감)과 같은 쌍 거리로 한 번에 센다
+            // (쌍마다 한 번: dx 부호만 바뀌어 거리 같음 → 이웃 수·합 모두 따로 재던 것과 같다)
+            Span<int> nb = stackalloc int[n]; double lim = 4.8 * r * r; var inv = new double[n + 1];
+            for (int j = 1; j < n; j++)
             {
-                int nb = 0;
-                for (int j = 0; j < n; j++) { if (i == j) continue; double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z; if (dx * dx + dy * dy + dz * dz < 4.8 * r * r) nb++; }
-                c[i].outer = nb < 7 ? 1 : 0;
+                double sum = 0; var cj = c[j];
+                for (int i = 0; i < j; i++)
+                {
+                    double dx = cj.x - c[i].x, dy = cj.y - c[i].y, dz = cj.z - c[i].z, d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 < lim) { nb[i]++; nb[j]++; }
+                    sum += 1 / Math.Max(r, Math.Sqrt(d2));
+                }
+                inv[j + 1] = inv[j] + sum;
             }
-            return c;
+            for (int i = 0; i < n; i++) c[i].outer = nb[i] < 7 ? 1 : 0;
+            return (c, inv);
         }
 
         static void Relax(CellPos[] c, double r, int n)   // 겹침 풀기(앞 n칸): 겹친 세포는 밀어낸다(몇 번만)
         {
             // 세포 i는 자기와 앞 24칸만 보고 자기만 움직인다: 지난 바퀴에 안 밀렸고 이번 바퀴에 앞 24칸도 안 밀렸으면 보는 값이 그대로라 또 안 밀린다 → 건너뛴다
             // (결과 비트까지 같음. 4096세포 실에서 셈이 ⅓로)
-            var mv = (scr ??= new Scratch()).mv; bool moved = true;   // 한 바퀴 동안 아무것도 안 밀렸으면 그 뒤 바퀴도 같다: 멈춘다(결과 같음)
+            var mv = (scr ??= new Scratch()).mv; bool moved = true; double min = 1.6 * r, min2 = min * min;   // 한 바퀴 동안 아무것도 안 밀렸으면 그 뒤 바퀴도 같다: 멈춘다(결과 같음)
             for (int it = 0; it < 12 && n > 2 && moved; it++)
             {
                 moved = false; int last = -25;   // 이번 바퀴에 마지막으로 밀린 세포
@@ -257,13 +252,15 @@ namespace Life
                 {
                     if (it > 0 && !mv[i] && last < i - 24) continue;
                     mv[i] = false;
+                    float xi = c[i].x, yi = c[i].y, zi = c[i].z; bool mi = false;   // 세포 i를 지역 변수로 들고 밀고 끝에 한 번 적는다(같은 float 셈이라 값 같음)
                     for (int j = Math.Max(0, i - 24); j < i; j++)
                     {
-                        double dx = c[i].x - c[j].x, dy = c[i].y - c[j].y, dz = c[i].z - c[j].z, d2 = dx * dx + dy * dy + dz * dz, min = 1.6 * r;
-                        if (d2 >= min * min || d2 < 1e-12) continue;
-                        double d = Math.Sqrt(d2), push = (min - d) / d * 0.5; moved = mv[i] = true; last = i;
-                        c[i].x += (float)(dx * push); c[i].y += (float)(dy * push); c[i].z += (float)(dz * push);
+                        double dx = xi - c[j].x, dy = yi - c[j].y, dz = zi - c[j].z, d2 = dx * dx + dy * dy + dz * dz;
+                        if (d2 >= min2 || d2 < 1e-12) continue;
+                        double d = Math.Sqrt(d2), push = (min - d) / d * 0.5; mi = true;
+                        xi += (float)(dx * push); yi += (float)(dy * push); zi += (float)(dz * push);
                     }
+                    if (mi) { moved = mv[i] = true; last = i; c[i].x = xi; c[i].y = yi; c[i].z = zi; }
                 }
             }
         }
