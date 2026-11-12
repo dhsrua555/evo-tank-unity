@@ -3,6 +3,7 @@
 // 사슬 → 가지 → 덩이가 매끄럽게 이어진다. 생태에는 배치에서 잰 물리값(크기·겉 세포 비율)만 넘긴다.
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Collections.Generic;
 
 namespace Life
@@ -26,6 +27,9 @@ namespace Life
         // 진화 후보 중 배치 유전자를 바꾼 것(한 번 쓰고 버려지는 배치)은 넣지 않는다(remember = false): 안 그러면 표가 금세 차서 비워진다
         // ponytail: 8192개를 넘으면 통째로 비운다(배치 하나 ≈ 세포 수 × 40 B, 65세포면 2.6 KB)
         static readonly ConcurrentDictionary<(float, float, float, float, int), (CellPos[] cells, double[] inv)> memo = new();
+        // 넣은 수는 따로 센다: ConcurrentDictionary.Count는 잠금을 전부 잡아 앱(IL2CPP) 16 스레드가 거기서 줄을 섰다(후보 단계에 일하는 스레드 평균 4개).
+        // 대략이어도 된다(같은 키를 두 스레드가 넣으면 둘 셈 → 조금 일찍 비움): 표는 다시 재도 같은 값이라 결과와 무관
+        static int memoN, fracN;
 
         public static Body Of(float[] g, Traits t, bool remember = true, Body into = null)   // into: 다시 쓸 객체(모든 칸을 덮어씀)
         {
@@ -36,7 +40,7 @@ namespace Life
             if (!memo.TryGetValue(key, out var L))
             {
                 L = Layout(g, t, nl);
-                if (remember) { if (memo.Count > 8192) memo.Clear(); memo[key] = L; }
+                if (remember) { if (Interlocked.Increment(ref memoN) > 8192) { memo.Clear(); memoN = 0; } memo[key] = L; }
             }
             b.cells = L.cells;
             double R(int m)   // 앞 m개 세포의 회전 반지름
@@ -180,7 +184,7 @@ namespace Life
                 if (n2 == 4 * NDRAW && cap > 4 * NDRAW) { R = Cfg.CELLS_MAX; Overlap(b, an, aspect, 4 * NDRAW, Math.Min(need, R), 0); }
             }
             a = Tables(cap, aspect, R, Math.Min(R, need), remember);
-            if (remember) { if (frac.Count > 4096) frac.Clear(); frac[key] = a; }   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
+            if (remember) { if (Interlocked.Increment(ref fracN) > 4096) { frac.Clear(); fracN = 0; } frac[key] = a; }   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
             lastK = key; lastV = a; lastR = R; return a;
         }
 
