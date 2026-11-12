@@ -183,15 +183,16 @@ namespace Life
         {
             var key = (g[G.BRANCH], g[G.ANGLE], g[G.ASPECT]);
             if (frac.TryGetValue(key, out var a)) return a;
-            if (remember) need = int.MaxValue;
+            need = remember ? int.MaxValue : Math.Max(8, need);   // 8칸 이상: 차원 ex가 rg[n/4] > 0에서 나오게
             if (lastV.q != null && lastK == key && (lastV.n == lastR || lastV.n >= need)) return lastV;
-            float b = g[G.BRANCH], an = g[G.ANGLE]; var U = Overlap(b, an, aspect, 0, NDRAW, NDRAW); double cap = Cap(U, NDRAW); int R = NDRAW;
-            if (cap > NDRAW)
+            // 겹침 U·부러짐 cap도 앞 need칸까지만: 그 안에서 UC를 넘으면 cap은 끝까지 잰 것과 같고, 안 넘으면 둘 다 need 이상이라 A와의 최솟값에 안 쓰인다
+            float b = g[G.BRANCH], an = g[G.ANGLE]; int n1 = Math.Min(NDRAW, need); var U = Overlap(b, an, aspect, 0, n1, n1); double cap = Cap(U, n1); int R = NDRAW;
+            if (n1 == NDRAW && cap > NDRAW)
             {
-                Overlap(b, an, aspect, NDRAW, 4 * NDRAW, 4 * NDRAW); cap = Cap(U, 4 * NDRAW); R = 4 * NDRAW;   // 앞 256세포는 그대로 두고 이어 놓는다
-                if (cap > 4 * NDRAW) { R = Cfg.CELLS_MAX; Overlap(b, an, aspect, 4 * NDRAW, Math.Clamp(need, 4 * NDRAW, R), 0); }
+                int n2 = Math.Min(4 * NDRAW, need); Overlap(b, an, aspect, NDRAW, n2, n2); cap = Cap(U, n2); R = 4 * NDRAW;   // 앞 256세포는 그대로 두고 이어 놓는다
+                if (n2 == 4 * NDRAW && cap > 4 * NDRAW) { R = Cfg.CELLS_MAX; Overlap(b, an, aspect, 4 * NDRAW, Math.Min(need, R), 0); }
             }
-            a = Tables(cap, aspect, R, Math.Min(R, Math.Max(8, need)), remember);   // 8칸 이상: 차원 ex가 rg[n/4] > 0에서 나오게
+            a = Tables(cap, aspect, R, Math.Min(R, need), remember);
             if (remember) { if (frac.Count > 4096) frac.Clear(); frac[key] = a; }   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
             lastK = key; lastV = a; lastR = R; return a;
         }
