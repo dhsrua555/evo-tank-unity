@@ -50,6 +50,7 @@ public static class EvoBuild
         // 리눅스는 IL2CPP(C#을 C++로 옮겨 컴파일): 시뮬 계산이 Mono JIT보다 빠르다. 윈도우 IL2CPP는 윈도우에서만 빌드돼 Mono로 둔다(모듈이 없으면 리눅스도 Mono)
         bool il2cpp = !mono && target == BuildTarget.StandaloneLinux64 && System.IO.Directory.Exists(BuildPipeline.GetPlaybackEngineDirectory(target, BuildOptions.None) + "/Variations/linux64_player_nondevelopment_il2cpp");
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, il2cpp ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
+        PlayerSettings.SetIl2CppCompilerConfiguration(NamedBuildTarget.Standalone, Il2CppCompilerConfiguration.Master);   // 링크 때 최적화(LTO): 파일 사이에도 인라인
         Build(target, path);
     }
 

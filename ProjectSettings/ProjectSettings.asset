@@ -647,7 +647,8 @@ PlayerSettings:
   scriptingBackend:
     Android: 1
     Standalone: 1
-  il2cppCompilerConfiguration: {}
+  il2cppCompilerConfiguration:
+    Standalone: 2
   il2cppCodeGeneration:
     WebGL: 0
   il2cppLTOMode: {}
