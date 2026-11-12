@@ -93,8 +93,9 @@ namespace Tank
 
         void DiveGui()
         {
-            MapBox(); DepthGauge();
-            float x = gauge.xMax + 14, w = mapR.x - x - 14, yb = (showGraph ? graphR.y : H) - 8;   // 아래 둘째 줄까지: 도움말 · 축척 · 지금 보는 것
+            if (showSide) MapBox();
+            DepthGauge();
+            float x = gauge.xMax + 14, w = Mathf.Min(mapR.x, W) - x - 14, yb = (showGraph ? graphR.y : H) - 8;   // 아래 둘째 줄까지: 도움말 · 축척 · 지금 보는 것
             GUI.Label(new Rect(x, yb - 88, w, 16), "끌기 둘러보기 · 휠 시야 · 누르기 따라가기", sS);
             GUI.Label(new Rect(x, yb - 71, w, 16), "WASD 헤엄(E/Q 위아래) · F 맞춤 · Esc 놓기", sS);
             ScaleBar(new Rect(x, yb - 50, w, 46));

@@ -37,6 +37,7 @@ namespace Tank
             bool shots = Array.IndexOf(Environment.GetCommandLineArgs(), "-shots") >= 0, fresh = newEarth; newEarth = false;
             int seedArg = Arg("-seed", -1); bool test = seedArg >= 0 || shots;
             string path = test ? null : Path.Combine(Application.persistentDataPath, "earth.sav");
+            bool crashed = CrashLogInit(!test && Array.IndexOf(Environment.GetCommandLineArgs(), "-load") < 0);
             Planet pl = null; Life.Save.Head h = null; var rd = System.Diagnostics.Stopwatch.StartNew();
             int li = Array.IndexOf(Environment.GetCommandLineArgs(), "-load");   // -load <파일>: 그 지구를 읽어 돌리되 저장은 안 함(렉 재기·시험)
             if (li >= 0) { path = null; pl = Life.Save.Read(Environment.GetCommandLineArgs()[li + 1], out h); }
@@ -50,13 +51,14 @@ namespace Tank
                 }
             pl ??= new Planet(seedArg >= 0 && !fresh ? seedArg : Environment.TickCount & 0xffff);
             long readMs = rd.ElapsedMilliseconds; run = new Runner(pl, path);
-            Fonts(); LookInit();
+            if (crashed) Note((note != null ? note + " · " : "") + "지난번에 앱이 갑자기 꺼졌습니다(사건 ▼ 메뉴 맨 아래에 기록)");
+            Fonts(); LookInit(); LoadPrefs();
             if (shots) StartCoroutine(Shots());
             Debug.Log($"[EvoTank] 시작: 시드 {pl.seed}, {pl.Day:0}일, 해역 {pl.NR}, 칸 {pl.V}, 종 {pl.species.Count}(살아 있음 {pl.nAliveSp}), 저장 {path ?? "안 함"} · 읽기 {readMs} ms · 첫 사진까지 {rd.ElapsedMilliseconds - readMs} ms");
         }
 
         void OnDestroy() => run?.Stop();
-        void OnApplicationQuit() { run?.Stop(); run?.SaveNow(true); }
+        void OnApplicationQuit() { run?.Stop(); run?.SaveNow(true); Running(false); }
         void Note(string s) { note = s; noteUntil = Time.unscaledTime + 6; }
 
         // 새 지구: 지금 시뮬레이션을 멈추고 저장 파일을 지운 뒤, 화면(Tank)째로 새로 만든다(물속 위치·고른 종·그래프도 처음부터)
@@ -75,7 +77,44 @@ namespace Tank
         }
 
         // 휴대폰·태블릿: 내리면 바로 저장(그대로 꺼져도 이어진다). 내려가 있던 동안의 날은 따라잡지 않고, 다시 열면 멈춘 곳에서 이어 간다
-        void OnApplicationPause(bool p) { if (p) run?.SaveNow(true); }
+        // 내려가 있는 동안은 시뮬레이션도 쉰다(뒤에서 CPU를 다 쓰면 안드로이드가 앱을 죽인다)
+        bool bgPaused;
+        void OnApplicationPause(bool p)
+        {
+            if (run == null) return;
+            if (p) { bgPaused = !run.paused; run.paused = true; run.SaveNow(true); Running(false); }
+            else { if (bgPaused) run.paused = false; bgPaused = false; Running(true); }
+        }
+
+        // 튕김 기록: 휴대폰은 로그를 볼 길이 없으니 오류·예외·메모리 부족을 errors.txt에 남기고 사건 메뉴 아래에 보여 준다.
+        // 앱이 앞에 있는 동안 'running' 표시를 켜 두고 내려가거나 끌 때 끈다 → 다음 실행에서 켜져 있으면 갑자기 꺼진 것
+        static string errPath, errTail = ""; static int errN; static bool track; static readonly object errLock = new();
+        static void ErrLog(string s)
+        {
+            lock (errLock)
+                try
+                {
+                    if (new FileInfo(errPath) is { Exists: true, Length: > 200_000 }) File.Delete(errPath);
+                    File.AppendAllText(errPath, $"{DateTime.Now:MM-dd HH:mm:ss} {s}\n");
+                    errN++; errTail = s.Split('\n')[0]; if (errTail.Length > 160) errTail = errTail[..160];
+                }
+                catch { }
+        }
+        static void Running(bool on) { if (!track) return; PlayerPrefs.SetInt("running", on ? 1 : 0); PlayerPrefs.Save(); }
+        static bool CrashLogInit(bool user)
+        {
+            if (errPath != null) return false;   // 새 지구로 Tank를 다시 만들어도 한 번만
+            errPath = Path.Combine(Application.persistentDataPath, "errors.txt");
+            Application.logMessageReceivedThreaded += (m, st, t) => { if (t is LogType.Error or LogType.Exception or LogType.Assert) ErrLog($"{t}: {m}\n{st}"); };
+            Application.lowMemory += () => ErrLog("메모리 부족 경고(안드로이드)");
+            try { if (File.Exists(errPath)) errTail = System.Linq.Enumerable.LastOrDefault(File.ReadLines(errPath), l => l.Length > 15 && char.IsDigit(l[0]) && l[2] == '-') ?? ""; } catch { }   // 지난 실행의 마지막 기록
+            if (!user) return false;   // 시험 실행(-seed·-shots·-load)은 표시를 건드리지 않는다
+            track = true;
+            bool crashed = PlayerPrefs.GetInt("running", 0) == 1;
+            if (crashed) ErrLog("지난 실행이 갑자기 꺼짐");
+            Running(true);
+            return crashed;
+        }
 
         void Update()
         {
@@ -93,12 +132,13 @@ namespace Tank
 
         void Layout()
         {
-            float x = W - panelW - 10;
+            topH = showBar ? 46 : 24;
+            float x = showSide ? W - panelW - 10 : W + 10;   // 접힌 오른쪽 판은 화면 밖(그래프·계통수·알림이 그만큼 넓어진다)
             mapR = new Rect(x, topH + 8, panelW, 132);
             float ih = sel < 0 ? 0 : infoMore ? INFO_H : INFO_S;
             infoR = new Rect(x, H - 8 - ih, panelW, ih);
             listR = new Rect(x, mapR.yMax + 8, panelW, Mathf.Min(listWant, infoR.y - mapR.yMax - (sel >= 0 ? 16 : 8)));   // 목록이 짧으면 판도 짧게
-            graphR = new Rect(10, H - graphH - 8, x - 20, graphH);
+            graphR = new Rect(10, H - graphH - 8, Mathf.Min(x, W) - 20, graphH);
             gauge = new Rect(10, topH + 8, 46, Mathf.Max(140, (showGraph ? graphR.y : H) - 80 - topH - 8));
         }
         bool OverPanel(Vector2 m) => m.y < topH || mapR.Contains(m) || listR.Contains(m) || infoR.Contains(m) || gauge.Contains(m) || showGraph && graphR.Contains(m) || showEv && evR.Contains(m);

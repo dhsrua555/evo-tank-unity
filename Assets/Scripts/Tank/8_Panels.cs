@@ -14,6 +14,7 @@ namespace Tank
         GUIStyle sL, sB, sS, sBtn, sOn, sField, sR, sSR, sWrap, sSC, sBC, sTiny, sWrapL;
         const float INFO_H = 380, INFO_S = 236;   // 정보 판: 자세히(단백질 배분·조상) / 기본(접힘) — 기본이 작아야 좁은 화면에서 종 목록이 눌리지 않는다
         bool showGraph = true, showTree, showPath, showEv, infoMore;
+        bool showSide = true, showBar = true;   // 오른쪽 판(지도·종 목록·정보)과 윗줄 둘째 줄(속도·돌연변이율·사건) 접기 — 휴대폰에서 물속을 넓게. 다음 실행에도 그대로
         string search = "", muText = "1";
         Vector2 listScroll;
         float treeScroll, listWant = 9999; bool treeAll;
@@ -50,21 +51,20 @@ namespace Tank
                 if (showTree) TreeDraw();
                 if (showPath) PathDraw();
                 Draw.Rect(0, 0, W, topH, GLASS); Draw.Line(0, topH, W, topH, EDGE);
-                Glass(listR);
+                if (showSide) Glass(listR);
                 if (showGraph) GraphDraw(graphR);
-                if (sel >= 0) InfoDraw(infoR);
+                if (showSide && sel >= 0) InfoDraw(infoR);
                 Draw.End();
             }
             if (!showTree && !showPath) DiveGui();
             TopBar();
-            List(listR);
-            if (sel >= 0) Info(infoR);
+            if (showSide) { List(listR); if (sel >= 0) Info(infoR); }
             if (showGraph) GraphText(graphR);
             if (showTree) TreeGui();
             if (showPath) PathGui();
             if (!showTree && !showPath) Ticker();
             if (showEv) EventMenu();
-            if (Time.unscaledTime < noteUntil) GUI.Label(new Rect((W - panelW) / 2 - 200, topH + 8, 400, 20), note, sSC);   // 물속 화면 가운데 위
+            if (Time.unscaledTime < noteUntil) GUI.Label(new Rect((showSide ? W - panelW : W) / 2 - 300, topH + 8, 600, 20), note, sSC);   // 물속 화면 가운데 위
         }
 
         // ── 사건 메뉴: 일으킬 사건과 그 효과, 지금 남은 효과, 인 공급 손잡이, 새 지구 ──
@@ -95,6 +95,7 @@ namespace Tank
             // 새 지구: 한 번 누르면 묻고, 4초 안에 다시 누르면 지금 지구를 지우고 처음부터
             bool ask = Time.unscaledTime - askNew < 4;
             if (GUI.Button(new Rect(x, y, 130, 26), ask ? "정말? 한 번 더" : "새 지구로 시작", ask ? sOn : sBtn)) { if (ask) NewEarth(); else askNew = Time.unscaledTime; }
+            if (errTail.Length > 0) GUI.Label(new Rect(x, y + 32, w, 40), $"오류 기록(errors.txt) 이번 실행 {errN}건 · 마지막: {errTail}", sWrap);
         }
 
         // ── 윗줄 ──
@@ -106,33 +107,44 @@ namespace Tank
             var s = snap; double yr = s.day / 365;
             string t = $"{s.day:0}일 ({(yr < 10 ? yr.ToString("0.0") : yr.ToString("0"))}년) · 산소 {Sci(s.O2)} PAL · CO₂ {s.CO2:0.0} PAL · 메탄 {s.CH4:0} ppm · 기온 {s.T:0.0} °C · 종 {s.nSp} · {s.rate:0}일/초";
             float x = 10, y = 24, tight = Mathf.Clamp01((1000 - W) / 150);   // 좁은 화면(태블릿 ≈ 930): 막대를 줄여 오른쪽 단추와 안 겹치게
-            for (int i = 0; i < SPEEDS.Length; i++)
+            if (showBar)
             {
-                bool on = SPEEDS[i] < 0 ? run.paused : !run.paused && run.speed == SPEEDS[i];
-                if (GUI.Button(new Rect(x, y, i == 0 ? 44 : 50, 19), SPN[i], on ? sOn : sBtn)) { if (SPEEDS[i] < 0) run.paused = true; else { run.paused = false; run.speed = SPEEDS[i]; } }
-                x += (i == 0 ? 44 : 50) + 2;
+                for (int i = 0; i < SPEEDS.Length; i++)
+                {
+                    bool on = SPEEDS[i] < 0 ? run.paused : !run.paused && run.speed == SPEEDS[i];
+                    if (GUI.Button(new Rect(x, y, i == 0 ? 44 : 50, 19), SPN[i], on ? sOn : sBtn)) { if (SPEEDS[i] < 0) run.paused = true; else { run.paused = false; run.speed = SPEEDS[i]; } }
+                    x += (i == 0 ? 44 : 50) + 2;
+                }
+                x += 14;
+                GUI.Label(new Rect(x, y, 66, 20), "돌연변이율", sL); x += 66;
+                double mu = run.pl.knobs.mu; float lg = GUI.HorizontalSlider(new Rect(x, y + 5, 110 - 50 * tight, 12), (float)Math.Log10(mu), -4, 1); x += 116 - 50 * tight;
+                if (Math.Abs(lg - Math.Log10(mu)) > 1e-4) { mu = Math.Pow(10, lg); SetMu(mu); muText = mu.ToString("0.####"); }
+                string nt = GUI.TextField(new Rect(x, y, 56, 19), muText, sField); x += 62;
+                if (nt != muText) { muText = nt; if (double.TryParse(nt, out double m) && m > 0) SetMu(Math.Min(10, m)); }
+                x += 10;
+                GUI.Label(new Rect(x, y, 52, 20), "사건 빈도", sL); x += 56;
+                float er = GUI.HorizontalSlider(new Rect(x, y + 5, 80 - 30 * tight, 12), (float)run.pl.knobs.eventRate, 0, 5); x += 84 - 30 * tight;
+                if (Math.Abs(er - run.pl.knobs.eventRate) > 1e-3) { double e2 = Math.Round(er, 1); run.cmds.Enqueue(p => p.knobs.eventRate = e2); }
+                GUI.Label(new Rect(x, y, 34, 20), $"×{run.pl.knobs.eventRate:0.0}", sS); x += 36;
+                if (GUI.Button(new Rect(x, y, 64, 19), "사건 ▼", showEv ? sOn : sBtn)) showEv = !showEv;
+                float ew = Mathf.Min(460, W - 8); evR = new Rect(Mathf.Clamp(x + 64 - ew, 4, W - ew - 4), topH + 2, ew, 34 + Planet.KINDS.Length * 42 + 180 + (errTail.Length > 0 ? 44 : 0));
+                x += 70;
             }
-            x += 14;
-            GUI.Label(new Rect(x, y, 66, 20), "돌연변이율", sL); x += 66;
-            double mu = run.pl.knobs.mu; float lg = GUI.HorizontalSlider(new Rect(x, y + 5, 110 - 50 * tight, 12), (float)Math.Log10(mu), -4, 1); x += 116 - 50 * tight;
-            if (Math.Abs(lg - Math.Log10(mu)) > 1e-4) { mu = Math.Pow(10, lg); SetMu(mu); muText = mu.ToString("0.####"); }
-            string nt = GUI.TextField(new Rect(x, y, 56, 19), muText, sField); x += 62;
-            if (nt != muText) { muText = nt; if (double.TryParse(nt, out double m) && m > 0) SetMu(Math.Min(10, m)); }
-            x += 10;
-            GUI.Label(new Rect(x, y, 52, 20), "사건 빈도", sL); x += 56;
-            float er = GUI.HorizontalSlider(new Rect(x, y + 5, 80 - 30 * tight, 12), (float)run.pl.knobs.eventRate, 0, 5); x += 84 - 30 * tight;
-            if (Math.Abs(er - run.pl.knobs.eventRate) > 1e-3) { double e2 = Math.Round(er, 1); run.cmds.Enqueue(p => p.knobs.eventRate = e2); }
-            GUI.Label(new Rect(x, y, 34, 20), $"×{run.pl.knobs.eventRate:0.0}", sS); x += 36;
-            if (GUI.Button(new Rect(x, y, 64, 19), "사건 ▼", showEv ? sOn : sBtn)) showEv = !showEv;
-            float ew = Mathf.Min(460, W - 8); evR = new Rect(Mathf.Clamp(x + 64 - ew, 4, W - ew - 4), topH + 2, ew, 34 + Planet.KINDS.Length * 42 + 180);
-            x += 70;
-            // 오른쪽 끝에 붙이되 사건 단추를 덮지 않는다. 그래도 넘치면(세로 화면·휴대폰) 윗줄 오른쪽으로 올리고 상태 글자를 그만큼 줄인다
-            bool up = Mathf.Max(x, W - 170) + 164 > W - 4;
-            float xr = up ? W - 174 : Mathf.Max(x, W - 170), yb = up ? 2 : y;
-            if (GUI.Button(new Rect(xr, yb, 80, 19), "계통수", showTree ? sOn : sBtn)) { showTree = !showTree; showPath = false; }
-            if (GUI.Button(new Rect(xr + 84, yb, 80, 19), "그래프", showGraph ? sOn : sBtn)) showGraph = !showGraph;
-            GUI.Label(new Rect(10, 3, (up ? xr - 6 : W - 10) - 10, 20), t, sB);
+            // 단추 넷(메뉴·목록·계통수·그래프)은 둘째 줄 오른쪽 끝. 사건 단추와 겹치거나 윗줄을 접었으면 윗줄 오른쪽으로 올리고 상태 글자를 짧게
+            const float BW = 4 * 60 + 3 * 4;
+            bool up = !showBar || Mathf.Max(x, W - BW - 6) + BW > W - 4;
+            float xr = up ? W - BW - 4 : Mathf.Max(x, W - BW - 6), yb = up ? 2 : y;
+            if (GUI.Button(new Rect(xr, yb, 60, 19), showBar ? "메뉴 ▲" : "메뉴 ▼", showBar ? sOn : sBtn)) { showBar = !showBar; showEv = false; Prefs(); }
+            if (GUI.Button(new Rect(xr + 64, yb, 60, 19), "목록", showSide ? sOn : sBtn)) { showSide = !showSide; Prefs(); }
+            if (GUI.Button(new Rect(xr + 128, yb, 60, 19), "계통수", showTree ? sOn : sBtn)) { showTree = !showTree; showPath = false; }
+            if (GUI.Button(new Rect(xr + 192, yb, 60, 19), "그래프", showGraph ? sOn : sBtn)) { showGraph = !showGraph; Prefs(); }
+            float tw = (up ? xr - 6 : W - 10) - 10;
+            if (sB.CalcSize(new GUIContent(t)).x > tw)   // 단추와 한 줄을 나눌 때(휴대폰·접은 윗줄): 짧은 상태 글
+                t = $"{s.day:0}일 · O₂ {Sci(s.O2)} · CO₂ {s.CO2:0.0} · {s.T:0.0} °C · 종 {s.nSp} · {s.rate:0}일/초";
+            GUI.Label(new Rect(10, 3, tw, 20), t, sB);
         }
+        void Prefs() { PlayerPrefs.SetInt("ui", (showBar ? 1 : 0) | (showSide ? 2 : 0) | (showGraph ? 4 : 0)); PlayerPrefs.Save(); }
+        void LoadPrefs() { int u = PlayerPrefs.GetInt("ui", 7); showBar = (u & 1) != 0; showSide = (u & 2) != 0; showGraph = (u & 4) != 0; }
         // 반투명 판: GL(Draw)로 그리는 것과 GUI로 그리는 것 둘 다
         static readonly Color GLASS = new(0.03f, 0.06f, 0.1f, 0.65f), EDGE = new(1, 1, 1, 0.12f);
         static void Glass(Rect r) { Draw.Rect(r.x, r.y, r.width, r.height, GLASS); Draw.Line(r.x, r.y, r.xMax, r.y, EDGE); Draw.Line(r.x, r.yMax, r.xMax, r.yMax, EDGE); Draw.Line(r.x, r.y, r.x, r.yMax, EDGE); Draw.Line(r.xMax, r.y, r.xMax, r.yMax, EDGE); }
@@ -331,7 +343,7 @@ namespace Tank
         }
         // 화면에 걸칠 수 있는 줄 범위(줄 번호는 나온 차례 = 깊이 우선)
         void TreeRows(Rect R, float y0, out int r0, out int r1) { r0 = Mathf.Max(0, Mathf.FloorToInt((R.y + 24 - y0) / TreeRh) - 1); r1 = Mathf.Min(treeN - 1, Mathf.CeilToInt((R.yMax - y0) / TreeRh)); }
-        Rect TreeRect => new Rect(gauge.xMax + 10, topH + 10, mapR.x - gauge.xMax - 20, (showGraph ? graphR.y : H) - topH - 20);
+        Rect TreeRect => new Rect(gauge.xMax + 10, topH + 10, Mathf.Min(mapR.x, W) - gauge.xMax - 20, (showGraph ? graphR.y : H) - topH - 20);
         const float TreeRh = 18;   // 한 줄에 종 하나(이름까지), 넘치면 휠로 내린다
         void TreeDraw()
         {
@@ -490,7 +502,7 @@ namespace Tank
         // ── 사건 알림 ──
         void Ticker()
         {
-            float x0 = gauge.xMax + 14, wMax = mapR.x - x0 - 14, y = topH + 8;
+            float x0 = gauge.xMax + 14, wMax = Mathf.Min(mapR.x, W) - x0 - 14, y = topH + 8;
             for (int i = news.Count - 1, k = 0; i >= 0 && k < 4; i--, k++)
             {
                 var e = news[i]; float age = (float)(snap.day - e.day); if (age > 400) break;

@@ -162,19 +162,26 @@ namespace Tank
         void Loop()
         {
             Low.Me();
-            var sw = Stopwatch.StartNew(); double t0 = 0, d0 = pl.Day, lastSnap = 0, rate = 0, rT = 0, rD = pl.Day, lastSave = 0, savedDay = pl.Day;
+            sw = Stopwatch.StartNew(); d0 = rD = savedDay = pl.Day;
             while (!stop)
+                try { Tick(); }
+                catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 시뮬레이션 스레드 오류(멈춤): " + e); paused = true; Thread.Sleep(200); }   // 이 스레드에서 못 잡은 예외는 앱째 꺼뜨린다(휴대폰 튕김)
+        }
+
+        Stopwatch sw; double t0, d0, lastSnap, rate, rT, rD, lastSave, savedDay;   // 시뮬레이션 스레드만 씀
+        void Tick()
+        {
             {
                 if (!cmds.IsEmpty) lock (pl.gate) while (cmds.TryDequeue(out var a)) a(pl);
                 double now = sw.Elapsed.TotalSeconds;
                 if (savePath != null && now - lastSave > SAVE_EVERY && pl.Day != savedDay) { SaveNow(); lastSave = now; savedDay = pl.Day; }
                 pl.po.MaxDegreeOfParallelism = Low.N;   // P코어 수(하이브리드 리눅스) 또는 코어 수 − 2(화면 몫으로 둘을 남긴다)
-                if (paused) { Thread.Sleep(30); if (now - lastSnap > 0.3) { MakeSnap(rate = 0); lastSnap = now; } t0 = now; d0 = pl.Day; continue; }
+                if (paused) { Thread.Sleep(30); if (now - lastSnap > 0.3) { MakeSnap(rate = 0); lastSnap = now; } t0 = now; d0 = pl.Day; return; }
                 // 목표 속도보다 앞서면 쉰다
-                if (speed > 0 && pl.Day - d0 > (now - t0) * speed) { Thread.Sleep(5); continue; }
+                if (speed > 0 && pl.Day - d0 > (now - t0) * speed) { Thread.Sleep(5); return; }
                 if (now - t0 > 2) { t0 = now; d0 = pl.Day; }
                 try { pl.Step(); }
-                catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 시뮬레이션 오류: " + e); paused = true; continue; }
+                catch (Exception e) { UnityEngine.Debug.LogError("[EvoTank] 시뮬레이션 오류: " + e); paused = true; return; }
                 while (nDays < pl.history.Count) days.Enqueue(pl.history[nDays++]);
                 while (nEv < pl.events.Count) news.Enqueue(pl.events[nEv++]);
                 if (now - rT > 1) { rate = (pl.Day - rD) / (now - rT); rT = now; rD = pl.Day; }
