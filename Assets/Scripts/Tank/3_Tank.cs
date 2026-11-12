@@ -88,7 +88,7 @@ namespace Tank
             if (snap == null) return;
             mouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y) / Draw.ui;
             inView = !showTree && !showPath && !OverPanel(mouse);
-            long t = Perf.T(); DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh); Perf.Add(0, t); Perf.Frame(avs.Count, snap.day);
+            long t = Perf.T(); DiveUpdate(Mathf.Min(Time.deltaTime, 0.1f), fresh); Perf.Add(0, t); Perf.Frame(avs.Count, snap.day, run?.pl);
         }
 
         void Layout()
@@ -128,13 +128,14 @@ namespace Tank
             if (!On) return; double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             lock (sum) { sum[k] += ms; max[k] = Math.Max(max[k], ms); cnt[k]++; }
         }
-        static double day0 = -1;
-        public static void Frame(int avs, double day)   // day: 지구 날짜(시뮬 속도 = 5초 동안 간 날 수)
+        static double day0 = -1; static readonly double[] st0 = new double[5]; static long tk0;
+        public static void Frame(int avs, double day, Life.Planet pl = null)   // day: 지구 날짜(시뮬 속도 = 5초 동안 간 날 수), pl: 틱마다 단계 시간(시험기 PROF와 비교: 같은 일인데 앱이 느린 게 계산 탓인지)
         {
             if (!On) return; double f = Time.unscaledDeltaTime * 1000; fSum += f; fMax = Math.Max(fMax, f); frames++;
             if (Time.unscaledTime - t0 < 5) return;
             var sb = new System.Text.StringBuilder($"[EvoTank] 성능 {frames / (Time.unscaledTime - t0):0} fps · 시뮬 {(day0 < 0 ? 0 : (day - day0) / (Time.unscaledTime - t0)):0.00}일/초 · 프레임 평균 {fSum / frames:0.0} 최대 {fMax:0} ms · GC {GC.CollectionCount(0) - gc0}회 · 개체 {avs} |");
             lock (sum) for (int k = 0; k < N.Length; k++) { if (cnt[k] > 0) sb.Append($" {N[k]} {sum[k] / frames:0.00}/{max[k]:0.0}ms×{cnt[k]}"); sum[k] = max[k] = 0; cnt[k] = 0; }
+            if (pl != null) { long dt = pl.tick - tk0; var ts = pl.tStage; if (dt > 0 && tk0 > 0) sb.Append($" | 틱 {(Time.unscaledTime - t0) * 1000 / dt:0.0} ms = 하루 {(ts[0] - st0[0]) * 1000 / dt:0.0} 기후 {(ts[1] - st0[1]) * 1000 / dt:0.0} 생태 {(ts[2] - st0[2]) * 1000 / dt:0.0} 물질 {(ts[3] - st0[3]) * 1000 / dt:0.0} 진화 {(ts[4] - st0[4]) * 1000 / dt:0.0} + 나머지"); Array.Copy(ts, st0, 5); tk0 = pl.tick; }
             Debug.Log(sb.ToString()); fSum = fMax = 0; frames = 0; gc0 = GC.CollectionCount(0); t0 = Time.unscaledTime; day0 = day;
         }
     }
