@@ -37,6 +37,8 @@
     "com.unity.modules.vehicles": "1.0.0",
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
-    "com.unity.modules.xr": "1.0.0"
+    "com.unity.modules.xr": "1.0.0",
+    "com.unity.sdk.linux-x86_64": "1.1.1",
+    "com.unity.toolchain.linux-x86_64-linux": "1.1.1"
   }
 }
