@@ -13,7 +13,8 @@ namespace Life
     public sealed class Body
     {
         public const int NDRAW = 256;            // 배치를 실제로 계산하는 세포 수 상한(넘으면 크기만 늘린다)
-        public CellPos[] cells;                  // 그릴 배치(첫 세포가 원점, 단위 μm)
+        public CellPos[] cells;                  // 그릴 배치(첫 세포가 원점, 세포 반지름 = 1 단위 — μm는 × rc). 세포 크기와 상관없는 모양이라 크기만 다른 몸끼리 같은 배열을 나눠 쓴다
+        public double rc;                        // 세포 반지름(μm) = 배치 1 단위의 길이
         public double size;                      // 몸 크기(μm): 평균 덩이의 지름
         public double exposed;                   // 겉에 드러난 세포 비율(빛·영양을 바로 받는 몫)
         public double dim;                       // 배치의 프랙털 차원(1 실 · 2 판 · 3 덩이)
@@ -22,11 +23,11 @@ namespace Life
         public double share;                     // 나눠 쓰는 몫: 몸 전체의 확산·끌림 반지름 ÷ (세포 수 × 세포 반지름). 홀로 있는 세포 1, 붙을수록 이웃과 같은 물을 나눠 작아진다.
                                                  // 영양 흡수의 확산 상한(05)과 가라앉는 속도(04)에 같이 쓴다: 실은 세포마다 물에 닿아 덩이보다 덜 나눠 쓰고, 덜 가라앉는다
 
-        // 배치 기억: 배치(와 Kirkwood 합)는 가지·각·세포 크기·길쭉함 유전자와 세포 수로만 정해진다. 돌연변이 대부분(배분 유전자)은 이것을 안 바꾼다.
+        // 배치 기억: 배치(와 Kirkwood 합)는 반지름 1 단위로 재면 가지·각·길쭉함 유전자와 세포 수로만 정해진다(세포 크기는 길이 배율일 뿐). 돌연변이 대부분(배분 유전자)은 이것을 안 바꾼다.
         // 계산이 결정적이라 어느 스레드가 먼저 넣든 결과는 다시 계산한 것과 같다. 세포 65개 몸이면 몸 하나에 48 μs → 기억에서 꺼내면 그 몇 분의 1
         // 진화 후보 중 배치 유전자를 바꾼 것(한 번 쓰고 버려지는 배치)은 넣지 않는다(remember = false): 안 그러면 표가 금세 차서 비워진다
         // ponytail: 8192개를 넘으면 통째로 비운다(배치 하나 ≈ 세포 수 × 40 B, 65세포면 2.6 KB)
-        static readonly ConcurrentDictionary<(float, float, float, float, int), (CellPos[] cells, double[] inv)> memo = new();
+        static readonly ConcurrentDictionary<(float, float, float, int), (CellPos[] cells, double[] inv)> memo = new();
         // 넣은 수는 따로 센다: ConcurrentDictionary.Count는 잠금을 전부 잡아 앱(IL2CPP) 16 스레드가 거기서 줄을 섰다(후보 단계에 일하는 스레드 평균 4개).
         // 대략이어도 된다(같은 키를 두 스레드가 넣으면 둘 셈 → 조금 일찍 비움): 표는 다시 재도 같은 값이라 결과와 무관
         static int memoN, fracN;
@@ -36,19 +37,19 @@ namespace Life
             var b = into ?? new Body();
             int n = (int)Math.Clamp(Math.Ceiling(t.MeanCells), 1, NDRAW);   // 평균 덩이를 사이에 끼울 만큼(크기를 세포 수 사이에서 이어 붙이려고)
             int nd = (int)Math.Clamp(Math.Round(t.nA), 1, NDRAW), nl = Math.Max(n, nd);
-            var key = (g[G.BRANCH], g[G.ANGLE], g[G.SIZE], g[G.ASPECT], nl);
+            var key = (g[G.BRANCH], g[G.ANGLE], g[G.ASPECT], nl);
             if (!memo.TryGetValue(key, out var L))
             {
-                L = Layout(g, t, nl);
+                L = Layout(g, t.aspect, nl);
                 if (remember) { if (Interlocked.Increment(ref memoN) > 8192) { memo.Clear(); memoN = 0; } memo[key] = L; }
             }
-            b.cells = L.cells;
-            double R(int m)   // 앞 m개 세포의 회전 반지름
+            b.cells = L.cells; double rc = t.dCell / 2; b.rc = rc;
+            double R(int m)   // 앞 m개 세포의 회전 반지름(μm)
             {
                 double cx = 0, cy = 0, cz = 0; for (int i = 0; i < m; i++) { cx += b.cells[i].x; cy += b.cells[i].y; cz += b.cells[i].z; }
                 cx /= m; cy /= m; cz /= m; double s = 0;
                 for (int i = 0; i < m; i++) { double dx = b.cells[i].x - cx, dy = b.cells[i].y - cy, dz = b.cells[i].z - cz; s += dx * dx + dy * dy + dz * dz; }
-                return Math.Sqrt(s / m);
+                return rc * Math.Sqrt(s / m);
             }
             int N = b.cells.Length; double mean = t.MeanCells, r0 = t.dCell * Math.Cbrt(t.aspect) / 2;
             b.dim = N >= 8 ? Math.Clamp(Math.Log(N / (N / 4.0)) / Math.Log(Math.Max(1.01, R(N) / Math.Max(1e-3, R(Math.Max(2, N / 4))))), 1, 3) : 3;
@@ -68,8 +69,8 @@ namespace Life
             b.exposed = mean <= N ? exN : Math.Min(1, exN * Math.Pow(N / mean, 1 - 1 / b.dim));   // 큰 덩이일수록 속 세포가 많다(실은 그대로)
             // 확산·끌림 반지름: Kirkwood 근사 1/C = (1/m²)(m/r + Σ_{i≠j} 1/d_ij) — 공 하나면 r, 맞닿은 둘이면 1.33 r(정확한 값 1.39 r), 곧은 실 m개면 ≈ m·r/(1 + ln m).
             // 확산 포집 반지름과 Stokes 끌림 반지름이 거의 같다(Hubbard & Douglas 1993). 배치 밖으로 큰 덩이는 차원 법칙으로 늘린다
-            double rc = t.dCell / 2; var inv = L.inv;
-            double Cap(int m) => (double)m * m / (m / rc + 2 * inv[m]);
+            var inv = L.inv;   // 반지름 1 단위의 합: μm로는 ÷ rc
+            double Cap(int m) => rc * m * m / (m + 2 * inv[m]);
             double cap = mean <= N ? Cap(m0) + (Cap(m1) - Cap(m0)) * Math.Clamp(mean - m0, 0, 1) : Cap(N) * Math.Pow(mean / N, 1 / b.dim);
             b.share = Math.Min(1, cap / (mean * rc));
             return b;
@@ -104,7 +105,7 @@ namespace Life
         // 배치·겹침은 앞 세포만 보므로 앞 from개(이 스레드에 방금 잰 것)에 이어 재도 한 번에 잰 것과 비트까지 같다
         static double[] Overlap(double beta, double ang, double aspect, int from, int n, int nU)
         {
-            var S = scr ??= new Scratch(); var c = S.c;
+            var S = scr ??= new Scratch(); var c = S.c; relaxedN = 0;
             Place(beta, Math.PI * ang, 2 * Math.Cbrt(aspect) * 0.95, 1, n, c, from); nU = Math.Min(n, nU); var U = S.U;
             // 1.6보다 가까운 앞 세포만 더한다: 한 변 1.61 격자의 이웃 27칸만 보고, 찾은 것을 j 차례로 더한다(모든 쌍을 훑던 것과 비트까지 같다. 1024세포 몸표가 쌍 52만 개 → 수천 개)
             if (from == 0) { U[0] = 0; Array.Fill(S.head, -1); }
@@ -130,7 +131,7 @@ namespace Life
         static void Rg(int n, double[] rg)
         {
             var c = scr.c; double sx = 0, sy = 0, sz = 0, s2 = 0;
-            Relax(c, 1, n);   // 몸 길이는 겹침을 푼 배치(그리는 몸과 같은 것)에서 잰다: 풀기 전 꼬불꼬불한 실은 풀면 곧게 펴진다
+            Relax(c, 1, n); relaxedN = n;   // 몸 길이는 겹침을 푼 배치(그리는 몸과 같은 것)에서 잰다: 풀기 전 꼬불꼬불한 실은 풀면 곧게 펴진다
             for (int i = 0; i < n; i++)
             {
                 sx += c[i].x; sy += c[i].y; sz += c[i].z; s2 += c[i].x * c[i].x + c[i].y * c[i].y + c[i].z * c[i].z; int m = i + 1;
@@ -185,7 +186,7 @@ namespace Life
             }
             a = Tables(cap, aspect, R, Math.Min(R, need), remember);
             if (remember) { if (Interlocked.Increment(ref fracN) > 4096) { frac.Clear(); fracN = 0; } frac[key] = a; }   // 항목 하나가 회전 반지름·난류 짐 표 최대 4097칸 × 2라 많아야 ~270 MB(65536이었을 때 16시드 동시 실행에서 한 프로세스 1.8 GB까지 불어 메모리가 바닥남)
-            lastK = key; lastV = a; lastR = R; return a;
+            lastK = key; lastV = a; lastR = R; relaxedK = key; return a;
         }
 
         public static double Fracture(float[] g, double aspect, bool remember = true, int need = int.MaxValue) => GeoOf(g, aspect, remember, need).cap;   // 부러지기 전 최대 세포 수(겹침이 안 쌓이는 실은 CELLS_MAX)
@@ -223,9 +224,14 @@ namespace Life
             }
         }
 
-        static (CellPos[] cells, double[] inv) Layout(float[] g, Traits t, int n)
+        // 이 스레드의 S.c에 방금 GeoOf가 푼 배치(반지름 1)가 앞 relaxedN칸 있으면(가지·각·길쭉함 유전자 relaxedK) 몸 배치는 그 앞부분을 베낀다:
+        // 놓기·풀기가 같은 식·같은 수라(앞 칸은 뒤 칸과 상관없이 풀림) 다시 놓고 푼 것과 비트까지 같다. 배치 유전자를 바꾼 진화 후보마다 한 번 덜 푼다
+        [ThreadStatic] static (float, float, float) relaxedK; [ThreadStatic] static int relaxedN;
+        static (CellPos[] cells, double[] inv) Layout(float[] g, double aspect, int n)
         {
-            double r = t.dCell / 2; var c = new CellPos[n]; Place(g[G.BRANCH], Math.PI * g[G.ANGLE], t.dCell * Math.Cbrt(t.aspect) * 0.95, r, n, c); Relax(c, r, n);
+            const double r = 1; var c = new CellPos[n];
+            if (scr != null && relaxedN >= n && relaxedK == (g[G.BRANCH], g[G.ANGLE], g[G.ASPECT])) Array.Copy(scr.c, c, n);
+            else { Place(g[G.BRANCH], Math.PI * g[G.ANGLE], 2 * Math.Cbrt(aspect) * 0.95, r, n, c); Relax(c, r, n); }
             // 겉 세포: 이웃(2.2 r 안)이 적은 세포. Kirkwood 합 inv[m] = Σ_{i<j<m} 1/d_ij(거리는 세포 반지름 r 밑으로 안 내려감)과 같은 쌍 거리로 한 번에 센다
             // (쌍마다 한 번: dx 부호만 바뀌어 거리 같음 → 이웃 수·합 모두 따로 재던 것과 같다)
             Span<int> nb = stackalloc int[n]; double lim = 4.8 * r * r; var inv = new double[n + 1];

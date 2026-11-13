@@ -149,6 +149,7 @@ namespace Life
         public const double STEP = 0.04;              // 돌연변이 한 걸음: 대사·배분 유전자(범위의 4 %, 몫 ×1.38)
         public const double STEP_SHAPE = 0.02;        // 몸 모양 유전자(크기·길쭉함·가지·각·떨어지는 몫·붙음)는 더 작게: 모양이 갑자기 바뀌지 않게
         public const int EVAL = 160;                   // 틱마다 평가하는 돌연변이 후보 수
+        public const int PREUSE = 3;                   // 부모 섭취·먹힘을 다시 쓰는 틱 수(3 = 하루): 그 안에 같은 몸으로 잰 값이 있으면 다시 쓴다(07 Evolve)
         public const double NCAP = 100;               // 돌연변이 공급에 쓰는 계통·칸 개체 수 상한(클론 간섭 근사)
         public const double NFOUND = 100;             // 정착 확률 식의 창시 개체 수
         public const double RARE = 1e-12;             // 계통이 생물권 전체의 이 몫 밑으로 떨어지면 멸종

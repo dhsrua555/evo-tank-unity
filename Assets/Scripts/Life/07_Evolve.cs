@@ -141,14 +141,18 @@ namespace Life
             // 부모 값은 (계통, 칸)마다 한 번만 잰다: 후보 여럿이 같은 부모를 고른다(돌연변이율 10이면 후보 1600개에 부모 칸은 수백 개).
             // 섭취·먹힘(산 계통 전체를 훑는 값)은 변이체의 먹고 먹히는 값이 부모와 똑같으면 부모 것을 쓴다 — 결과는 다시 센 것과 비트까지 같다
             ELap(0, ref e0);
-            int SV = Cfg.SMAX * V; if (pR == null || pR.Length != SV) { pR = new double[SV]; pI = new double[SV]; pE = new double[SV]; pStamp = new int[SV]; pKeys = new int[cand.Length * 2]; }
+            // 섭취·먹힘은 하루(3틱) 안에 같은 몸으로 잰 값이 있으면 그것을 다시 쓴다(부모 열쇠의 ⅓이 3틱 안에 다시 뽑힌다). 순증가율(환경·바이러스·자원 몫)은 늘 새로 잰다.
+            // 변이체가 부모와 섭취·먹힘이 다르면(새로 재야 하면) 부모도 그 자리에서 새로 재서 비교한다 — 같은 때의 값끼리만 뺀다
+            int SV = Cfg.SMAX * V; if (pR == null || pR.Length != SV) { pR = new double[SV]; pI = new double[SV]; pE = new double[SV]; pStamp = new int[SV]; pKeys = new int[cand.Length * 2]; pAt = new int[SV]; pT = new Traits[SV]; pB = new Body[SV]; }
             stamp++; int nk = 0; BuildPresent(); presOn = true;
             void Need(int key) { if (pStamp[key] != stamp) { pStamp[key] = stamp; pKeys[nk++] = key; } }
             for (int k = 0; k < nc; k++) { Need(cand[k].si); if (cand[k].u >= 0) Need(cand[k].si / V * V + cand[k].u); }
             Parallel.For(0, nk, po, k =>
             {
                 int key = pKeys[k], slot = key / V, v = key % V; var par = strains[slot]; double l = limA[key] > 0 ? limA[key] : 1;
-                pI[key] = Intake(par.t, par.b, v, slot); pE[key] = Eaten(par.t, par.b, v, slot); pR[key] = FitWith(par.t, par.b, v, l, pI[key], pE[key]);
+                if (stamp - pAt[key] > Cfg.PREUSE || !ReferenceEquals(pT[key], par.t) || !ReferenceEquals(pB[key], par.b))
+                { pI[key] = Intake(par.t, par.b, v, slot); pE[key] = Eaten(par.t, par.b, v, slot); pAt[key] = stamp; pT[key] = par.t; pB[key] = par.b; }
+                pR[key] = FitWith(par.t, par.b, v, l, pI[key], pE[key]);
             });
             ELap(1, ref e0);
             // 무거운 후보부터(몸 꼴 유전자 → 몸표·배치를 새로 잰다, 세포 수만큼 든다): 끝에 큰 몸 몇 개만 남아 다른 스레드가 노는 꼬리를 줄인다. 후보끼리 독립이라 차례는 결과와 상관없다
@@ -165,8 +169,8 @@ namespace Life
                 c.body = shape ? Body.Of(c.g, c.t, gene != G.BRANCH && gene != G.ANGLE && gene != G.SIZE && gene != G.ASPECT, bPool[k] ??= new Body()) : par.b;
                 bool sameI = Attack(c.t, c.body) == par.att && c.body.feed == par.b.feed && c.t.lr == par.t.lr && Mot(c.t) == par.mot, sameE = Vul(c.t) == par.vul && c.body.esd == par.b.esd && Mot(c.t) == par.mot;
                 double l = limA[c.si] > 0 ? limA[c.si] : 1;
-                c.rp = pR[c.si]; c.rm = FitWith(c.t, c.body, v, l, sameI ? pI[c.si] : Intake(c.t, c.body, v, slot), sameE ? pE[c.si] : Eaten(c.t, c.body, v, slot));
-                if (c.u >= 0) { int su = slot * V + c.u; double lu = limA[su] > 0 ? limA[su] : 1; c.rpu = pR[su]; c.rmu = FitWith(c.t, c.body, c.u, lu, sameI ? pI[su] : Intake(c.t, c.body, c.u, slot), sameE ? pE[su] : Eaten(c.t, c.body, c.u, slot)); }
+                c.rp = ParentR(par, c.si, v, l, sameI, sameE); c.rm = FitWith(c.t, c.body, v, l, sameI ? pI[c.si] : Intake(c.t, c.body, v, slot), sameE ? pE[c.si] : Eaten(c.t, c.body, v, slot));
+                if (c.u >= 0) { int su = slot * V + c.u; double lu = limA[su] > 0 ? limA[su] : 1; c.rpu = ParentR(par, su, c.u, lu, sameI, sameE); c.rmu = FitWith(c.t, c.body, c.u, lu, sameI ? pI[su] : Intake(c.t, c.body, c.u, slot), sameE ? pE[su] : Eaten(c.t, c.body, c.u, slot)); }
             } });
             presOn = false; ELap(2, ref e0);
             // 3) 정착: 차례대로(난수·계통 칸을 쓴다)
@@ -241,7 +245,14 @@ namespace Life
                 }
             });
         }
-        [NonSerialized] double[] pR, pI, pE; [NonSerialized] int[] pStamp, pKeys; [NonSerialized] int stamp;   // 이 틱 부모 값: 순증가율·섭취·먹힘, 잰 틱 표시
+        [NonSerialized] double[] pR, pI, pE; [NonSerialized] int[] pStamp, pKeys, pAt; [NonSerialized] Traits[] pT; [NonSerialized] Body[] pB; [NonSerialized] int stamp;
+        // 부모 순증가율: 묵은(지난 틱에 잰) 섭취·먹힘을 다시 쓴 열쇠인데 변이체 쪽이 새로 재는 값이면, 부모도 그 값만 새로 재서(저장 안 함) 같은 때끼리 비교
+        double ParentR(Strain par, int key, int v, double l, bool sameI, bool sameE)
+        {
+            if (pAt[key] == stamp || sameI && sameE) return pR[key];
+            int slot = key / V;
+            return FitWith(par.t, par.b, v, l, sameI ? pI[key] : Intake(par.t, par.b, v, slot), sameE ? pE[key] : Eaten(par.t, par.b, v, slot));
+        }   // 이 틱 부모 값: 순증가율·섭취·먹힘, 잰 틱 표시
 
         // 하루 한 번: 너무 적어진 계통을 지우고(남은 몸은 녹은 유기물로), 칸이 모자라면 늘지 않는 계통 중 작은 것부터.
         // 생물권보다 빨리 느는 계통(갓 생긴 좋은 변이 포함)은 칸이 모자라도 남긴다: 작아도 자랄 시간을 준다

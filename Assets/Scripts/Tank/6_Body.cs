@@ -46,19 +46,19 @@ namespace Tank
                 stale.Clear(); foreach (var kv in bodyMeshes) if (now - kv.Value.built > 2 && f - kv.Value.used > 60) stale.Add(kv.Key);
                 foreach (int k in stale) { Destroy(bodyMeshes[k].m); bodyMeshes.Remove(k); }
             }
-            var t = s.t; var c = s.body.cells; int n = Mathf.Clamp(Mathf.RoundToInt((float)t.MeanCells), 1, c.Length);
-            Vector3 cen = Vector3.zero; for (int i = 0; i < n; i++) cen += new Vector3(c[i].x, c[i].y, c[i].z); cen /= n;
+            var t = s.t; var c = s.body.cells; int n = Mathf.Clamp(Mathf.RoundToInt((float)t.MeanCells), 1, c.Length); float um = (float)s.body.rc;   // 배치는 세포 반지름 1 단위 → μm
+            Vector3 cen = Vector3.zero; for (int i = 0; i < n; i++) cen += new Vector3(c[i].x, c[i].y, c[i].z) * um; cen /= n;
             int detail = n <= 8 ? 2 : n <= 64 ? 1 : 0;
             var b = mb; b.Clear(); var r = new System.Random(s.id * 31 + n); Color col = Draw.Of(t, s.id);
             for (int i = 0; i < n; i++)
             {
-                var o = new Vector3(c[i].x, c[i].y, c[i].z) - cen;
+                var o = new Vector3(c[i].x, c[i].y, c[i].z) * um - cen;
                 bool inner = n > 1 && c[i].outer < 0.5f;
                 Color cc = inner ? Color.Lerp(col, new Color(0.95f, 0.85f, 0.4f), (float)t.diff) : col;   // 분화한 속 세포는 노르스름
                 var q = n == 1 ? Quaternion.identity : Quaternion.Euler(r.Next(360), r.Next(360), 0);
                 Vector3 outDir = n == 1 || o.sqrMagnitude < 1e-6f ? Vector3.back : o.normalized;
                 float asp = n == 1 ? (float)t.aspect : 1 + ((float)t.aspect - 1) * 0.4f;
-                Cell(b, o, c[i].r, asp, q, detail, t, cc, r, n == 1, outDir, !inner && detail > 0);
+                Cell(b, o, c[i].r * um, asp, q, detail, t, cc, r, n == 1, outDir, !inner && detail > 0);
             }
             var m = b.Mesh();
             if (e == null) bodyMeshes[s.id] = e = new BM(); else Destroy(e.m);
